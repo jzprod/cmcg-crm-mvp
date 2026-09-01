@@ -14,6 +14,8 @@ Track CMCG click-to-WhatsApp advertising from spend to conversations, appointmen
 - Basic HTTP authentication through `CRM_USER` and `CRM_PASSWORD`.
 - Node built-in integration tests under `test/`.
 
+The HTTP server calls `listen()` immediately for Hostinger compatibility, while storage initializes in the background. API requests receive a safe 503 JSON response until storage is ready; database errors are logged without exposing credentials to the browser.
+
 The MySQL implementation stores the current normalized CRM state in `crm_state` and retains the latest 25 pre-write snapshots in `crm_state_backups`. The JSON fallback uses atomic writes and retains the latest 20 file backups.
 
 ## Important invariants

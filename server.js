@@ -56,6 +56,8 @@ function normalizeState(input) {
 }
 
 const storage = createStorage({ dataFile: DATA_FILE, createEmptyState: emptyState, normalizeState });
+let storageReady = false;
+let storageError = null;
 
 function now() {
   return new Date().toISOString();
@@ -192,6 +194,16 @@ async function handleApi(req, res) {
   if (!requireAuth(req, res)) return;
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
+
+  if (!storageReady) {
+    return json(res, 503, {
+      ok: false,
+      error: storageError
+        ? "Database connection unavailable. Check the Hostinger database credentials and restart the app."
+        : "CRM storage is starting. Try again in a moment.",
+    });
+  }
+
   const releaseMutation = method === "GET" ? null : await acquireMutationLock();
 
   try {
@@ -418,14 +430,14 @@ const server = http.createServer((req, res) => {
   return serveStatic(req, res);
 });
 
-async function start() {
-  await storage.init();
-  server.listen(PORT, () => {
-    console.log(`CMCG CRM running on http://localhost:${PORT} with ${storage.info().label}`);
-  });
-}
+server.listen(PORT, () => {
+  console.log(`CMCG CRM listening on http://localhost:${PORT}`);
+});
 
-start().catch((error) => {
-  console.error("Failed to start CMCG CRM:", error.message);
-  process.exitCode = 1;
+storage.init().then(() => {
+  storageReady = true;
+  console.log(`CMCG CRM running with ${storage.info().label}`);
+}).catch((error) => {
+  storageError = error;
+  console.error("Failed to initialize CMCG CRM storage:", error.message);
 });
