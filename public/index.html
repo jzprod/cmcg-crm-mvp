@@ -3,217 +3,85 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0f172a" />
     <title>CMCG CRM</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">CMCG CRM MVP</p>
-        <h1>WhatsApp ad tracking</h1>
-      </div>
-      <div class="top-actions">
-        <button id="refreshBtn" class="ghost">Refresh</button>
-        <label class="switch">
-          <input id="advancedToggle" type="checkbox" />
-          <span>Advanced</span>
-        </label>
-      </div>
-    </header>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark" aria-hidden="true">C</span><div><strong>CMCG CRM</strong><small>Growth operations</small></div></div>
+        <nav class="tabs" aria-label="CRM sections">
+          <button class="tab active" data-tab="dashboard"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z"/></svg><span>Overview</span></button>
+          <button class="tab" data-tab="setup"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v1h2a3 3 0 0 1 3 3v2h-2V9a1 1 0 0 0-1-1h-2v1a3 3 0 0 1-6 0V8H7a1 1 0 0 0-1 1v2H4V9a3 3 0 0 1 3-3h2V5a3 3 0 0 1 3-3Zm0 2a1 1 0 0 0-1 1v4a1 1 0 1 0 2 0V5a1 1 0 0 0-1-1ZM4 14h16v8H4v-8Zm2 2v4h12v-4H6Z"/></svg><span>Campaign setup</span></button>
+          <button class="tab" data-tab="leads"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0-2a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm0 4c-5.33 0-8 2.67-8 5v3h16v-3c0-2.33-2.67-5-8-5Zm-6 6v-1c0-.94 1.62-3 6-3s6 2.06 6 3v1H6Z"/></svg><span>Leads</span></button>
+          <button class="tab" data-tab="logs"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v14h14V5H5Zm2 10h2v2H7v-2Zm0-4h2v2H7v-2Zm0-4h2v2H7V7Zm4 8h6v2h-6v-2Zm0-4h6v2h-6v-2Zm0-4h6v2h-6V7Z"/></svg><span>Ad spend</span></button>
+          <button class="tab" data-tab="data"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3C7.58 3 4 4.34 4 6v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6c0-1.66-3.58-3-8-3Zm0 2c3.87 0 6 .97 6 1s-2.13 1-6 1-6-.97-6-1 2.13-1 6-1Zm0 14c-3.87 0-6-.97-6-1v-2.05A14.62 14.62 0 0 0 12 17c2.39 0 4.52-.4 6-1.05V18c0 .03-2.13 1-6 1Zm0-4c-3.87 0-6-.97-6-1v-2.05A14.62 14.62 0 0 0 12 13c2.39 0 4.52-.4 6-1.05V14c0 .03-2.13 1-6 1Zm0-4c-3.87 0-6-.97-6-1V8.05A14.62 14.62 0 0 0 12 9c2.39 0 4.52-.4 6-1.05V10c0 .03-2.13 1-6 1Z"/></svg><span>Data & backup</span></button>
+        </nav>
+        <div id="storageBadge" class="storage-badge"><span></span><div><small>Storage</small><strong>Checking…</strong></div></div>
+      </aside>
 
-    <main>
-      <section id="authWarning" class="warning hidden">
-        Set <strong>CRM_USER</strong> and <strong>CRM_PASSWORD</strong> before hosting this publicly.
-      </section>
+      <div class="workspace">
+        <header class="topbar"><div><p class="eyebrow">CMCG · Tangier</p><h1 id="pageTitle">Overview</h1></div><div class="top-actions"><span id="lastSaved" class="save-status">Loading data…</span><button id="refreshBtn" class="button secondary" type="button">Refresh</button></div></header>
+        <main>
+          <section id="authWarning" class="alert danger hidden" role="alert"><strong>Public access is not protected.</strong> Add CRM_USER and CRM_PASSWORD in Hostinger environment variables.</section>
+          <section id="storageWarning" class="alert warning hidden" role="alert"><strong>Deployment-safe storage is not configured.</strong> Connect MySQL before entering production data.</section>
 
-      <nav class="tabs" aria-label="CRM sections">
-        <button class="tab active" data-tab="dashboard">Dashboard</button>
-        <button class="tab" data-tab="setup">Setup</button>
-        <button class="tab" data-tab="leads">Leads</button>
-        <button class="tab" data-tab="logs">Daily logs</button>
-      </nav>
-
-      <section id="dashboard" class="panel active">
-        <div class="filters">
-          <label>From <input id="fromDate" type="date" /></label>
-          <label>To <input id="toDate" type="date" /></label>
-          <label>Program <select id="programFilter"></select></label>
-          <label>Agent <select id="agentFilter"></select></label>
-        </div>
-
-        <div id="kpis" class="kpis"></div>
-
-        <div class="section-head">
-          <div>
-            <h2>Creative scorecard</h2>
-            <p>Lower costs are shown as higher efficiency so the good trend goes up.</p>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Creative</th>
-                <th>Agent</th>
-                <th>Objective</th>
-                <th>Spend</th>
-                <th>Msgs</th>
-                <th>Leads</th>
-                <th>Booked</th>
-                <th>Showed</th>
-                <th>Reg.</th>
-                <th>CPL</th>
-                <th>CP Reg.</th>
-                <th>Efficiency</th>
-              </tr>
-            </thead>
-            <tbody id="scoreRows"></tbody>
-          </table>
-        </div>
-
-        <div id="agentScore" class="advanced-only"></div>
-      </section>
-
-      <section id="setup" class="panel">
-        <div class="grid setup-grid">
-          <form data-create="programs" class="box">
-            <h2>Training</h2>
-            <input name="name" placeholder="Example: HR, Beauty, One-year accounting" required />
-            <button>Create training</button>
-          </form>
-
-          <form data-create="agents" class="box">
-            <h2>Sales agent</h2>
-            <input name="name" placeholder="Agent name" required />
-            <input name="whatsapp" placeholder="WhatsApp number" />
-            <button>Create agent</button>
-          </form>
-
-          <form data-create="campaigns" class="box">
-            <h2>Campaign</h2>
-            <select name="programId" data-options="programs" required></select>
-            <input name="name" placeholder="Example: HR September leads" required />
-            <button>Create campaign</button>
-          </form>
-
-          <form data-create="adsets" class="box">
-            <h2>Agent ad set</h2>
-            <select name="campaignId" data-options="campaigns" required></select>
-            <select name="agentId" data-options="agents" required></select>
-            <input name="name" placeholder="Example: Sara WhatsApp - Testing" required />
-            <input name="objective" placeholder="Objective: Messages, Leads, Sales..." value="Messages" />
-            <select name="status">
-              <option>Testing</option>
-              <option>Main</option>
-              <option>Paused</option>
-            </select>
-            <button>Create ad set</button>
-          </form>
-
-          <form data-create="creatives" class="box wide">
-            <h2>Creative and code</h2>
-            <select name="adSetId" data-options="adSets" required></select>
-            <input name="name" placeholder="Creative name: video angle, image, hook..." required />
-            <div class="split">
-              <select name="format">
-                <option>Video</option>
-                <option>Image</option>
-                <option>Carousel</option>
-                <option>Story</option>
-              </select>
-              <select name="language">
-                <option>Arabic</option>
-                <option>French</option>
-                <option>Darija</option>
-              </select>
+          <section id="dashboard" class="panel active">
+            <div class="page-heading"><div><p class="section-kicker">Performance</p><h2>Campaign overview</h2><p>Follow spend from first message through registration.</p></div><button class="button secondary" type="button" data-export="dashboard">Export summary</button></div>
+            <div class="filter-card"><label><span>From date</span><input id="fromDate" type="date" /></label><label><span>To date</span><input id="toDate" type="date" /></label><label><span>Training</span><select id="programFilter"></select></label><label><span>Sales agent</span><select id="agentFilter"></select></label><button id="clearFilters" class="button subtle" type="button">Clear filters</button></div>
+            <div id="kpis" class="kpis" aria-live="polite"></div>
+            <div class="dashboard-grid">
+              <article class="card funnel-card"><div class="card-head"><div><p class="section-kicker">Conversion</p><h3>Lead funnel</h3></div></div><div id="funnel" class="funnel"></div></article>
+              <article class="card action-card"><div class="card-head"><div><p class="section-kicker">Attention</p><h3>Upcoming appointments</h3></div></div><div id="upcomingAppointments"></div></article>
             </div>
-            <p id="creativeCodeHint" class="form-hint">
-              A permanent, case-insensitive 2–3 character code will be generated automatically and never reused.
-            </p>
-            <button aria-describedby="creativeCodeHint">Create creative code</button>
-          </form>
-        </div>
+            <div class="section-head"><div><h3>Creative scorecard</h3><p>Best registration efficiency appears first.</p></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Code</th><th>Creative</th><th>Agent</th><th>Objective</th><th>Spend</th><th>Messages</th><th>Leads</th><th>Booked</th><th>Showed</th><th>Registered</th><th>CPL</th><th>Cost / reg.</th><th>Efficiency</th></tr></thead><tbody id="scoreRows"></tbody></table></div>
+            <div id="agentScore"></div>
+          </section>
 
-        <div class="section-head">
-          <div>
-            <h2>Welcome messages</h2>
-            <p>Paste the code inside the WhatsApp welcome message for that exact creative or ad set.</p>
-          </div>
-        </div>
-        <div id="codeCards" class="cards"></div>
-      </section>
+          <section id="setup" class="panel">
+            <div class="page-heading"><div><p class="section-kicker">Attribution</p><h2>Campaign setup</h2><p>Build in order: training, agent, campaign, ad set, then creative.</p></div></div>
+            <ol class="setup-steps" aria-label="Setup order"><li>Training</li><li>Agent</li><li>Campaign</li><li>Ad set</li><li>Creative</li></ol>
+            <div class="grid setup-grid">
+              <form data-create="programs" class="card form-card"><div class="form-number">1</div><div><h3>Training</h3><p>Create the course or program being promoted.</p></div><label><span>Training name</span><input name="name" placeholder="Example: Human Resources" required /></label><button class="button primary">Create training</button></form>
+              <form data-create="agents" class="card form-card"><div class="form-number">2</div><div><h3>Sales agent</h3><p>Assign the person receiving WhatsApp leads.</p></div><label><span>Agent name</span><input name="name" placeholder="Full name" required /></label><label><span>WhatsApp number</span><input name="whatsapp" inputmode="tel" placeholder="Example: +212 6…" /></label><button class="button primary">Create agent</button></form>
+              <form data-create="campaigns" class="card form-card"><div class="form-number">3</div><div><h3>Campaign</h3><p>Connect the Meta campaign to a training.</p></div><label><span>Training</span><select name="programId" data-options="programs" required></select></label><label><span>Campaign name</span><input name="name" placeholder="Example: HR September leads" required /></label><button class="button primary">Create campaign</button></form>
+              <form data-create="adsets" class="card form-card"><div class="form-number">4</div><div><h3>Agent ad set</h3><p>Connect one ad set to one sales agent.</p></div><label><span>Campaign</span><select name="campaignId" data-options="campaigns" required></select></label><label><span>Sales agent</span><select name="agentId" data-options="agents" required></select></label><label><span>Ad set name</span><input name="name" placeholder="Example: Sara WhatsApp" required /></label><div class="split"><label><span>Objective</span><input name="objective" value="Messages" /></label><label><span>Status</span><select name="status"><option>Testing</option><option>Main</option><option>Paused</option></select></label></div><button class="button primary">Create ad set</button></form>
+              <form data-create="creatives" class="card form-card wide"><div class="form-number">5</div><div><h3>Creative and tracking code</h3><p>The code is permanent, case-insensitive, and never reused.</p></div><label><span>Ad set</span><select name="adSetId" data-options="adSets" required></select></label><label><span>Creative name</span><input name="name" placeholder="Example: Student testimonial video" required /></label><div class="split"><label><span>Format</span><select name="format"><option>Video</option><option>Image</option><option>Carousel</option><option>Story</option></select></label><label><span>Language</span><select name="language"><option>Arabic</option><option>French</option><option>Darija</option></select></label></div><p id="creativeCodeHint" class="form-hint">The shortest available letter-and-number code (2–3 characters) is generated automatically.</p><button class="button primary" aria-describedby="creativeCodeHint">Create creative code</button></form>
+            </div>
+            <div class="section-head"><div><h3>Current setup</h3><p>A quick count of active CRM records.</p></div></div><div id="setupSummary" class="summary-grid"></div>
+            <div class="section-head"><div><h3>Welcome messages</h3><p>Copy the exact message into the matching WhatsApp ad flow.</p></div></div><div id="codeCards" class="cards"></div>
+          </section>
 
-      <section id="leads" class="panel">
-        <form id="leadForm" class="box horizontal">
-          <select name="creativeId" data-options="creatives" required></select>
-          <input name="phone" placeholder="Phone, optional" />
-          <select name="stage">
-            <option value="new">New</option>
-            <option value="contacted">Contacted</option>
-            <option value="qualified">Qualified</option>
-            <option value="booked">Booked date</option>
-            <option value="showed">Showed up</option>
-            <option value="no_show">No-show</option>
-            <option value="registered">Registered</option>
-            <option value="lost">Lost</option>
-          </select>
-          <input name="appointmentAt" type="datetime-local" />
-          <input name="amountPaid" type="number" min="0" step="1" placeholder="Paid MAD" />
-          <input name="notes" placeholder="Notes" />
-          <button>Add lead</button>
-        </form>
+          <section id="leads" class="panel">
+            <div class="page-heading"><div><p class="section-kicker">Pipeline</p><h2>Lead management</h2><p>Record every WhatsApp conversation and keep outcomes current.</p></div><button class="button secondary" type="button" data-export="leads">Export leads CSV</button></div>
+            <form id="leadForm" class="card entry-form"><label><span>Creative code</span><select name="creativeId" data-options="creatives" required></select></label><label><span>Phone (optional)</span><input name="phone" inputmode="tel" placeholder="+212 6…" /></label><label><span>Stage</span><select name="stage"><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="booked">Booked date</option><option value="showed">Showed up</option><option value="no_show">No-show</option><option value="registered">Registered</option><option value="lost">Lost</option></select></label><label><span>Appointment</span><input name="appointmentAt" type="datetime-local" /></label><label><span>Paid (MAD)</span><input name="amountPaid" type="number" inputmode="decimal" min="0" step="1" placeholder="0" /></label><label><span>Lost reason</span><input name="lostReason" placeholder="Required when lost" /></label><label class="grow"><span>Notes</span><input name="notes" placeholder="Important context" /></label><button class="button primary">Add lead</button></form>
+            <div class="list-toolbar"><label class="search-field"><span class="sr-only">Search leads</span><input id="leadSearch" type="search" placeholder="Search code, phone, agent or notes" /></label><label><span class="sr-only">Filter by stage</span><select id="leadStageFilter"><option value="">All stages</option><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="booked">Booked</option><option value="showed">Showed</option><option value="no_show">No-show</option><option value="registered">Registered</option><option value="lost">Lost</option></select></label><span id="leadCount" class="result-count"></span></div>
+            <div class="table-wrap"><table><thead><tr><th>Date</th><th>Code</th><th>Agent</th><th>Phone</th><th>Stage</th><th>Appointment</th><th>Paid</th><th>Lost reason</th><th>Notes</th><th>Action</th></tr></thead><tbody id="leadRows"></tbody></table></div>
+          </section>
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Code</th>
-                <th>Agent</th>
-                <th>Phone</th>
-                <th>Stage</th>
-                <th>Appointment</th>
-                <th>Paid</th>
-                <th>Notes</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="leadRows"></tbody>
-          </table>
-        </div>
-      </section>
+          <section id="logs" class="panel">
+            <div class="page-heading"><div><p class="section-kicker">Media buying</p><h2>Daily ad spend</h2><p>Enter each creative once per day to keep cost metrics accurate.</p></div><button class="button secondary" type="button" data-export="logs">Export spend CSV</button></div>
+            <form data-create="daily-logs" class="card entry-form compact"><label><span>Date</span><input name="date" type="date" required /></label><label><span>Creative</span><select name="creativeId" data-options="creatives" required></select></label><label><span>Spend (MAD)</span><input name="spend" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" required /></label><label><span>Messages</span><input name="messages" type="number" inputmode="numeric" min="0" step="1" placeholder="0" /></label><label class="grow"><span>Notes</span><input name="notes" placeholder="Optional" /></label><button class="button primary">Add daily log</button></form>
+            <div class="table-wrap"><table><thead><tr><th>Date</th><th>Code</th><th>Creative</th><th>Agent</th><th>Spend</th><th>Messages</th><th>Notes</th></tr></thead><tbody id="logRows"></tbody></table></div>
+          </section>
 
-      <section id="logs" class="panel">
-        <form data-create="daily-logs" class="box horizontal">
-          <input name="date" type="date" required />
-          <select name="creativeId" data-options="creatives"></select>
-          <input name="spend" type="number" min="0" step="0.01" placeholder="Spend MAD" required />
-          <input name="messages" type="number" min="0" step="1" placeholder="Messages received" />
-          <input name="notes" placeholder="Notes" />
-          <button>Add daily log</button>
-        </form>
+          <section id="data" class="panel">
+            <div class="page-heading"><div><p class="section-kicker">Continuity</p><h2>Data and backups</h2><p>Protect CRM records and recover from an older JSON backup.</p></div></div>
+            <div class="data-grid">
+              <article class="card data-card"><span class="data-icon" aria-hidden="true">DB</span><div><p class="section-kicker">Current storage</p><h3 id="storageTitle">Checking…</h3><p id="storageDescription">Verifying the active storage backend.</p></div></article>
+              <article class="card data-card"><span class="data-icon" aria-hidden="true">↓</span><div><p class="section-kicker">Manual backup</p><h3>Download all CRM data</h3><p>Save a private JSON copy before major changes.</p><a class="button primary inline" href="/api/backup" download>Download backup</a></div></article>
+              <article class="card data-card"><span class="data-icon" aria-hidden="true">↑</span><div><p class="section-kicker">Recovery</p><h3>Restore an older backup</h3><p>This replaces current CRM records after confirmation.</p><label class="button secondary inline file-button">Choose JSON backup<input id="restoreFile" type="file" accept="application/json,.json" /></label></div></article>
+            </div>
+            <article class="card system-card"><div><p class="section-kicker">System status</p><h3>Record inventory</h3></div><div id="systemCounts" class="system-counts"></div></article>
+          </section>
+        </main>
+      </div>
+    </div>
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Code</th>
-                <th>Creative</th>
-                <th>Agent</th>
-                <th>Spend</th>
-                <th>Messages</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody id="logRows"></tbody>
-          </table>
-        </div>
-      </section>
-    </main>
-
-    <div id="toast" class="toast hidden"></div>
+    <dialog id="restoreDialog" class="modal"><form method="dialog" class="modal-content"><p class="section-kicker">Confirm recovery</p><h2>Replace current CRM data?</h2><p id="restoreSummary">The selected backup will replace the current records. A safety backup is created first.</p><div class="modal-actions"><button class="button secondary" value="cancel">Cancel</button><button id="confirmRestore" class="button danger" value="default">Restore backup</button></div></form></dialog>
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
     <script src="/app.js"></script>
   </body>
 </html>

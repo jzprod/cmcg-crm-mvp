@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { createStorage } = require("./storage");
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_FILE = process.env.CRM_DATA_FILE || path.join(__dirname, "data", "crm.json");
@@ -17,6 +18,7 @@ const MIME = {
 
 function emptyState() {
   return {
+    meta: { schemaVersion: 2, updatedAt: null },
     centre: { name: "CMCG", city: "Tanger" },
     settings: { currency: "MAD" },
     programs: [],
@@ -31,17 +33,15 @@ function emptyState() {
   };
 }
 
-function ensureDataFile() {
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(emptyState(), null, 2));
-  }
-}
-
-function readState() {
-  ensureDataFile();
-  const state = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-  state.creatives = Array.isArray(state.creatives) ? state.creatives : [];
+function normalizeState(input) {
+  const base = emptyState();
+  const state = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  state.meta = { ...base.meta, ...(state.meta || {}) };
+  state.centre = { ...base.centre, ...(state.centre || {}) };
+  state.settings = { ...base.settings, ...(state.settings || {}) };
+  ["programs", "agents", "campaigns", "adSets", "creatives", "leads", "dailyLogs", "events"].forEach((key) => {
+    state[key] = Array.isArray(state[key]) ? state[key] : [];
+  });
   const usedCodes = new Set(
     (Array.isArray(state.usedCreativeCodes) ? state.usedCreativeCodes : [])
       .map(normalizeCode)
@@ -55,9 +55,7 @@ function readState() {
   return state;
 }
 
-function writeState(state) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
-}
+const storage = createStorage({ dataFile: DATA_FILE, createEmptyState: emptyState, normalizeState });
 
 function now() {
   return new Date().toISOString();
@@ -105,7 +103,7 @@ function parseBody(req) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 1_000_000) {
+      if (body.length > 10_000_000) {
         req.destroy();
         reject(new Error("Request body too large"));
       }
@@ -119,6 +117,16 @@ function parseBody(req) {
       }
     });
   });
+}
+
+function downloadJson(res, state) {
+  const date = new Date().toISOString().slice(0, 10);
+  res.writeHead(200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Disposition": `attachment; filename="cmcg-crm-backup-${date}.json"`,
+    "Cache-Control": "no-store",
+  });
+  res.end(JSON.stringify(state, null, 2));
 }
 
 function hasAuth() {
@@ -165,23 +173,70 @@ function addEvent(state, leadId, type, details = {}) {
   state.events.push({ id: id("evt"), leadId, type, details, createdAt: now() });
 }
 
+let mutationTail = Promise.resolve();
+
+async function acquireMutationLock() {
+  const previous = mutationTail;
+  let release;
+  mutationTail = new Promise((resolve) => { release = resolve; });
+  await previous;
+  return release;
+}
+
+function duplicateName(items, name) {
+  const normalized = cleanText(name).toLocaleLowerCase();
+  return items.some((item) => cleanText(item.name).toLocaleLowerCase() === normalized);
+}
+
 async function handleApi(req, res) {
   if (!requireAuth(req, res)) return;
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
-  let state = readState();
+  const releaseMutation = method === "GET" ? null : await acquireMutationLock();
 
   try {
+    let state = await storage.read();
     if (method === "GET" && url.pathname === "/api/state") {
-      return json(res, 200, { state, authEnabled: hasAuth() });
+      return json(res, 200, { state, authEnabled: hasAuth(), storage: storage.info() });
+    }
+
+    if (method === "GET" && url.pathname === "/api/health") {
+      return json(res, 200, {
+        ok: true,
+        storage: storage.info(),
+        updatedAt: state.meta.updatedAt,
+        counts: {
+          programs: state.programs.length,
+          agents: state.agents.length,
+          creatives: state.creatives.length,
+          leads: state.leads.length,
+          dailyLogs: state.dailyLogs.length,
+        },
+      });
+    }
+
+    if (method === "GET" && url.pathname === "/api/backup") {
+      return downloadJson(res, state);
+    }
+
+    if (method === "POST" && url.pathname === "/api/restore") {
+      const body = await parseBody(req);
+      const restored = normalizeState(body.state || body);
+      const entityCount = restored.programs.length + restored.agents.length + restored.campaigns.length
+        + restored.adSets.length + restored.creatives.length + restored.leads.length + restored.dailyLogs.length;
+      if (!entityCount) return json(res, 400, { error: "This backup does not contain CRM records" });
+      restored.meta.restoredAt = now();
+      await storage.write(restored);
+      return json(res, 200, { restored: true, state: restored });
     }
 
     if (method === "POST" && url.pathname === "/api/programs") {
       const body = await parseBody(req);
       const item = { id: id("prg"), name: cleanText(body.name), createdAt: now() };
       if (!item.name) return json(res, 400, { error: "Program name is required" });
+      if (duplicateName(state.programs, item.name)) return json(res, 409, { error: "This training already exists" });
       state.programs.push(item);
-      writeState(state);
+      await storage.write(state);
       return json(res, 201, item);
     }
 
@@ -195,8 +250,9 @@ async function handleApi(req, res) {
         createdAt: now(),
       };
       if (!item.name) return json(res, 400, { error: "Agent name is required" });
+      if (duplicateName(state.agents, item.name)) return json(res, 409, { error: "This sales agent already exists" });
       state.agents.push(item);
-      writeState(state);
+      await storage.write(state);
       return json(res, 201, item);
     }
 
@@ -209,8 +265,9 @@ async function handleApi(req, res) {
         createdAt: now(),
       };
       if (!item.programId || !item.name) return json(res, 400, { error: "Campaign program and name are required" });
+      if (!state.programs.some((item) => item.id === body.programId)) return json(res, 400, { error: "Selected training does not exist" });
       state.campaigns.push(item);
-      writeState(state);
+      await storage.write(state);
       return json(res, 201, item);
     }
 
@@ -228,16 +285,15 @@ async function handleApi(req, res) {
       if (!item.campaignId || !item.agentId || !item.name) {
         return json(res, 400, { error: "Campaign, agent, and ad set name are required" });
       }
+      if (!state.campaigns.some((campaign) => campaign.id === item.campaignId)) return json(res, 400, { error: "Selected campaign does not exist" });
+      if (!state.agents.some((agent) => agent.id === item.agentId)) return json(res, 400, { error: "Selected sales agent does not exist" });
       state.adSets.push(item);
-      writeState(state);
+      await storage.write(state);
       return json(res, 201, item);
     }
 
     if (method === "POST" && url.pathname === "/api/creatives") {
       const body = await parseBody(req);
-      // Re-read immediately before assignment so simultaneous requests cannot
-      // receive the same short code.
-      state = readState();
       const adSet = state.adSets.find((item) => item.id === body.adSetId);
       const item = {
         id: id("crt"),
@@ -253,7 +309,7 @@ async function handleApi(req, res) {
       item.code = makeCode(state);
       state.creatives.push(item);
       state.usedCreativeCodes.push(item.code);
-      writeState(state);
+      await storage.write(state);
       return json(res, 201, item);
     }
 
@@ -280,12 +336,17 @@ async function handleApi(req, res) {
         createdAt: cleanText(body.createdAt) || now(),
         updatedAt: now(),
       };
-      if (!item.code) return json(res, 400, { error: "Tracking code is required" });
+      if (!creative) return json(res, 400, { error: "Select a valid creative code" });
+      if (!new Set(["new", "contacted", "qualified", "booked", "showed", "no_show", "registered", "lost"]).has(item.stage)) {
+        return json(res, 400, { error: "Invalid lead stage" });
+      }
+      if (item.stage === "lost" && !item.lostReason) return json(res, 400, { error: "Lost reason is required" });
+      if (!Number.isFinite(item.amountPaid) || item.amountPaid < 0) return json(res, 400, { error: "Paid amount must be zero or greater" });
       state.leads.push(item);
       addEvent(state, item.id, "created", { stage: item.stage, code: item.code });
       if (item.appointmentAt) addEvent(state, item.id, "appointment_booked", { appointmentAt: item.appointmentAt });
       if (item.stage === "registered") addEvent(state, item.id, "registered", { amountPaid: item.amountPaid });
-      writeState(state);
+      await storage.write(state);
       return json(res, 201, item);
     }
 
@@ -299,13 +360,18 @@ async function handleApi(req, res) {
         if (body[field] !== undefined) lead[field] = cleanText(body[field]);
       });
       if (body.amountPaid !== undefined) lead.amountPaid = Number(body.amountPaid || 0);
+      if (!new Set(["new", "contacted", "qualified", "booked", "showed", "no_show", "registered", "lost"]).has(lead.stage)) {
+        return json(res, 400, { error: "Invalid lead stage" });
+      }
+      if (lead.stage === "lost" && !lead.lostReason) return json(res, 400, { error: "Lost reason is required" });
+      if (!Number.isFinite(lead.amountPaid) || lead.amountPaid < 0) return json(res, 400, { error: "Paid amount must be zero or greater" });
       lead.updatedAt = now();
       if (lead.stage !== oldStage) addEvent(state, lead.id, "stage_changed", { from: oldStage, to: lead.stage });
       if (body.appointmentAt) addEvent(state, lead.id, "appointment_booked", { appointmentAt: lead.appointmentAt });
       if (lead.stage === "registered" && oldStage !== "registered") {
         addEvent(state, lead.id, "registered", { amountPaid: lead.amountPaid, registeredAt: lead.registeredAt || now() });
       }
-      writeState(state);
+      await storage.write(state);
       return json(res, 200, lead);
     }
 
@@ -326,15 +392,23 @@ async function handleApi(req, res) {
         notes: cleanText(body.notes),
         createdAt: now(),
       };
-      if (!item.date) return json(res, 400, { error: "Date is required" });
+      if (!item.date || !item.creativeId) return json(res, 400, { error: "Date and creative are required" });
+      if (!creative) return json(res, 400, { error: "Selected creative does not exist" });
+      if (!Number.isFinite(item.spend) || item.spend < 0) return json(res, 400, { error: "Spend must be zero or greater" });
+      if (!Number.isInteger(item.messages) || item.messages < 0) return json(res, 400, { error: "Messages must be a whole number" });
+      if (state.dailyLogs.some((log) => log.date === item.date && log.creativeId === item.creativeId)) {
+        return json(res, 409, { error: "A daily log already exists for this creative and date" });
+      }
       state.dailyLogs.push(item);
-      writeState(state);
+      await storage.write(state);
       return json(res, 201, item);
     }
 
     return json(res, 404, { error: "Route not found" });
   } catch (error) {
     return json(res, 500, { error: error.message || "Server error" });
+  } finally {
+    if (releaseMutation) releaseMutation();
   }
 }
 
@@ -344,7 +418,14 @@ const server = http.createServer((req, res) => {
   return serveStatic(req, res);
 });
 
-server.listen(PORT, () => {
-  ensureDataFile();
-  console.log(`CMCG CRM running on http://localhost:${PORT}`);
+async function start() {
+  await storage.init();
+  server.listen(PORT, () => {
+    console.log(`CMCG CRM running on http://localhost:${PORT} with ${storage.info().label}`);
+  });
+}
+
+start().catch((error) => {
+  console.error("Failed to start CMCG CRM:", error.message);
+  process.exitCode = 1;
 });

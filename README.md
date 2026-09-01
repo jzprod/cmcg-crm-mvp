@@ -1,63 +1,61 @@
-# CMCG CRM MVP
+# CMCG CRM
 
-Manual attribution CRM for CMCG click-to-WhatsApp campaigns.
+Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It connects ad spend and WhatsApp conversations to appointments, show-ups, registrations, revenue, creatives, trainings, and sales-agent performance.
 
-This first version is built around the method you chose:
+## What it does
 
-- One campaign per training.
-- One ad set per sales agent or test.
-- One WhatsApp number per sales agent/ad set.
-- One permanent, case-insensitive 2–3 character tracking code inside the WhatsApp welcome message.
-- Manual daily entry for spend and received messages.
-- Manual lead stage updates for booked date, show-up, no-show, registered, and lost.
+- Creates dynamic trainings, sales agents, campaigns, ad sets, and creatives.
+- Assigns every creative a permanent case-insensitive 2–3 character tracking code.
+- Tracks leads through new, contacted, qualified, booked, showed, no-show, registered, and lost stages.
+- Requires a reason when a lead is marked lost.
+- Records daily spend and messages once per creative and date.
+- Calculates CPL, booking cost, show-up cost, registration cost, and registrations per 1000 MAD.
+- Shows conversion funnels, upcoming appointments, creative performance, and agent quality.
+- Exports dashboard, lead, and spend data to CSV.
+- Downloads and restores full JSON backups.
+- Uses Hostinger MySQL in production and automatically snapshots the previous database state before every write.
 
 ## Run locally
 
 ```bash
+npm install
 npm start
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3000`. Local development uses `data/crm.json` and keeps the latest 20 automatic file backups under `data/backups/`. Both are ignored by Git.
 
-## Hostinger deployment
-
-1. Create a Node.js app in Hostinger.
-2. Upload this project or deploy it from GitHub.
-3. Set the start file to `server.js`.
-4. Set the start command to `npm start`.
-5. Add environment variables:
+Run regression tests:
 
 ```bash
-CRM_USER=your_admin_user
-CRM_PASSWORD=your_strong_password
+npm test
 ```
 
-The app stores data in `data/crm.json` by default. Back up this file regularly.
-
-## How to track an ad
-
-1. Create a training, for example `HR`.
-2. Create the sales agent with their WhatsApp number.
-3. Create the campaign for that training.
-4. Create the agent ad set under that campaign.
-5. Create the creative. The CRM generates the shortest available code, such as `A7`, and never reuses it.
-6. Paste this Arabic welcome message into the ad flow:
+## Production environment variables
 
 ```text
-مرحبا، أريد معرفة تفاصيل التكوين في مركز CMCG. كود الإعلان: CMCG-HR-VIDEO-8A3F
+CRM_USER=your_private_admin_username
+CRM_PASSWORD=your_long_unique_password
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=your_hostinger_database_user
+DB_PASSWORD=your_hostinger_database_password
+DB_NAME=your_hostinger_database_name
 ```
 
-7. When a new WhatsApp conversation arrives, enter the lead manually using that code.
-8. Every day, enter spend and messages for each creative.
+When all database variables are present, the app creates its MySQL tables automatically. The **Data & backup** screen must show **MySQL database** before real CRM data is entered.
 
-## Core metrics
+See [HOSTINGER_DEPLOYMENT.md](HOSTINGER_DEPLOYMENT.md) for deployment, verification, and recovery steps.
 
-- Cost per lead = spend / leads.
-- Cost per booked date = spend / booked appointments.
-- Cost per show-up = spend / attended appointments.
-- Cost per registered student = spend / registrations.
-- Efficiency = registrations per 1000 MAD. This makes better cost performance move upward visually.
+## Tracking message
 
-## Next build phase
+Each creative receives a short code such as `A7`. The welcome message is:
 
-The natural next step is replacing the JSON file with MySQL while keeping the same interface. After that, we can add Meta Ads import, WhatsApp Cloud API capture, and agent permissions.
+```text
+مرحبا، أريد معرفة تفاصيل التكوين في مركز CMCG. كود الإعلان: A7
+```
+
+Codes are normalized to uppercase, so lowercase and uppercase entries match the same creative. A used code is never assigned again.
+
+## Privacy
+
+Never commit `.env`, `data/crm.json`, database credentials, real phone numbers, leads, exports, or downloaded backups. JSON and CSV backups contain private CRM data and must be stored securely.
