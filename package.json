@@ -10,9 +10,9 @@
     "test": "node --test"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=18"
   },
   "dependencies": {
-    "mariadb": "3.5.4"
+    "mariadb": "3.3.4"
   }
 }
