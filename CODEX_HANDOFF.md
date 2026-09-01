@@ -13,7 +13,7 @@ The first MVP uses the manual tracking-code method:
 - Each training has its own campaign.
 - Inside a campaign, ad sets can represent agents, tests, objectives, or main audiences.
 - Each sales agent can have their own WhatsApp number.
-- Each creative gets a unique tracking code.
+- Each creative gets a permanent, case-insensitive alphanumeric code. New codes use two characters while available and fall back to three; used codes are never reused.
 - The code is pasted into the WhatsApp welcome message.
 - When the sales agent receives a lead, the code is entered manually into the CRM.
 - Daily ad spend and message counts are entered manually.
@@ -96,7 +96,7 @@ package.json
 - Create sales agents and store their WhatsApp numbers.
 - Create campaigns under trainings.
 - Create ad sets under campaigns and assign each ad set to one sales agent.
-- Create creatives with generated or custom tracking codes.
+- Create creatives with automatically generated permanent 2–3 character tracking codes.
 - Copy Arabic welcome message containing the code.
 - Manually add leads by creative/code.
 - Update lead stages.

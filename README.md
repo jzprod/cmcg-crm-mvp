@@ -7,7 +7,7 @@ This first version is built around the method you chose:
 - One campaign per training.
 - One ad set per sales agent or test.
 - One WhatsApp number per sales agent/ad set.
-- One unique tracking code inside the WhatsApp welcome message.
+- One permanent, case-insensitive 2–3 character tracking code inside the WhatsApp welcome message.
 - Manual daily entry for spend and received messages.
 - Manual lead stage updates for booked date, show-up, no-show, registered, and lost.
 
@@ -40,7 +40,7 @@ The app stores data in `data/crm.json` by default. Back up this file regularly.
 2. Create the sales agent with their WhatsApp number.
 3. Create the campaign for that training.
 4. Create the agent ad set under that campaign.
-5. Create the creative. The CRM generates a code like `CMCG-HR-VIDEO-8A3F`.
+5. Create the creative. The CRM generates the shortest available code, such as `A7`, and never reuses it.
 6. Paste this Arabic welcome message into the ad flow:
 
 ```text

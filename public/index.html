@@ -128,8 +128,10 @@
                 <option>Darija</option>
               </select>
             </div>
-            <input name="code" placeholder="Optional custom code, otherwise generated" />
-            <button>Create creative code</button>
+            <p id="creativeCodeHint" class="form-hint">
+              A permanent, case-insensitive 2–3 character code will be generated automatically and never reused.
+            </p>
+            <button aria-describedby="creativeCodeHint">Create creative code</button>
           </form>
         </div>
 

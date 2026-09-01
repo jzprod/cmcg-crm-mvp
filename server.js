@@ -24,6 +24,7 @@ function emptyState() {
     campaigns: [],
     adSets: [],
     creatives: [],
+    usedCreativeCodes: [],
     leads: [],
     dailyLogs: [],
     events: [],
@@ -39,7 +40,19 @@ function ensureDataFile() {
 
 function readState() {
   ensureDataFile();
-  return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  const state = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  state.creatives = Array.isArray(state.creatives) ? state.creatives : [];
+  const usedCodes = new Set(
+    (Array.isArray(state.usedCreativeCodes) ? state.usedCreativeCodes : [])
+      .map(normalizeCode)
+      .filter(Boolean),
+  );
+  state.creatives.forEach((creative) => {
+    const code = normalizeCode(creative.code);
+    if (code) usedCodes.add(code);
+  });
+  state.usedCreativeCodes = [...usedCodes];
+  return state;
 }
 
 function writeState(state) {
@@ -58,24 +71,25 @@ function cleanText(value) {
   return String(value || "").trim();
 }
 
-function slug(value) {
-  return cleanText(value)
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9]+/g, "")
-    .slice(0, 5)
-    .toUpperCase();
+function normalizeCode(value) {
+  return cleanText(value).toUpperCase();
 }
 
-function makeCode(state, creativeName, adSet) {
-  const campaign = state.campaigns.find((item) => item.id === adSet?.campaignId);
-  const program = state.programs.find((item) => item.id === campaign?.programId);
-  const parts = ["CMCG", slug(program?.name || "TRN"), slug(creativeName || "AD")].filter(Boolean);
-  let code = `${parts.join("-")}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
-  while (state.creatives.some((creative) => creative.code === code)) {
-    code = `${parts.join("-")}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
+function makeCode(state) {
+  const usedCodes = new Set(state.usedCreativeCodes.map(normalizeCode));
+
+  for (const length of [2, 3]) {
+    const available = [];
+    const total = 36 ** length;
+    for (let value = 0; value < total; value += 1) {
+      const code = value.toString(36).toUpperCase().padStart(length, "0");
+      if (!/[A-Z]/.test(code) || !/[0-9]/.test(code) || usedCodes.has(code)) continue;
+      available.push(code);
+    }
+    if (available.length) return available[crypto.randomInt(available.length)];
   }
-  return code;
+
+  throw new Error("All available creative codes have been used");
 }
 
 function json(res, status, data) {
@@ -155,7 +169,7 @@ async function handleApi(req, res) {
   if (!requireAuth(req, res)) return;
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
-  const state = readState();
+  let state = readState();
 
   try {
     if (method === "GET" && url.pathname === "/api/state") {
@@ -221,6 +235,9 @@ async function handleApi(req, res) {
 
     if (method === "POST" && url.pathname === "/api/creatives") {
       const body = await parseBody(req);
+      // Re-read immediately before assignment so simultaneous requests cannot
+      // receive the same short code.
+      state = readState();
       const adSet = state.adSets.find((item) => item.id === body.adSetId);
       const item = {
         id: id("crt"),
@@ -228,23 +245,21 @@ async function handleApi(req, res) {
         name: cleanText(body.name),
         format: cleanText(body.format || "Video"),
         language: cleanText(body.language || "Arabic"),
-        code: cleanText(body.code).toUpperCase(),
+        code: "",
         createdAt: now(),
       };
       if (!item.adSetId || !item.name) return json(res, 400, { error: "Ad set and creative name are required" });
       if (!adSet) return json(res, 400, { error: "Selected ad set does not exist" });
-      if (!item.code) item.code = makeCode(state, item.name, adSet);
-      if (state.creatives.some((creative) => creative.code === item.code)) {
-        return json(res, 400, { error: "This tracking code already exists" });
-      }
+      item.code = makeCode(state);
       state.creatives.push(item);
+      state.usedCreativeCodes.push(item.code);
       writeState(state);
       return json(res, 201, item);
     }
 
     if (method === "POST" && url.pathname === "/api/leads") {
       const body = await parseBody(req);
-      const creative = state.creatives.find((item) => item.id === body.creativeId || item.code === cleanText(body.code).toUpperCase());
+      const creative = state.creatives.find((item) => item.id === body.creativeId || normalizeCode(item.code) === normalizeCode(body.code));
       const adSet = state.adSets.find((item) => item.id === creative?.adSetId);
       const campaign = state.campaigns.find((item) => item.id === adSet?.campaignId);
       const item = {
@@ -254,7 +269,7 @@ async function handleApi(req, res) {
         campaignId: campaign?.id || "",
         programId: campaign?.programId || "",
         agentId: adSet?.agentId || cleanText(body.agentId),
-        code: creative?.code || cleanText(body.code).toUpperCase(),
+        code: creative?.code || normalizeCode(body.code),
         phone: cleanText(body.phone),
         stage: cleanText(body.stage || "new"),
         appointmentAt: cleanText(body.appointmentAt),

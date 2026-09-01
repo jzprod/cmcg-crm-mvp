@@ -313,11 +313,17 @@ document.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target;
   const create = form.dataset.create;
+  const submitButton = form.querySelector('button[type="submit"], button:not([type])');
+  const originalButtonText = submitButton?.textContent;
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Saving...";
+  }
   try {
     if (create) {
-      await api(`/api/${create}`, { method: "POST", body: JSON.stringify(formPayload(form)) });
+      const saved = await api(`/api/${create}`, { method: "POST", body: JSON.stringify(formPayload(form)) });
       form.reset();
-      toast("Saved");
+      toast(create === "creatives" ? `Creative code ${saved.code} created` : "Saved");
       await load();
       return;
     }
@@ -329,6 +335,11 @@ document.addEventListener("submit", async (event) => {
     }
   } catch (error) {
     toast(error.message);
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText;
+    }
   }
 });
 
