@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CMCG CRM</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">CMCG CRM MVP</p>
+        <h1>WhatsApp ad tracking</h1>
+      </div>
+      <div class="top-actions">
+        <button id="refreshBtn" class="ghost">Refresh</button>
+        <label class="switch">
+          <input id="advancedToggle" type="checkbox" />
+          <span>Advanced</span>
+        </label>
+      </div>
+    </header>
+
+    <main>
+      <section id="authWarning" class="warning hidden">
+        Set <strong>CRM_USER</strong> and <strong>CRM_PASSWORD</strong> before hosting this publicly.
+      </section>
+
+      <nav class="tabs" aria-label="CRM sections">
+        <button class="tab active" data-tab="dashboard">Dashboard</button>
+        <button class="tab" data-tab="setup">Setup</button>
+        <button class="tab" data-tab="leads">Leads</button>
+        <button class="tab" data-tab="logs">Daily logs</button>
+      </nav>
+
+      <section id="dashboard" class="panel active">
+        <div class="filters">
+          <label>From <input id="fromDate" type="date" /></label>
+          <label>To <input id="toDate" type="date" /></label>
+          <label>Program <select id="programFilter"></select></label>
+          <label>Agent <select id="agentFilter"></select></label>
+        </div>
+
+        <div id="kpis" class="kpis"></div>
+
+        <div class="section-head">
+          <div>
+            <h2>Creative scorecard</h2>
+            <p>Lower costs are shown as higher efficiency so the good trend goes up.</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Creative</th>
+                <th>Agent</th>
+                <th>Objective</th>
+                <th>Spend</th>
+                <th>Msgs</th>
+                <th>Leads</th>
+                <th>Booked</th>
+                <th>Showed</th>
+                <th>Reg.</th>
+                <th>CPL</th>
+                <th>CP Reg.</th>
+                <th>Efficiency</th>
+              </tr>
+            </thead>
+            <tbody id="scoreRows"></tbody>
+          </table>
+        </div>
+
+        <div id="agentScore" class="advanced-only"></div>
+      </section>
+
+      <section id="setup" class="panel">
+        <div class="grid setup-grid">
+          <form data-create="programs" class="box">
+            <h2>Training</h2>
+            <input name="name" placeholder="Example: HR, Beauty, One-year accounting" required />
+            <button>Create training</button>
+          </form>
+
+          <form data-create="agents" class="box">
+            <h2>Sales agent</h2>
+            <input name="name" placeholder="Agent name" required />
+            <input name="whatsapp" placeholder="WhatsApp number" />
+            <button>Create agent</button>
+          </form>
+
+          <form data-create="campaigns" class="box">
+            <h2>Campaign</h2>
+            <select name="programId" data-options="programs" required></select>
+            <input name="name" placeholder="Example: HR September leads" required />
+            <button>Create campaign</button>
+          </form>
+
+          <form data-create="adsets" class="box">
+            <h2>Agent ad set</h2>
+            <select name="campaignId" data-options="campaigns" required></select>
+            <select name="agentId" data-options="agents" required></select>
+            <input name="name" placeholder="Example: Sara WhatsApp - Testing" required />
+            <input name="objective" placeholder="Objective: Messages, Leads, Sales..." value="Messages" />
+            <select name="status">
+              <option>Testing</option>
+              <option>Main</option>
+              <option>Paused</option>
+            </select>
+            <button>Create ad set</button>
+          </form>
+
+          <form data-create="creatives" class="box wide">
+            <h2>Creative and code</h2>
+            <select name="adSetId" data-options="adSets" required></select>
+            <input name="name" placeholder="Creative name: video angle, image, hook..." required />
+            <div class="split">
+              <select name="format">
+                <option>Video</option>
+                <option>Image</option>
+                <option>Carousel</option>
+                <option>Story</option>
+              </select>
+              <select name="language">
+                <option>Arabic</option>
+                <option>French</option>
+                <option>Darija</option>
+              </select>
+            </div>
+            <input name="code" placeholder="Optional custom code, otherwise generated" />
+            <button>Create creative code</button>
+          </form>
+        </div>
+
+        <div class="section-head">
+          <div>
+            <h2>Welcome messages</h2>
+            <p>Paste the code inside the WhatsApp welcome message for that exact creative or ad set.</p>
+          </div>
+        </div>
+        <div id="codeCards" class="cards"></div>
+      </section>
+
+      <section id="leads" class="panel">
+        <form id="leadForm" class="box horizontal">
+          <select name="creativeId" data-options="creatives" required></select>
+          <input name="phone" placeholder="Phone, optional" />
+          <select name="stage">
+            <option value="new">New</option>
+            <option value="contacted">Contacted</option>
+            <option value="qualified">Qualified</option>
+            <option value="booked">Booked date</option>
+            <option value="showed">Showed up</option>
+            <option value="no_show">No-show</option>
+            <option value="registered">Registered</option>
+            <option value="lost">Lost</option>
+          </select>
+          <input name="appointmentAt" type="datetime-local" />
+          <input name="amountPaid" type="number" min="0" step="1" placeholder="Paid MAD" />
+          <input name="notes" placeholder="Notes" />
+          <button>Add lead</button>
+        </form>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Code</th>
+                <th>Agent</th>
+                <th>Phone</th>
+                <th>Stage</th>
+                <th>Appointment</th>
+                <th>Paid</th>
+                <th>Notes</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="leadRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="logs" class="panel">
+        <form data-create="daily-logs" class="box horizontal">
+          <input name="date" type="date" required />
+          <select name="creativeId" data-options="creatives"></select>
+          <input name="spend" type="number" min="0" step="0.01" placeholder="Spend MAD" required />
+          <input name="messages" type="number" min="0" step="1" placeholder="Messages received" />
+          <input name="notes" placeholder="Notes" />
+          <button>Add daily log</button>
+        </form>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Code</th>
+                <th>Creative</th>
+                <th>Agent</th>
+                <th>Spend</th>
+                <th>Messages</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="logRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

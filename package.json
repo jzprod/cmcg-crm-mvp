@@ -1,0 +1,14 @@
+{
+  "name": "cmcg-crm-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Manual attribution CRM MVP for CMCG click-to-WhatsApp ads.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
