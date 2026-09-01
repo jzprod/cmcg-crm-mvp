@@ -22,34 +22,34 @@ function createStorage({ dataFile, createEmptyState, normalizeState }) {
       return;
     }
 
-    const mysql = require("mysql2/promise");
-    pool = mysql.createPool({
+    const mariadb = require("mariadb");
+    pool = mariadb.createPool({
       host: process.env.DB_HOST,
       port: Number(process.env.DB_PORT || 3306),
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
       charset: "utf8mb4",
-      waitForConnections: true,
       connectionLimit: 5,
-      queueLimit: 0,
+      acquireTimeout: 10000,
+      connectTimeout: 5000,
     });
 
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS crm_state (
         id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
         payload LONGTEXT NOT NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS crm_state_backups (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         payload LONGTEXT NOT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
-    await pool.execute(
+    await pool.query(
       "INSERT IGNORE INTO crm_state (id, payload) VALUES (1, ?)",
       [JSON.stringify(createEmptyState())],
     );
@@ -61,7 +61,7 @@ function createStorage({ dataFile, createEmptyState, normalizeState }) {
       return normalizeState(JSON.parse(fs.readFileSync(dataFile, "utf8")));
     }
 
-    const [rows] = await pool.execute("SELECT payload FROM crm_state WHERE id = 1");
+    const rows = await pool.query("SELECT payload FROM crm_state WHERE id = 1");
     if (!rows.length) return normalizeState(createEmptyState());
     return normalizeState(JSON.parse(rows[0].payload));
   }
@@ -97,12 +97,12 @@ function createStorage({ dataFile, createEmptyState, normalizeState }) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      const [rows] = await connection.execute("SELECT payload FROM crm_state WHERE id = 1 FOR UPDATE");
+      const rows = await connection.query("SELECT payload FROM crm_state WHERE id = 1 FOR UPDATE");
       if (rows.length) {
-        await connection.execute("INSERT INTO crm_state_backups (payload) VALUES (?)", [rows[0].payload]);
+        await connection.query("INSERT INTO crm_state_backups (payload) VALUES (?)", [rows[0].payload]);
       }
-      await connection.execute("UPDATE crm_state SET payload = ? WHERE id = 1", [payload]);
-      await connection.execute(`
+      await connection.query("UPDATE crm_state SET payload = ? WHERE id = 1", [payload]);
+      await connection.query(`
         DELETE FROM crm_state_backups
         WHERE id NOT IN (
           SELECT id FROM (
@@ -116,7 +116,7 @@ function createStorage({ dataFile, createEmptyState, normalizeState }) {
       await connection.rollback();
       throw error;
     } finally {
-      connection.release();
+      await connection.release();
     }
   }
 

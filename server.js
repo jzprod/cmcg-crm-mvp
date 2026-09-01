@@ -439,5 +439,11 @@ storage.init().then(() => {
   console.log(`CMCG CRM running with ${storage.info().label}`);
 }).catch((error) => {
   storageError = error;
-  console.error("Failed to initialize CMCG CRM storage:", error.message);
+  console.error("Failed to initialize CMCG CRM storage:", {
+    message: error.message,
+    code: error.code,
+    errno: error.errno,
+    syscall: error.syscall,
+    stack: error.stack,
+  });
 });

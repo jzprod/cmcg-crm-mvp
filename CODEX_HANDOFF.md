@@ -9,7 +9,7 @@ Track CMCG click-to-WhatsApp advertising from spend to conversations, appointmen
 - Node.js built-in HTTP server in `server.js`.
 - Plain accessible HTML/CSS/JavaScript under `public/`.
 - Storage adapter in `storage.js`.
-- MySQL via `mysql2` when `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` are configured.
+- Hostinger MySQL/MariaDB via the official `mariadb` connector when `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` are configured.
 - Local JSON fallback through `CRM_DATA_FILE` or `data/crm.json`.
 - Basic HTTP authentication through `CRM_USER` and `CRM_PASSWORD`.
 - Node built-in integration tests under `test/`.
