@@ -20,9 +20,11 @@ const outcomeMeta = {
 const groupLabels = { ad: "Ad", adSet: "Ad set", campaign: "Campaign", agent: "Agent" };
 const filters = { from: "", to: "", agentId: "", objective: "", campaignId: "", search: "" };
 let groupBy = "ad";
+let sortBy = "quality";
 
 const columnDefinitions = [
   { key: "entity", label: "Name", required: true },
+  { key: "quality", label: "Quality score", required: true },
   { key: "agent", label: "Agent", default: true },
   { key: "objective", label: "Objective", default: true },
   { key: "spend", label: "Spend", default: true, numeric: true },
@@ -30,7 +32,8 @@ const columnDefinitions = [
   { key: "booked", label: "Booked", default: true, numeric: true },
   { key: "showed", label: "Showed, no registration", default: true, numeric: true },
   { key: "registered", label: "Registered", default: true, numeric: true },
-  { key: "costBooked", label: "Cost / booked", default: false, numeric: true },
+  { key: "costBooked", label: "Cost / booked", default: true, numeric: true },
+  { key: "costShowed", label: "Cost / showed", default: true, numeric: true },
   { key: "costRegistered", label: "Cost / registered", default: true, numeric: true },
   { key: "campaign", label: "Campaign", default: false },
   { key: "adSet", label: "Ad set", default: false },
@@ -75,7 +78,9 @@ function defaultColumns() {
 function readColumns() {
   try {
     const stored = JSON.parse(localStorage.getItem("cmcg-visible-columns"));
-    if (Array.isArray(stored)) return new Set([...stored, "entity", "action"]);
+    const currentVersion = localStorage.getItem("cmcg-columns-version");
+    if (Array.isArray(stored) && currentVersion === "2") return new Set([...stored, "entity", "quality", "action"]);
+    localStorage.setItem("cmcg-columns-version", "2");
   } catch {}
   return new Set(defaultColumns());
 }
@@ -222,7 +227,7 @@ function groupDescriptor(key, type) {
   return { key, name: agent?.name || "Unknown agent", targetId: agent?.id || "", relation: { agent } };
 }
 
-function performanceRows(type = groupBy, useFilters = true) {
+function performanceRows(type = groupBy, useFilters = true, criterion = sortBy) {
   const rows = new Map();
   function ensure(key) {
     if (!key) return null;
@@ -248,11 +253,7 @@ function performanceRows(type = groupBy, useFilters = true) {
     const row = ensure(key);
     if (row) row[outcome.type] += 1;
   });
-  return [...rows.values()].sort((a, b) => {
-    const aCost = a.registered ? a.spend / a.registered : Number.POSITIVE_INFINITY;
-    const bCost = b.registered ? b.spend / b.registered : Number.POSITIVE_INFINITY;
-    return aCost - bCost || b.registered - a.registered || b.booked - a.booked || b.messages - a.messages;
-  });
+  return CmcgQuality.sortRows(CmcgQuality.scoreRows([...rows.values()]), criterion);
 }
 
 function overallMetrics(useFilters = true) {
@@ -307,11 +308,21 @@ function addOutcomeButton(level, targetId, label) {
   return `<button class="row-add" type="button" data-add-outcome data-level="${level}" data-target="${escapeHtml(targetId)}" aria-label="Add outcome for ${escapeHtml(label)}" title="Add outcome">+</button>`;
 }
 
+function qualityBadge(row) {
+  const band = CmcgQuality.qualityBand(row.qualityScore);
+  const score = row.qualityScore === null ? "—" : row.qualityScore;
+  return `<span class="quality-badge quality-${band.key}" title="Relative score: 20% booked, 30% showed without registration, 50% registered"><strong>${score}</strong><span>${band.label}</span></span>`;
+}
+
+function qualityRowClass(row) {
+  return `quality-row-${CmcgQuality.qualityBand(row.qualityScore).key}`;
+}
+
 function renderOverviewTables() {
-  const ads = performanceRows("ad", false).slice(0, 7);
-  document.getElementById("overviewRows").innerHTML = ads.length ? ads.map((row) => `<tr><td>${entityCell(row, "ad")}</td><td>${escapeHtml(row.relation.agent?.name || "Unassigned")}</td><td class="number-cell">${money(row.spend)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed + row.registered}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td><td>${addOutcomeButton("ad", row.targetId, row.name)}</td></tr>`).join("") : '<tr><td colspan="9" class="empty">Import a Meta Ads report to see performance.</td></tr>';
-  const agents = performanceRows("agent", false).filter((row) => row.key !== "__unassigned");
-  document.getElementById("agentRows").innerHTML = agents.length ? agents.map((row) => `<tr><td><strong>${escapeHtml(row.name)}</strong></td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td></tr>`).join("") : '<tr><td colspan="6" class="empty">Add agents to compare their results.</td></tr>';
+  const ads = performanceRows("ad", false, "quality").slice(0, 7);
+  document.getElementById("overviewRows").innerHTML = ads.length ? ads.map((row) => `<tr class="${qualityRowClass(row)}"><td>${entityCell(row, "ad")}</td><td>${qualityBadge(row)}</td><td>${escapeHtml(row.relation.agent?.name || "Unassigned")}</td><td class="number-cell">${money(row.spend)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed + row.registered}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td><td>${addOutcomeButton("ad", row.targetId, row.name)}</td></tr>`).join("") : '<tr><td colspan="10" class="empty">Import a Meta Ads report to see performance.</td></tr>';
+  const agents = performanceRows("agent", false, "quality").filter((row) => row.key !== "__unassigned");
+  document.getElementById("agentRows").innerHTML = agents.length ? agents.map((row) => `<tr class="${qualityRowClass(row)}"><td><strong>${escapeHtml(row.name)}</strong></td><td>${qualityBadge(row)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td></tr>`).join("") : '<tr><td colspan="7" class="empty">Add agents to compare their results.</td></tr>';
 }
 
 function entityCell(row, type = groupBy) {
@@ -329,10 +340,11 @@ function cellValue(column, row) {
   const latest = row.latestLog || {};
   const values = {
     entity: entityCell(row),
+    quality: qualityBadge(row),
     agent: escapeHtml(relation.agent?.name || (groupBy === "agent" ? row.name : "Unassigned")),
     objective: escapeHtml(relation.objective || relation.adSet?.objective || relation.campaign?.objective || "—"),
     spend: money(row.spend), messages: number(row.messages), booked: row.booked, showed: row.showed, registered: `<strong>${row.registered}</strong>`,
-    costBooked: cost(row.spend, row.booked), costRegistered: cost(row.spend, row.registered),
+    costBooked: cost(row.spend, row.booked), costShowed: cost(row.spend, row.showed), costRegistered: cost(row.spend, row.registered),
     campaign: escapeHtml(relation.campaign?.name || (groupBy === "campaign" ? row.name : "—")),
     adSet: escapeHtml(relation.adSet?.name || (groupBy === "adSet" ? row.name : "—")),
     code: relation.ad?.code ? `<span class="code">${escapeHtml(relation.ad.code)}</span>` : "—",
@@ -361,7 +373,7 @@ function renderPerformance() {
   const rows = performanceRows();
   const columns = columnDefinitions.filter((column) => visibleColumns.has(column.key));
   document.getElementById("performanceCount").textContent = `${rows.length} ${groupBy === "ad" ? "ads" : groupBy === "adSet" ? "ad sets" : groupBy === "campaign" ? "campaigns" : "agents"}`;
-  document.getElementById("performanceTable").innerHTML = `<table><thead><tr>${columns.map((column) => `<th class="${column.numeric ? "number-cell" : ""}">${escapeHtml(column.label)}</th>`).join("")}</tr></thead><tbody>${rows.length ? rows.map((row) => `<tr>${columns.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cellValue(column, row)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${columns.length}" class="empty">No performance matches these filters.</td></tr>`}</tbody></table>`;
+  document.getElementById("performanceTable").innerHTML = `<table><thead><tr>${columns.map((column) => `<th class="${column.numeric ? "number-cell" : ""}">${escapeHtml(column.label)}</th>`).join("")}</tr></thead><tbody>${rows.length ? rows.map((row) => `<tr class="${qualityRowClass(row)}">${columns.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cellValue(column, row)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${columns.length}" class="empty">No performance matches these filters.</td></tr>`}</tbody></table>`;
   renderColumnOptions();
 }
 
@@ -544,6 +556,7 @@ document.addEventListener("click", async (event) => {
 document.addEventListener("change", (event) => {
   const filter = event.target.closest("[data-filter]");
   if (filter) { filters[filter.dataset.filter] = filter.value; renderPerformance(); renderKpis(); renderFunnel(); renderOverviewTables(); }
+  if (event.target.id === "performanceSort") { sortBy = event.target.value; renderPerformance(); }
   const column = event.target.closest("[data-column]");
   if (column) {
     if (column.checked) visibleColumns.add(column.dataset.column); else visibleColumns.delete(column.dataset.column);

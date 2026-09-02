@@ -13,7 +13,8 @@ Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It syn
 - Records three manual outcomes: booked appointment, showed without registering, and registered student.
 - Attributes each outcome to the exact ad, or to an ad set, campaign, or agent when the ad is unknown.
 - Counts registered students as visits while keeping “showed” exclusive to visitors who did not register.
-- Compares ads, ad sets, campaigns, and agents using spend, messages, outcomes, and cost per result.
+- Compares ads, ad sets, campaigns, and agents using spend, messages, outcomes, cost per outcome, and a color-coded 0–100 quality score.
+- Sorts every performance level by quality, spend, outcome totals, messages, or lowest cost per outcome.
 - Assigns every imported ad a permanent case-insensitive 2–3 character tracking code.
 - Downloads and restores full JSON backups.
 - Uses Hostinger MySQL in production and automatically snapshots the previous database state before every write.
@@ -55,6 +56,8 @@ See [HOSTINGER_DEPLOYMENT.md](HOSTINGER_DEPLOYMENT.md) for deployment, verificat
 2. Open **Import & data**, choose the CSV, and select **Import and sync**.
 3. Add only the outcomes Meta cannot know: booked, showed without registration, or registered.
 4. Use **Performance** to group and compare Ads, Ad sets, Campaigns, or Agents.
+
+The quality score is relative to the rows in the selected view. It weights booked-appointment efficiency at 20%, showed-without-registration efficiency at 30%, and registration efficiency at 50%. Green is strong (70–100), amber needs attention (40–69), red is weak (0–39), and gray means there is not enough spend/outcome data for a comparison.
 
 Repeated imports update the same ad/reporting-date rows instead of duplicating spend. Keep the Meta ID columns in the export even though they are hidden in the normal CRM view.
 

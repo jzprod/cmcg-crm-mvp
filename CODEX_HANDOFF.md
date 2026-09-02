@@ -56,11 +56,13 @@ node --check public/app.js
 
 ## Current UI workflow
 
-- **Overview** — all-time spend, messages, booked appointments, visits, registrations, top ads, and agent results.
-- **Performance** — group by ad, ad set, campaign, or agent; filter and reveal optional Meta columns.
+- **Overview** — all-time spend, messages, booked appointments, visits, registrations, quality-ranked ads, and color-coded agent results.
+- **Performance** — group by ad, ad set, campaign, or agent; filter, sort by quality/spend/outcomes/costs, and reveal optional Meta columns.
 - **Outcomes** — add and audit the three manual outcome types.
 - **Agents** — create independent agents and review automatic ad-set matching.
 - **Import & data** — upload reports, audit import history, download backups, and restore.
+
+Quality is a relative 0–100 score within the current comparison: 20% booked cost efficiency, 30% showed-without-registration cost efficiency, and 50% registration cost efficiency. Scores are paired with Strong/Watch/Weak/No data labels and green/amber/red/gray styling.
 
 ## Next expansion candidates
 

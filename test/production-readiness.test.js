@@ -5,6 +5,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { scoreRows, qualityBand, sortRows } = require("../public/quality.js");
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -143,6 +144,27 @@ test("Meta CSV sync is idempotent, matches agents, and supports hierarchical out
   await jsonRequest(baseUrl, `/api/outcomes/${booked.id}`, { method: "DELETE" });
   snapshot = (await jsonRequest(baseUrl, "/api/state")).state;
   assert.equal(snapshot.outcomes.length, 1);
+});
+
+test("quality score weights outcomes, flags wasted spend, and sorts every entity consistently", () => {
+  const rows = scoreRows([
+    { name: "Strong ad", spend: 100, booked: 10, showed: 5, registered: 2, messages: 20 },
+    { name: "Watch ad", spend: 100, booked: 5, showed: 1, registered: 1, messages: 12 },
+    { name: "Weak ad", spend: 80, booked: 0, showed: 0, registered: 0, messages: 8 },
+    { name: "No spend", spend: 0, booked: 1, showed: 0, registered: 0, messages: 1 },
+  ]);
+
+  assert.equal(rows.find((row) => row.name === "Strong ad").qualityScore, 100);
+  assert.equal(rows.find((row) => row.name === "Watch ad").qualityScore, 41);
+  assert.equal(rows.find((row) => row.name === "Weak ad").qualityScore, 0);
+  assert.equal(rows.find((row) => row.name === "No spend").qualityScore, null);
+  assert.equal(qualityBand(100).label, "Strong");
+  assert.equal(qualityBand(41).label, "Watch");
+  assert.equal(qualityBand(0).label, "Weak");
+  assert.equal(qualityBand(null).label, "No data");
+  assert.deepEqual(sortRows(rows, "quality").map((row) => row.name), ["Strong ad", "Watch ad", "Weak ad", "No spend"]);
+  assert.deepEqual(sortRows(rows, "registered").slice(0, 2).map((row) => row.name), ["Strong ad", "Watch ad"]);
+  assert.equal(sortRows(rows, "costRegistered")[0].name, "Strong ad");
 });
 
 test("production UI contains accessible controls and correctly encoded Arabic copy", () => {
