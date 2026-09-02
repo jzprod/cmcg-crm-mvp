@@ -2,22 +2,98 @@ let state = null;
 let authEnabled = false;
 let storageInfo = null;
 let pendingRestore = null;
+let pendingMetaFile = null;
 let toastTimer = null;
 
-const pageTitles = { dashboard: "Overview", setup: "Campaign setup", leads: "Leads", logs: "Ad spend", data: "Data & backup" };
-const stages = [
-  ["new", "New"], ["contacted", "Contacted"], ["qualified", "Qualified"], ["booked", "Booked date"],
-  ["showed", "Showed up"], ["no_show", "No-show"], ["registered", "Registered"], ["lost", "Lost"],
+const pageMeta = {
+  dashboard: ["Overview", "Your advertising and enrollment results at a glance."],
+  performance: ["Performance", "Compare ads, ad sets, campaigns, objectives, and agents."],
+  outcomes: ["Outcomes", "Appointments, visits, and registered students."],
+  agents: ["Agents", "Manage automatic ad-set assignment."],
+  data: ["Import & data", "Synchronize Meta Ads and protect your CRM data."],
+};
+const outcomeMeta = {
+  booked: { label: "Booked appointment", short: "Booked", className: "booked" },
+  showed: { label: "Showed, no registration", short: "Showed", className: "showed" },
+  registered: { label: "Registered student", short: "Registered", className: "registered" },
+};
+const groupLabels = { ad: "Ad", adSet: "Ad set", campaign: "Campaign", agent: "Agent" };
+const filters = { from: "", to: "", agentId: "", objective: "", campaignId: "", search: "" };
+let groupBy = "ad";
+
+const columnDefinitions = [
+  { key: "entity", label: "Name", required: true },
+  { key: "agent", label: "Agent", default: true },
+  { key: "objective", label: "Objective", default: true },
+  { key: "spend", label: "Spend", default: true, numeric: true },
+  { key: "messages", label: "Messages", default: true, numeric: true },
+  { key: "booked", label: "Booked", default: true, numeric: true },
+  { key: "showed", label: "Showed, no registration", default: true, numeric: true },
+  { key: "registered", label: "Registered", default: true, numeric: true },
+  { key: "costBooked", label: "Cost / booked", default: false, numeric: true },
+  { key: "costRegistered", label: "Cost / registered", default: true, numeric: true },
+  { key: "campaign", label: "Campaign", default: false },
+  { key: "adSet", label: "Ad set", default: false },
+  { key: "code", label: "Short code", default: false },
+  { key: "delivery", label: "Delivery", default: false },
+  { key: "resultType", label: "Result type", default: false },
+  { key: "results", label: "Meta results", default: false, numeric: true },
+  { key: "costPerResult", label: "Cost / Meta result", default: false, numeric: true },
+  { key: "messagesReplied", label: "Messages replied", default: false, numeric: true },
+  { key: "impressions", label: "Impressions", default: false, numeric: true },
+  { key: "reach", label: "Reach (reported sum)", default: false, numeric: true },
+  { key: "frequency", label: "Frequency", default: false, numeric: true },
+  { key: "linkClicks", label: "Link clicks", default: false, numeric: true },
+  { key: "shopClicks", label: "Shop clicks", default: false, numeric: true },
+  { key: "clicksAll", label: "All clicks", default: false, numeric: true },
+  { key: "ctr", label: "Link CTR", default: false, numeric: true },
+  { key: "cpc", label: "Link CPC", default: false, numeric: true },
+  { key: "ctrAll", label: "All-click CTR", default: false, numeric: true },
+  { key: "cpcAll", label: "All-click CPC", default: false, numeric: true },
+  { key: "cpm", label: "CPM", default: false, numeric: true },
+  { key: "landingPageViews", label: "Landing-page views", default: false, numeric: true },
+  { key: "costLandingPageView", label: "Cost / landing-page view", default: false, numeric: true },
+  { key: "qualityRanking", label: "Quality ranking", default: false },
+  { key: "engagementRanking", label: "Engagement ranking", default: false },
+  { key: "conversionRanking", label: "Conversion ranking", default: false },
+  { key: "reportingStart", label: "Reporting starts", default: false },
+  { key: "reportingEnd", label: "Reporting ends", default: false },
+  { key: "account", label: "Account", default: false },
+  { key: "accountId", label: "Account ID", default: false },
+  { key: "campaignId", label: "Campaign ID", default: false },
+  { key: "adSetId", label: "Ad set ID", default: false },
+  { key: "adId", label: "Ad ID", default: false },
+  { key: "pageId", label: "Page ID", default: false },
+  { key: "action", label: "", required: true },
 ];
 
-const byId = (items, id) => items.find((item) => item.id === id) || null;
+function defaultColumns() {
+  return columnDefinitions.filter((column) => column.required || column.default).map((column) => column.key);
+}
+
+function readColumns() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("cmcg-visible-columns"));
+    if (Array.isArray(stored)) return new Set([...stored, "entity", "action"]);
+  } catch {}
+  return new Set(defaultColumns());
+}
+
+let visibleColumns = readColumns();
+const byId = (items, id) => (items || []).find((item) => item.id === id) || null;
 const dateOnly = (value) => (value ? String(value).slice(0, 10) : "");
-const escapeHtml = (value) => String(value ?? "")
-  .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
-const money = (value) => `${new Intl.NumberFormat("en-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0))} MAD`;
-const fmt = (value) => (Number.isFinite(value) && value > 0 ? money(value) : "–");
-const stageLabel = (value) => stages.find(([key]) => key === value)?.[1] || value || "Unknown";
+const escapeHtml = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+const number = (value) => new Intl.NumberFormat("en-MA", { maximumFractionDigits: 2 }).format(Number(value || 0));
+const currency = () => state?.settings?.currency || "USD";
+const money = (value) => `${new Intl.NumberFormat("en-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0))} ${currency()}`;
+const cost = (spend, count) => (count ? money(spend / count) : "—");
+const legacyWelcomeMessage = "مرحباً، أريد معرفة تفاصيل التكوين في مركز CMCG. كود الإعلان:";
+
+function normalizeState() {
+  ["adAccounts", "programs", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs"].forEach((key) => {
+    state[key] = Array.isArray(state[key]) ? state[key] : [];
+  });
+}
 
 function formatSavedAt(value) {
   if (!value) return "No saved changes yet";
@@ -31,14 +107,11 @@ function toast(message, type = "success") {
   element.textContent = message;
   element.classList.toggle("error", type === "error");
   element.classList.remove("hidden");
-  toastTimer = setTimeout(() => element.classList.add("hidden"), 3200);
+  toastTimer = setTimeout(() => element.classList.add("hidden"), 3600);
 }
 
 async function api(route, options = {}) {
-  const response = await fetch(route, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
+  const response = await fetch(route, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
   const contentType = response.headers.get("content-type") || "";
   const data = contentType.includes("application/json") ? await response.json() : { error: await response.text() };
   if (!response.ok) throw new Error(data.error || "Request failed");
@@ -48,9 +121,12 @@ async function api(route, options = {}) {
 async function load() {
   const data = await api("/api/state");
   state = data.state;
+  normalizeState();
   authEnabled = data.authEnabled;
   storageInfo = data.storage;
   render();
+  const requestedPanel = window.location.hash.slice(1).replace(/^view=/, "");
+  if (pageMeta[requestedPanel]) showPanel(requestedPanel, false);
 }
 
 function option(label, value = "") {
@@ -60,205 +136,277 @@ function option(label, value = "") {
   return item;
 }
 
-function fillSelect(select) {
-  const type = select.dataset.options;
-  const current = select.value;
-  select.innerHTML = "";
-  const placeholders = { programs: "Select training", agents: "Select sales agent", campaigns: "Select campaign", adSets: "Select ad set", creatives: "Select creative code" };
-  select.append(option(placeholders[type] || "Select", ""));
-  if (type === "programs") state.programs.forEach((item) => select.append(option(item.name, item.id)));
-  if (type === "agents") state.agents.filter((item) => item.active !== false).forEach((item) => select.append(option(item.name, item.id)));
-  if (type === "campaigns") state.campaigns.forEach((item) => {
-    const program = byId(state.programs, item.programId);
-    select.append(option(`${item.name} · ${program?.name || "No training"}`, item.id));
-  });
-  if (type === "adSets") state.adSets.forEach((item) => {
-    const agent = byId(state.agents, item.agentId);
-    select.append(option(`${item.name} · ${agent?.name || "No agent"}`, item.id));
-  });
-  if (type === "creatives") state.creatives.forEach((item) => select.append(option(`${item.code} · ${item.name}`, item.id)));
-  if ([...select.options].some((item) => item.value === current)) select.value = current;
-}
-
-function hydrateFilters() {
-  const programFilter = document.getElementById("programFilter");
-  const agentFilter = document.getElementById("agentFilter");
-  const currentProgram = programFilter.value;
-  const currentAgent = agentFilter.value;
-  programFilter.replaceChildren(option("All trainings", ""));
-  agentFilter.replaceChildren(option("All sales agents", ""));
-  state.programs.forEach((item) => programFilter.append(option(item.name, item.id)));
-  state.agents.forEach((item) => agentFilter.append(option(item.name, item.id)));
-  if ([...programFilter.options].some((item) => item.value === currentProgram)) programFilter.value = currentProgram;
-  if ([...agentFilter.options].some((item) => item.value === currentAgent)) agentFilter.value = currentAgent;
-}
-
-function relationForCreative(creative) {
-  const adSet = byId(state.adSets, creative?.adSetId);
+function relationForAd(ad) {
+  const adSet = byId(state.adSets, ad?.adSetId);
   const campaign = byId(state.campaigns, adSet?.campaignId);
-  const program = byId(state.programs, campaign?.programId);
+  const account = byId(state.adAccounts, campaign?.accountId);
   const agent = byId(state.agents, adSet?.agentId);
-  return { adSet, campaign, program, agent };
+  return { ad, adSet, campaign, account, agent, objective: adSet?.objective || campaign?.objective || "" };
 }
 
-function leadInRange(lead) {
-  const from = document.getElementById("fromDate").value;
-  const to = document.getElementById("toDate").value;
-  const date = dateOnly(lead.createdAt);
-  return (!from || date >= from) && (!to || date <= to);
+function relationForLog(log) {
+  return relationForAd(byId(state.creatives, log.creativeId));
 }
 
-function logInRange(log) {
-  const from = document.getElementById("fromDate").value;
-  const to = document.getElementById("toDate").value;
-  return (!from || log.date >= from) && (!to || log.date <= to);
+function relationForOutcome(outcome) {
+  const ad = byId(state.creatives, outcome.creativeId);
+  const adSet = byId(state.adSets, outcome.adSetId || ad?.adSetId);
+  const campaign = byId(state.campaigns, outcome.campaignId || adSet?.campaignId);
+  const agent = byId(state.agents, outcome.agentId || adSet?.agentId);
+  return { ad, adSet, campaign, agent, objective: adSet?.objective || campaign?.objective || "" };
 }
 
-function filteredLeads() {
-  const programId = document.getElementById("programFilter").value;
-  const agentId = document.getElementById("agentFilter").value;
-  return state.leads.filter((lead) => leadInRange(lead)
-    && (!programId || lead.programId === programId)
-    && (!agentId || lead.agentId === agentId));
+function overlapsRange(start, end) {
+  return (!filters.from || (end || start) >= filters.from) && (!filters.to || start <= filters.to);
+}
+
+function relationMatches(relation, text = "") {
+  if (filters.agentId && relation.agent?.id !== filters.agentId) return false;
+  if (filters.objective && relation.objective !== filters.objective) return false;
+  if (filters.campaignId && relation.campaign?.id !== filters.campaignId) return false;
+  if (filters.search) {
+    const haystack = [relation.ad?.name, relation.adSet?.name, relation.campaign?.name, relation.agent?.name, relation.objective, text].join(" ").toLocaleLowerCase();
+    if (!haystack.includes(filters.search.toLocaleLowerCase())) return false;
+  }
+  return true;
 }
 
 function filteredLogs() {
-  const programId = document.getElementById("programFilter").value;
-  const agentId = document.getElementById("agentFilter").value;
   return state.dailyLogs.filter((log) => {
-    const creative = byId(state.creatives, log.creativeId);
-    const relation = relationForCreative(creative);
-    return logInRange(log)
-      && (!programId || log.programId === programId)
-      && (!agentId || relation.agent?.id === agentId);
+    const start = log.reportingStart || log.date || "";
+    const end = log.reportingEnd || log.date || start;
+    return overlapsRange(start, end) && relationMatches(relationForLog(log));
   });
 }
 
-function computeRows() {
-  const leads = filteredLeads();
-  const logs = filteredLogs();
-  return state.creatives.map((creative) => {
-    const relation = relationForCreative(creative);
-    const creativeLeads = leads.filter((lead) => lead.creativeId === creative.id || lead.code === creative.code);
-    const creativeLogs = logs.filter((log) => log.creativeId === creative.id);
-    const spend = creativeLogs.reduce((sum, log) => sum + Number(log.spend || 0), 0);
-    const messages = creativeLogs.reduce((sum, log) => sum + Number(log.messages || 0), 0);
-    const booked = creativeLeads.filter((lead) => ["booked", "showed", "registered"].includes(lead.stage)).length;
-    const showed = creativeLeads.filter((lead) => ["showed", "registered"].includes(lead.stage)).length;
-    const registered = creativeLeads.filter((lead) => lead.stage === "registered").length;
-    return { creative, relation, spend, messages, leads: creativeLeads.length, booked, showed, registered,
-      cpl: creativeLeads.length ? spend / creativeLeads.length : 0,
-      cpReg: registered ? spend / registered : 0,
-      efficiency: spend ? (registered / spend) * 1000 : 0 };
-  }).sort((a, b) => b.efficiency - a.efficiency || b.registered - a.registered || b.leads - a.leads);
+function filteredOutcomes() {
+  return state.outcomes.filter((outcome) => overlapsRange(outcome.date, outcome.date)
+    && relationMatches(relationForOutcome(outcome), [outcome.personName, outcome.phone, outcome.notes].join(" ")));
 }
 
-function metrics() {
-  const leads = filteredLeads();
-  const logs = filteredLogs();
-  const spend = logs.reduce((sum, log) => sum + Number(log.spend || 0), 0);
-  const messages = logs.reduce((sum, log) => sum + Number(log.messages || 0), 0);
-  const booked = leads.filter((lead) => ["booked", "showed", "registered"].includes(lead.stage)).length;
-  const showed = leads.filter((lead) => ["showed", "registered"].includes(lead.stage)).length;
-  const registered = leads.filter((lead) => lead.stage === "registered").length;
-  return { leads, logs, spend, messages, booked, showed, registered };
+function emptyMetrics() {
+  return { spend: 0, messages: 0, messagesReplied: 0, results: 0, impressions: 0, reach: 0, linkClicks: 0, shopClicks: 0, clicksAll: 0, landingPageViews: 0, booked: 0, showed: 0, registered: 0 };
+}
+
+function addLogMetrics(target, log) {
+  ["spend", "messages", "messagesReplied", "results", "impressions", "reach", "linkClicks", "shopClicks", "clicksAll", "landingPageViews"].forEach((key) => { target[key] += Number(log[key] || 0); });
+}
+
+function groupKeyForRelation(relation, type) {
+  if (type === "ad") return relation.ad?.id || "";
+  if (type === "adSet") return relation.adSet?.id || "";
+  if (type === "campaign") return relation.campaign?.id || "";
+  return relation.agent?.id || "__unassigned";
+}
+
+function groupDescriptor(key, type) {
+  if (key === "__unassigned") return { key, name: "Unassigned", targetId: "", relation: {} };
+  if (type === "ad") {
+    const ad = byId(state.creatives, key);
+    return { key, name: ad?.name || "Unknown ad", targetId: ad?.id || "", relation: relationForAd(ad) };
+  }
+  if (type === "adSet") {
+    const adSet = byId(state.adSets, key);
+    const campaign = byId(state.campaigns, adSet?.campaignId);
+    const account = byId(state.adAccounts, campaign?.accountId);
+    const agent = byId(state.agents, adSet?.agentId);
+    return { key, name: adSet?.name || "Unknown ad set", targetId: adSet?.id || "", relation: { adSet, campaign, account, agent, objective: adSet?.objective || campaign?.objective || "" } };
+  }
+  if (type === "campaign") {
+    const campaign = byId(state.campaigns, key);
+    const account = byId(state.adAccounts, campaign?.accountId);
+    return { key, name: campaign?.name || "Unknown campaign", targetId: campaign?.id || "", relation: { campaign, account, objective: campaign?.objective || "" } };
+  }
+  const agent = byId(state.agents, key);
+  return { key, name: agent?.name || "Unknown agent", targetId: agent?.id || "", relation: { agent } };
+}
+
+function performanceRows(type = groupBy, useFilters = true) {
+  const rows = new Map();
+  function ensure(key) {
+    if (!key) return null;
+    if (!rows.has(key)) rows.set(key, { ...groupDescriptor(key, type), ...emptyMetrics(), latestLog: null });
+    return rows.get(key);
+  }
+  const logs = useFilters ? filteredLogs() : state.dailyLogs;
+  const outcomes = useFilters ? filteredOutcomes() : state.outcomes;
+  logs.forEach((log) => {
+    const relation = relationForLog(log);
+    const row = ensure(groupKeyForRelation(relation, type));
+    if (!row) return;
+    addLogMetrics(row, log);
+    if (!row.latestLog || String(log.reportingEnd || log.date) > String(row.latestLog.reportingEnd || row.latestLog.date)) row.latestLog = log;
+  });
+  outcomes.forEach((outcome) => {
+    const relation = relationForOutcome(outcome);
+    const key = groupKeyForRelation(relation, type);
+    if (type === "ad" && outcome.assignmentLevel !== "ad") return;
+    if (type === "adSet" && !outcome.adSetId) return;
+    if (type === "campaign" && !outcome.campaignId) return;
+    if (type === "agent" && !outcome.agentId) return;
+    const row = ensure(key);
+    if (row) row[outcome.type] += 1;
+  });
+  return [...rows.values()].sort((a, b) => {
+    const aCost = a.registered ? a.spend / a.registered : Number.POSITIVE_INFINITY;
+    const bCost = b.registered ? b.spend / b.registered : Number.POSITIVE_INFINITY;
+    return aCost - bCost || b.registered - a.registered || b.booked - a.booked || b.messages - a.messages;
+  });
+}
+
+function overallMetrics(useFilters = true) {
+  const values = emptyMetrics();
+  const logs = useFilters ? filteredLogs() : state.dailyLogs;
+  const outcomes = useFilters ? filteredOutcomes() : state.outcomes;
+  logs.forEach((log) => addLogMetrics(values, log));
+  outcomes.forEach((outcome) => { values[outcome.type] += 1; });
+  values.visited = values.showed + values.registered;
+  return values;
 }
 
 function renderKpis() {
-  const values = metrics();
+  const values = overallMetrics(false);
   const items = [
-    ["Spend", money(values.spend), "entered in daily logs"], ["Messages", values.messages, "from ad reporting"],
-    ["Leads", values.leads.length, `${fmt(values.leads.length ? values.spend / values.leads.length : 0)} CPL`],
-    ["Booked", values.booked, `${fmt(values.booked ? values.spend / values.booked : 0)} per booking`],
-    ["Showed", values.showed, `${fmt(values.showed ? values.spend / values.showed : 0)} per show-up`],
-    ["Registered", values.registered, `${fmt(values.registered ? values.spend / values.registered : 0)} per student`],
+    ["Spend", money(values.spend), "from Meta reports", "neutral"],
+    ["Messages", number(values.messages), cost(values.spend, values.messages) + " each", "blue"],
+    ["Booked", number(values.booked), cost(values.spend, values.booked) + " each", "amber"],
+    ["Visited", number(values.visited), `${values.showed} without registration`, "violet"],
+    ["Registered", number(values.registered), cost(values.spend, values.registered) + " each", "green"],
   ];
-  document.getElementById("kpis").innerHTML = items.map(([label, value, detail]) => `<article class="kpi"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
+  document.getElementById("kpis").innerHTML = items.map(([label, value, detail, style]) => `<article class="kpi ${style}"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
+  const welcome = document.getElementById("welcomeState");
+  welcome.classList.toggle("hidden", state.imports.length > 0);
+  if (!state.imports.length) welcome.innerHTML = `<div><strong>Start with your Meta Ads report</strong><p>Import the saved CSV once. Campaigns, ad sets, ads, spend, and messages will appear automatically.</p></div><button class="button primary" type="button" data-open-import>Import first report</button>`;
 }
 
 function renderFunnel() {
-  const values = metrics();
-  const qualified = values.leads.filter((lead) => ["qualified", "booked", "showed", "registered"].includes(lead.stage)).length;
-  const stagesData = [["Leads", values.leads.length], ["Qualified", qualified], ["Booked", values.booked], ["Showed", values.showed], ["Registered", values.registered]];
-  const maximum = Math.max(1, values.leads.length);
-  document.getElementById("funnel").innerHTML = stagesData.map(([label, value]) => {
-    const percentage = Math.round((value / maximum) * 100);
-    return `<div class="funnel-row"><span>${label}</span><div class="funnel-track" role="img" aria-label="${label}: ${value}, ${percentage}% of leads"><span style="width:${percentage}%"></span></div><span class="funnel-value">${value} · ${percentage}%</span></div>`;
+  const values = overallMetrics(false);
+  const data = [["Messages", values.messages], ["Booked", values.booked], ["Visits", values.visited], ["Registered", values.registered]];
+  const maximum = Math.max(1, ...data.map(([, value]) => value));
+  document.getElementById("funnel").innerHTML = data.map(([label, value]) => {
+    const width = Math.max(value ? 3 : 0, Math.round((value / maximum) * 100));
+    return `<div class="funnel-row"><span>${label}</span><div class="funnel-track" role="img" aria-label="${escapeHtml(label)}: ${value}"><span style="width:${width}%"></span></div><strong>${number(value)}</strong></div>`;
   }).join("");
 }
 
-function renderUpcomingAppointments() {
-  const now = Date.now();
-  const upcoming = state.leads.filter((lead) => lead.appointmentAt && new Date(lead.appointmentAt).getTime() >= now && !["lost", "registered"].includes(lead.stage))
-    .sort((a, b) => String(a.appointmentAt).localeCompare(String(b.appointmentAt))).slice(0, 5);
-  document.getElementById("upcomingAppointments").innerHTML = upcoming.length
-    ? `<div class="appointment-list">${upcoming.map((lead) => { const agent = byId(state.agents, lead.agentId); return `<div class="appointment"><div><strong>${escapeHtml(lead.phone || `Lead ${lead.code}`)}</strong><small>${escapeHtml(agent?.name || "No agent")}</small></div><time>${escapeHtml(new Date(lead.appointmentAt).toLocaleString())}</time></div>`; }).join("")}</div>`
-    : '<div class="empty">No upcoming appointments.</div>';
+function renderAttention() {
+  const unassigned = state.adSets.filter((adSet) => adSet.metaAdSetId && !adSet.agentId);
+  const ambiguous = unassigned.filter((adSet) => adSet.agentMatchStatus === "ambiguous").length;
+  const latest = state.imports[0];
+  const items = [
+    { value: unassigned.length, label: "Unassigned ad sets", detail: unassigned.length ? "Add agents whose names appear in these ad sets." : "Every imported ad set has an agent.", action: "agents" },
+    { value: ambiguous, label: "Ambiguous matches", detail: ambiguous ? "More than one agent name was found." : "No conflicting agent names found.", action: "agents" },
+    { value: latest ? new Date(latest.importedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Never", label: "Last report import", detail: latest ? `${latest.rows} ad rows synchronized.` : "Import your first Meta Ads CSV.", action: "data" },
+  ];
+  document.getElementById("attentionList").innerHTML = items.map((item) => `<button type="button" data-tab-link="${item.action}" class="attention-item"><span class="attention-value">${escapeHtml(item.value)}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.detail)}</small></span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6 1.4-1.4 7.4 7.4-7.4 7.4L9 18Z"/></svg></button>`).join("");
 }
 
-function renderScoreRows(rows) {
-  const maximum = Math.max(1, ...rows.map((row) => row.efficiency));
-  document.getElementById("scoreRows").innerHTML = rows.length ? rows.map((row) => {
-    const width = Math.round((row.efficiency / maximum) * 100);
-    return `<tr><td><span class="code">${escapeHtml(row.creative.code)}</span></td><td><strong>${escapeHtml(row.creative.name)}</strong><br><span class="pill">${escapeHtml(row.relation.program?.name || "–")}</span></td><td>${escapeHtml(row.relation.agent?.name || "–")}</td><td>${escapeHtml(row.relation.adSet?.objective || "–")}</td><td>${money(row.spend)}</td><td>${row.messages}</td><td>${row.leads}</td><td>${row.booked}</td><td>${row.showed}</td><td>${row.registered}</td><td>${fmt(row.cpl)}</td><td>${fmt(row.cpReg)}</td><td><div class="bar" title="${row.efficiency.toFixed(2)} registrations per 1000 MAD"><span style="width:${width}%"></span></div></td></tr>`;
-  }).join("") : '<tr><td colspan="13" class="empty">Complete campaign setup to start tracking performance.</td></tr>';
+function addOutcomeButton(level, targetId, label) {
+  if (!targetId) return "";
+  return `<button class="row-add" type="button" data-add-outcome data-level="${level}" data-target="${escapeHtml(targetId)}" aria-label="Add outcome for ${escapeHtml(label)}" title="Add outcome">+</button>`;
 }
 
-function renderAgentScore() {
-  const leads = filteredLeads();
-  const rows = state.agents.map((agent) => {
-    const agentLeads = leads.filter((lead) => lead.agentId === agent.id);
-    const booked = agentLeads.filter((lead) => ["booked", "showed", "registered"].includes(lead.stage)).length;
-    const showed = agentLeads.filter((lead) => ["showed", "registered"].includes(lead.stage)).length;
-    const registered = agentLeads.filter((lead) => lead.stage === "registered").length;
-    return `<tr><td><strong>${escapeHtml(agent.name)}</strong></td><td>${agentLeads.length}</td><td>${booked}</td><td>${showed}</td><td>${registered}</td><td>${booked ? Math.round((showed / booked) * 100) : 0}%</td><td>${showed ? Math.round((registered / showed) * 100) : 0}%</td></tr>`;
-  });
-  document.getElementById("agentScore").innerHTML = `<div class="section-head"><div><h3>Sales agent quality</h3><p>Conversion quality separated from media-buying performance.</p></div></div><div class="table-wrap"><table><thead><tr><th>Agent</th><th>Leads</th><th>Booked</th><th>Showed</th><th>Registered</th><th>Show rate</th><th>Close rate</th></tr></thead><tbody>${rows.join("") || '<tr><td colspan="7" class="empty">No sales agents yet.</td></tr>'}</tbody></table></div>`;
+function renderOverviewTables() {
+  const ads = performanceRows("ad", false).slice(0, 7);
+  document.getElementById("overviewRows").innerHTML = ads.length ? ads.map((row) => `<tr><td>${entityCell(row, "ad")}</td><td>${escapeHtml(row.relation.agent?.name || "Unassigned")}</td><td class="number-cell">${money(row.spend)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed + row.registered}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td><td>${addOutcomeButton("ad", row.targetId, row.name)}</td></tr>`).join("") : '<tr><td colspan="9" class="empty">Import a Meta Ads report to see performance.</td></tr>';
+  const agents = performanceRows("agent", false).filter((row) => row.key !== "__unassigned");
+  document.getElementById("agentRows").innerHTML = agents.length ? agents.map((row) => `<tr><td><strong>${escapeHtml(row.name)}</strong></td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td></tr>`).join("") : '<tr><td colspan="6" class="empty">Add agents to compare their results.</td></tr>';
 }
 
-function welcomeMessage(creative) {
-  return `مرحبا، أريد معرفة تفاصيل التكوين في مركز CMCG. كود الإعلان: ${creative.code}`;
+function entityCell(row, type = groupBy) {
+  const relation = row.relation;
+  let context = "";
+  if (type === "ad") context = [relation.adSet?.name, relation.campaign?.name].filter(Boolean).join(" · ");
+  if (type === "adSet") context = relation.campaign?.name || "";
+  if (type === "campaign") context = relation.objective || "";
+  if (type === "agent") context = row.key === "__unassigned" ? "Create a matching agent" : "Matched from ad set names";
+  return `<div class="entity-cell"><strong>${escapeHtml(row.name)}</strong>${context ? `<small>${escapeHtml(context)}</small>` : ""}</div>`;
 }
 
-function renderCodeCards() {
-  document.getElementById("codeCards").innerHTML = state.creatives.length ? state.creatives.map((creative) => {
-    const relation = relationForCreative(creative);
-    return `<article class="card code-card"><div class="code-card-head"><div><strong>${escapeHtml(creative.name)}</strong><p>${escapeHtml(relation.program?.name || "No training")} · ${escapeHtml(relation.agent?.name || "No agent")}</p></div><span class="code">${escapeHtml(creative.code)}</span></div><p class="message" dir="rtl">${escapeHtml(welcomeMessage(creative))}</p><p class="message">${escapeHtml(relation.adSet?.name || "No ad set")} · ${escapeHtml(creative.format)} · ${escapeHtml(creative.language)}</p><button type="button" data-copy="${escapeHtml(creative.id)}" class="button secondary">Copy welcome message</button></article>`;
-  }).join("") : '<div class="empty">No creative codes yet.</div>';
+function cellValue(column, row) {
+  const relation = row.relation || {};
+  const latest = row.latestLog || {};
+  const values = {
+    entity: entityCell(row),
+    agent: escapeHtml(relation.agent?.name || (groupBy === "agent" ? row.name : "Unassigned")),
+    objective: escapeHtml(relation.objective || relation.adSet?.objective || relation.campaign?.objective || "—"),
+    spend: money(row.spend), messages: number(row.messages), booked: row.booked, showed: row.showed, registered: `<strong>${row.registered}</strong>`,
+    costBooked: cost(row.spend, row.booked), costRegistered: cost(row.spend, row.registered),
+    campaign: escapeHtml(relation.campaign?.name || (groupBy === "campaign" ? row.name : "—")),
+    adSet: escapeHtml(relation.adSet?.name || (groupBy === "adSet" ? row.name : "—")),
+    code: relation.ad?.code ? `<span class="code">${escapeHtml(relation.ad.code)}</span>` : "—",
+    delivery: escapeHtml(relation.ad?.deliveryStatus || relation.adSet?.deliveryStatus || relation.campaign?.deliveryStatus || "—"),
+    resultType: escapeHtml(latest.resultType || "—"), results: number(row.results), costPerResult: cost(row.spend, row.results), messagesReplied: number(row.messagesReplied),
+    impressions: number(row.impressions), reach: number(row.reach), frequency: row.reach ? number(row.impressions / row.reach) : "—",
+    linkClicks: number(row.linkClicks), shopClicks: number(row.shopClicks), clicksAll: number(row.clicksAll), ctr: row.impressions ? `${number((row.linkClicks / row.impressions) * 100)}%` : "—",
+    cpc: row.linkClicks ? money(row.spend / row.linkClicks) : "—", ctrAll: row.impressions ? `${number((row.clicksAll / row.impressions) * 100)}%` : "—", cpcAll: row.clicksAll ? money(row.spend / row.clicksAll) : "—",
+    cpm: row.impressions ? money((row.spend / row.impressions) * 1000) : "—", landingPageViews: number(row.landingPageViews), costLandingPageView: cost(row.spend, row.landingPageViews),
+    qualityRanking: escapeHtml(latest.qualityRanking || "—"), engagementRanking: escapeHtml(latest.engagementRanking || "—"), conversionRanking: escapeHtml(latest.conversionRanking || "—"),
+    reportingStart: escapeHtml(latest.reportingStart || latest.date || "—"), reportingEnd: escapeHtml(latest.reportingEnd || latest.date || "—"),
+    account: escapeHtml(relation.account?.name || "—"), accountId: escapeHtml(relation.account?.metaAccountId || "—"),
+    campaignId: escapeHtml(relation.campaign?.metaCampaignId || "—"), adSetId: escapeHtml(relation.adSet?.metaAdSetId || "—"), adId: escapeHtml(relation.ad?.metaAdId || "—"),
+    pageId: escapeHtml(relation.ad?.pageId || "—"),
+    action: addOutcomeButton(groupBy, row.targetId, row.name),
+  };
+  return values[column.key] ?? escapeHtml(latest[column.key] || "—");
 }
 
-function renderSetupSummary() {
-  const items = [[state.programs.length, "Trainings"], [state.agents.length, "Sales agents"], [state.campaigns.length, "Campaigns"], [state.adSets.length, "Ad sets"], [state.creatives.length, "Creatives"]];
-  document.getElementById("setupSummary").innerHTML = items.map(([value, label]) => `<article class="summary-item"><strong>${value}</strong><span>${label}</span></article>`).join("");
+function renderColumnOptions() {
+  document.getElementById("columnOptions").innerHTML = columnDefinitions.filter((column) => !column.required).map((column) => `<label><input type="checkbox" data-column="${column.key}" ${visibleColumns.has(column.key) ? "checked" : ""} /><span>${escapeHtml(column.label)}</span></label>`).join("");
 }
 
-function visibleLeads() {
-  const query = document.getElementById("leadSearch").value.trim().toLocaleLowerCase();
-  const stage = document.getElementById("leadStageFilter").value;
-  return [...state.leads].filter((lead) => {
-    const agent = byId(state.agents, lead.agentId);
-    const haystack = [lead.code, lead.phone, lead.notes, lead.lostReason, agent?.name].join(" ").toLocaleLowerCase();
-    return (!stage || lead.stage === stage) && (!query || haystack.includes(query));
-  }).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+function renderPerformance() {
+  const rows = performanceRows();
+  const columns = columnDefinitions.filter((column) => visibleColumns.has(column.key));
+  document.getElementById("performanceCount").textContent = `${rows.length} ${groupBy === "ad" ? "ads" : groupBy === "adSet" ? "ad sets" : groupBy === "campaign" ? "campaigns" : "agents"}`;
+  document.getElementById("performanceTable").innerHTML = `<table><thead><tr>${columns.map((column) => `<th class="${column.numeric ? "number-cell" : ""}">${escapeHtml(column.label)}</th>`).join("")}</tr></thead><tbody>${rows.length ? rows.map((row) => `<tr>${columns.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cellValue(column, row)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${columns.length}" class="empty">No performance matches these filters.</td></tr>`}</tbody></table>`;
+  renderColumnOptions();
 }
 
-function renderLeadRows() {
-  const leads = visibleLeads();
-  document.getElementById("leadCount").textContent = `${leads.length} lead${leads.length === 1 ? "" : "s"}`;
-  document.getElementById("leadRows").innerHTML = leads.length ? leads.map((lead) => {
-    const agent = byId(state.agents, lead.agentId);
-    const stageOptions = stages.map(([value, label]) => `<option value="${value}" ${lead.stage === value ? "selected" : ""}>${label}</option>`).join("");
-    return `<tr data-lead="${escapeHtml(lead.id)}"><td>${escapeHtml(dateOnly(lead.createdAt))}</td><td><span class="code">${escapeHtml(lead.code || "–")}</span></td><td>${escapeHtml(agent?.name || "–")}</td><td><input data-field="phone" value="${escapeHtml(lead.phone || "")}" aria-label="Phone for ${escapeHtml(lead.code)}"></td><td><select data-field="stage" aria-label="Stage for ${escapeHtml(lead.code)}">${stageOptions}</select></td><td><input data-field="appointmentAt" type="datetime-local" value="${escapeHtml((lead.appointmentAt || "").slice(0, 16))}" aria-label="Appointment for ${escapeHtml(lead.code)}"></td><td><input data-field="amountPaid" type="number" min="0" step="1" value="${escapeHtml(lead.amountPaid || "")}" aria-label="Paid amount for ${escapeHtml(lead.code)}"></td><td><input data-field="lostReason" value="${escapeHtml(lead.lostReason || "")}" placeholder="Reason" aria-label="Lost reason for ${escapeHtml(lead.code)}"></td><td><input data-field="notes" value="${escapeHtml(lead.notes || "")}" placeholder="Notes" aria-label="Notes for ${escapeHtml(lead.code)}"></td><td><button type="button" data-save-lead="${escapeHtml(lead.id)}" class="button primary">Save</button></td></tr>`;
-  }).join("") : '<tr><td colspan="10" class="empty">No leads match this view.</td></tr>';
+function outcomeSource(outcome) {
+  const relation = relationForOutcome(outcome);
+  if (outcome.assignmentLevel === "ad") return { name: relation.ad?.name || "Unknown ad", detail: relation.adSet?.name || "Ad" };
+  if (outcome.assignmentLevel === "adSet") return { name: relation.adSet?.name || "Unknown ad set", detail: relation.campaign?.name || "Ad set" };
+  if (outcome.assignmentLevel === "campaign") return { name: relation.campaign?.name || "Unknown campaign", detail: "Campaign" };
+  return { name: relation.agent?.name || "Unknown agent", detail: "Agent" };
 }
 
-function renderLogRows() {
-  const logs = [...state.dailyLogs].sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  document.getElementById("logRows").innerHTML = logs.length ? logs.map((log) => {
-    const creative = byId(state.creatives, log.creativeId);
-    const relation = relationForCreative(creative);
-    return `<tr><td>${escapeHtml(log.date)}</td><td><span class="code">${escapeHtml(creative?.code || "–")}</span></td><td>${escapeHtml(creative?.name || "–")}</td><td>${escapeHtml(relation.agent?.name || "–")}</td><td>${money(log.spend)}</td><td>${Number(log.messages || 0)}</td><td>${escapeHtml(log.notes || "")}</td></tr>`;
-  }).join("") : '<tr><td colspan="7" class="empty">No daily spend has been entered.</td></tr>';
+function visibleOutcomes() {
+  const query = document.getElementById("outcomeSearch").value.trim().toLocaleLowerCase();
+  const type = document.getElementById("outcomeTypeFilter").value;
+  return [...state.outcomes].filter((outcome) => {
+    const source = outcomeSource(outcome);
+    const relation = relationForOutcome(outcome);
+    const haystack = [outcome.personName, outcome.phone, outcome.notes, source.name, relation.agent?.name].join(" ").toLocaleLowerCase();
+    return (!type || outcome.type === type) && (!query || haystack.includes(query));
+  }).sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function renderOutcomes() {
+  const outcomes = visibleOutcomes();
+  document.getElementById("outcomeCount").textContent = `${outcomes.length} outcome${outcomes.length === 1 ? "" : "s"}`;
+  document.getElementById("outcomeRows").innerHTML = outcomes.length ? outcomes.map((outcome) => {
+    const meta = outcomeMeta[outcome.type] || { label: outcome.type, className: "" };
+    const source = outcomeSource(outcome);
+    const agent = relationForOutcome(outcome).agent;
+    return `<tr><td>${escapeHtml(outcome.date)}</td><td><span class="outcome-pill ${meta.className}">${escapeHtml(meta.label)}</span></td><td><div class="entity-cell"><strong>${escapeHtml(outcome.personName || "Not entered")}</strong><small>${escapeHtml(outcome.phone || "No phone")}</small></div></td><td><div class="entity-cell"><strong>${escapeHtml(source.name)}</strong><small>${escapeHtml(source.detail)}</small></div></td><td>${escapeHtml(agent?.name || "—")}</td><td>${escapeHtml(outcome.notes || "—")}</td><td><button class="delete-button" type="button" data-delete-outcome="${escapeHtml(outcome.id)}" aria-label="Delete outcome" title="Delete"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 21a2 2 0 0 1-2-2V6h14v13a2 2 0 0 1-2 2H7ZM9 9v8h2V9H9Zm4 0v8h2V9h-2ZM8 3h8l1 1h4v2H3V4h4l1-1Z"/></svg></button></td></tr>`;
+  }).join("") : '<tr><td colspan="7" class="empty">No outcomes recorded yet. Use “Add outcome” to begin.</td></tr>';
+}
+
+function renderAgents() {
+  const rows = performanceRows("agent", false);
+  document.getElementById("agentDirectorySummary").textContent = `${state.agents.length} agent${state.agents.length === 1 ? "" : "s"} · names match case-insensitively`;
+  document.getElementById("agentCards").innerHTML = state.agents.length ? state.agents.map((agent) => {
+    const adSets = state.adSets.filter((adSet) => adSet.agentId === agent.id);
+    const metrics = rows.find((row) => row.key === agent.id) || emptyMetrics();
+    return `<article class="card agent-card"><div class="agent-avatar" aria-hidden="true">${escapeHtml(agent.name.slice(0, 1).toUpperCase())}</div><div class="agent-main"><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.whatsapp || "No WhatsApp number")}</small></div><div class="agent-stat"><strong>${adSets.length}</strong><span>matched ad sets</span></div><div class="agent-stat"><strong>${metrics.registered || 0}</strong><span>registrations</span></div><button class="row-add" type="button" data-add-outcome data-level="agent" data-target="${escapeHtml(agent.id)}" aria-label="Add outcome for ${escapeHtml(agent.name)}">+</button></article>`;
+  }).join("") : '<div class="empty card">Add your first sales agent. Existing imported ad sets will be matched immediately.</div>';
+  const unassigned = state.adSets.filter((adSet) => adSet.metaAdSetId && !adSet.agentId);
+  document.getElementById("unassignedAdSets").innerHTML = unassigned.length ? unassigned.map((adSet) => `<div class="simple-list-row"><div><strong>${escapeHtml(adSet.name)}</strong><small>${escapeHtml(byId(state.campaigns, adSet.campaignId)?.name || "Unknown campaign")}</small></div><span class="status-pill ${adSet.agentMatchStatus === "ambiguous" ? "warning" : ""}">${adSet.agentMatchStatus === "ambiguous" ? "Multiple names found" : "No matching agent"}</span></div>`).join("") : '<div class="empty success-empty">All imported ad sets are assigned.</div>';
+}
+
+function renderImports() {
+  document.getElementById("importRows").innerHTML = state.imports.length ? state.imports.slice(0, 20).map((item) => `<tr><td>${escapeHtml(new Date(item.importedAt).toLocaleString())}</td><td><strong>${escapeHtml(item.filename)}</strong></td><td class="number-cell">${item.rows}</td><td class="number-cell">${item.campaignsAdded}</td><td class="number-cell">${item.adSetsAdded}</td><td class="number-cell">${item.adsAdded}</td><td class="number-cell">${item.metricsUpdated}</td></tr>`).join("") : '<tr><td colspan="7" class="empty">No Meta Ads reports imported yet.</td></tr>';
 }
 
 function renderStorage() {
@@ -268,133 +416,174 @@ function renderStorage() {
   badge.querySelector("strong").textContent = storageInfo?.label || "Unknown";
   document.getElementById("storageWarning").classList.toggle("hidden", persistent);
   document.getElementById("storageTitle").textContent = storageInfo?.label || "Unknown storage";
-  document.getElementById("storageDescription").textContent = persistent
-    ? "Deployment-safe MySQL storage is active. Automatic database snapshots are kept before changes."
-    : "Local JSON is suitable for development only. Hostinger redeployments can replace this file.";
+  document.getElementById("storageDescription").textContent = persistent ? "MySQL storage is active. Automatic snapshots are kept before every change." : "Local JSON is for development only. Configure MySQL before entering production data.";
   document.getElementById("lastSaved").textContent = formatSavedAt(state.meta?.updatedAt);
-  const counts = [[state.programs.length, "trainings"], [state.agents.length, "agents"], [state.creatives.length, "creatives"], [state.leads.length, "leads"], [state.dailyLogs.length, "spend logs"]];
+  const counts = [[state.adAccounts.length, "accounts"], [state.campaigns.length, "campaigns"], [state.adSets.length, "ad sets"], [state.creatives.length, "ads"], [state.outcomes.length, "outcomes"], [state.imports.length, "imports"]];
   document.getElementById("systemCounts").innerHTML = counts.map(([value, label]) => `<span class="system-count"><strong>${value}</strong> ${label}</span>`).join("");
 }
 
+function hydrateFilters() {
+  const objectives = [...new Set(state.campaigns.map((campaign) => campaign.objective).filter(Boolean))].sort();
+  document.querySelectorAll('[data-filter="agentId"]').forEach((select) => {
+    select.replaceChildren(option("All agents", ""));
+    state.agents.forEach((agent) => select.append(option(agent.name, agent.id)));
+  });
+  document.querySelectorAll('[data-filter="objective"]').forEach((select) => {
+    select.replaceChildren(option("All objectives", ""));
+    objectives.forEach((objective) => select.append(option(objective, objective)));
+  });
+  document.querySelectorAll('[data-filter="campaignId"]').forEach((select) => {
+    select.replaceChildren(option("All campaigns", ""));
+    state.campaigns.filter((campaign) => campaign.metaCampaignId).sort((a, b) => a.name.localeCompare(b.name)).forEach((campaign) => select.append(option(campaign.name, campaign.id)));
+  });
+  document.querySelectorAll("[data-filter]").forEach((control) => { control.value = filters[control.dataset.filter] || ""; });
+}
+
 function render() {
-  document.querySelectorAll("select[data-options]").forEach(fillSelect);
   hydrateFilters();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
-  renderKpis();
-  renderFunnel();
-  renderUpcomingAppointments();
-  renderScoreRows(computeRows());
-  renderAgentScore();
-  renderSetupSummary();
-  renderCodeCards();
-  renderLeadRows();
-  renderLogRows();
-  renderStorage();
-  const dateInput = document.querySelector('form[data-create="daily-logs"] input[name="date"]');
-  if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderAgents(); renderImports(); renderStorage();
+}
+
+function showPanel(name, updateHash = true) {
+  document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
+  document.querySelectorAll(".panel").forEach((item) => item.classList.toggle("active", item.id === name));
+  const meta = pageMeta[name] || ["CMCG CRM", ""];
+  document.getElementById("pageTitle").textContent = meta[0];
+  document.getElementById("pageSubtitle").textContent = meta[1];
+  if (updateHash && window.location.hash !== `#view=${name}`) window.history.replaceState(null, "", `#view=${name}`);
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function targetOptions(level) {
+  if (level === "ad") return state.creatives.filter((ad) => ad.metaAdId).sort((a, b) => a.name.localeCompare(b.name)).map((ad) => { const relation = relationForAd(ad); return { id: ad.id, label: `${ad.name} · ${relation.adSet?.name || "No ad set"} · ${relation.agent?.name || "Unassigned"}` }; });
+  if (level === "adSet") return state.adSets.filter((adSet) => adSet.metaAdSetId).sort((a, b) => a.name.localeCompare(b.name)).map((adSet) => ({ id: adSet.id, label: `${adSet.name} · ${byId(state.campaigns, adSet.campaignId)?.name || "No campaign"}` }));
+  if (level === "campaign") return state.campaigns.filter((campaign) => campaign.metaCampaignId).sort((a, b) => a.name.localeCompare(b.name)).map((campaign) => ({ id: campaign.id, label: `${campaign.name} · ${campaign.objective || "No objective"}` }));
+  return state.agents.filter((agent) => agent.active !== false).sort((a, b) => a.name.localeCompare(b.name)).map((agent) => ({ id: agent.id, label: agent.name }));
+}
+
+function fillOutcomeTargets(preferred = "") {
+  const level = document.getElementById("assignmentLevel").value;
+  const target = document.getElementById("outcomeTarget");
+  const label = groupLabels[level];
+  document.getElementById("targetLabel").textContent = label;
+  const options = targetOptions(level);
+  target.replaceChildren(option(options.length ? `Select ${label.toLocaleLowerCase()}` : `No ${label.toLocaleLowerCase()} available`, ""));
+  options.forEach((item) => target.append(option(item.label, item.id)));
+  if (options.some((item) => item.id === preferred)) target.value = preferred;
+  document.getElementById("assignmentHint").textContent = level === "ad" ? "Best choice when you know the exact creative." : level === "adSet" ? "Use when you know the ad set but not the exact ad." : level === "campaign" ? "Use when only the campaign is known." : "Use when you only know the sales agent.";
+}
+
+function openOutcome({ level = "ad", targetId = "", type = "" } = {}) {
+  const form = document.getElementById("outcomeForm");
+  form.reset();
+  form.elements.date.value = new Date().toISOString().slice(0, 10);
+  form.elements.assignmentLevel.value = level;
+  if (type && form.elements.type) form.querySelector(`input[name="type"][value="${CSS.escape(type)}"]`).checked = true;
+  fillOutcomeTargets(targetId);
+  document.getElementById("outcomeDialog").showModal();
+}
+
+function selectMetaFile(file) {
+  if (!file) return;
+  if (!file.name.toLocaleLowerCase().endsWith(".csv")) return toast("Choose the CSV version of your Meta report", "error");
+  if (file.size > 9_000_000) return toast("The CSV is larger than 9 MB", "error");
+  pendingMetaFile = file;
+  const selected = document.getElementById("selectedFile");
+  selected.innerHTML = `<strong>${escapeHtml(file.name)}</strong><span>${number(file.size / 1024)} KB · ready to import</span>`;
+  selected.classList.remove("hidden");
+  document.getElementById("importCsvButton").disabled = false;
 }
 
 function formPayload(form) { return Object.fromEntries(new FormData(form).entries()); }
 
-function showPanel(name) {
-  document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
-  document.querySelectorAll(".panel").forEach((item) => item.classList.toggle("active", item.id === name));
-  document.getElementById("pageTitle").textContent = pageTitles[name] || "CMCG CRM";
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-function csvCell(value) {
-  let text = String(value ?? "");
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
-  return `"${text.replaceAll('"', '""')}"`;
-}
-function downloadCsv(name, rows) {
-  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
-  const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url; link.download = `${name}-${new Date().toISOString().slice(0, 10)}.csv`; link.click();
-  URL.revokeObjectURL(url);
-}
-
-function exportData(type) {
-  if (type === "leads") {
-    const rows = [["Created", "Code", "Training", "Agent", "Phone", "Stage", "Appointment", "Paid MAD", "Lost reason", "Notes"]];
-    visibleLeads().forEach((lead) => {
-      const creative = byId(state.creatives, lead.creativeId); const relation = relationForCreative(creative); const agent = byId(state.agents, lead.agentId);
-      rows.push([lead.createdAt, lead.code, relation.program?.name, agent?.name, lead.phone, stageLabel(lead.stage), lead.appointmentAt, lead.amountPaid, lead.lostReason, lead.notes]);
-    });
-    downloadCsv("cmcg-leads", rows);
-  }
-  if (type === "logs") {
-    const rows = [["Date", "Code", "Creative", "Training", "Agent", "Spend MAD", "Messages", "Notes"]];
-    state.dailyLogs.forEach((log) => { const creative = byId(state.creatives, log.creativeId); const relation = relationForCreative(creative); rows.push([log.date, creative?.code, creative?.name, relation.program?.name, relation.agent?.name, log.spend, log.messages, log.notes]); });
-    downloadCsv("cmcg-ad-spend", rows);
-  }
-  if (type === "dashboard") {
-    const rows = [["Code", "Creative", "Training", "Agent", "Spend MAD", "Messages", "Leads", "Booked", "Showed", "Registered", "CPL", "Cost per registration"]];
-    computeRows().forEach((row) => rows.push([row.creative.code, row.creative.name, row.relation.program?.name, row.relation.agent?.name, row.spend, row.messages, row.leads, row.booked, row.showed, row.registered, row.cpl, row.cpReg]));
-    downloadCsv("cmcg-performance", rows);
-  }
-}
-
 document.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target;
-  const create = form.dataset.create;
-  const submitButton = form.querySelector('button[type="submit"], button:not([type])');
-  const originalText = submitButton?.textContent;
-  if (submitButton) { submitButton.disabled = true; submitButton.textContent = "Saving…"; }
+  const button = form.querySelector('button[type="submit"], button:not([type])');
+  const original = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = "Saving…"; }
   try {
-    if (create) {
-      const saved = await api(`/api/${create}`, { method: "POST", body: JSON.stringify(formPayload(form)) });
-      form.reset();
-      toast(create === "creatives" ? `Creative ${saved.code} created` : "Saved successfully");
-      await load();
-      return;
-    }
-    if (form.id === "leadForm") {
-      await api("/api/leads", { method: "POST", body: JSON.stringify(formPayload(form)) });
-      form.reset(); toast("Lead added"); await load();
+    if (form.id === "outcomeForm") {
+      await api("/api/outcomes", { method: "POST", body: JSON.stringify(formPayload(form)) });
+      document.getElementById("outcomeDialog").close();
+      await load(); toast("Outcome saved");
+    } else if (form.dataset.create === "agents") {
+      await api("/api/agents", { method: "POST", body: JSON.stringify(formPayload(form)) });
+      form.reset(); await load(); toast("Agent added and ad sets rematched");
     }
   } catch (error) { toast(error.message, "error"); }
-  finally { if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalText; } }
+  finally { if (button) { button.disabled = false; button.textContent = original; } }
 });
 
 document.addEventListener("click", async (event) => {
   const tab = event.target.closest(".tab");
   if (tab) showPanel(tab.dataset.tab);
-  const copyId = event.target.closest("[data-copy]")?.dataset.copy;
-  if (copyId) {
-    const creative = byId(state.creatives, copyId);
-    try { await navigator.clipboard.writeText(welcomeMessage(creative)); toast("Welcome message copied"); }
-    catch { toast("Clipboard access was blocked", "error"); }
+  const tabLink = event.target.closest("[data-tab-link]");
+  if (tabLink) showPanel(tabLink.dataset.tabLink);
+  if (event.target.closest("[data-open-import]")) { showPanel("data"); setTimeout(() => document.getElementById("metaCsvFile").focus(), 250); }
+  if (event.target.closest("[data-go-performance]")) showPanel("performance");
+  const add = event.target.closest("[data-add-outcome]");
+  if (add) openOutcome({ level: add.dataset.level || "ad", targetId: add.dataset.target || "" });
+  if (event.target.closest("[data-close-outcome]")) document.getElementById("outcomeDialog").close();
+  const grouping = event.target.closest("[data-group]");
+  if (grouping) {
+    groupBy = grouping.dataset.group;
+    document.querySelectorAll("[data-group]").forEach((item) => item.classList.toggle("active", item.dataset.group === groupBy));
+    renderPerformance();
   }
-  const leadId = event.target.closest("[data-save-lead]")?.dataset.saveLead;
-  if (leadId) {
-    const row = document.querySelector(`tr[data-lead="${CSS.escape(leadId)}"]`);
-    const payload = {};
-    row.querySelectorAll("[data-field]").forEach((input) => { payload[input.dataset.field] = input.value; });
-    if (payload.stage === "registered") payload.registeredAt = new Date().toISOString();
-    const button = event.target.closest("button"); const original = button.textContent; button.disabled = true; button.textContent = "Saving…";
-    try { await api(`/api/leads/${leadId}`, { method: "PATCH", body: JSON.stringify(payload) }); toast("Lead updated"); await load(); }
+  const remove = event.target.closest("[data-delete-outcome]");
+  if (remove && confirm("Delete this outcome? This cannot be undone.")) {
+    try { await api(`/api/outcomes/${remove.dataset.deleteOutcome}`, { method: "DELETE" }); await load(); toast("Outcome deleted"); }
     catch (error) { toast(error.message, "error"); }
-    finally { button.disabled = false; button.textContent = original; }
   }
-  const exportType = event.target.closest("[data-export]")?.dataset.export;
-  if (exportType) exportData(exportType);
 });
 
-["fromDate", "toDate", "programFilter", "agentFilter"].forEach((id) => document.getElementById(id).addEventListener("change", () => { if (state) render(); }));
-document.getElementById("leadSearch").addEventListener("input", () => state && renderLeadRows());
-document.getElementById("leadStageFilter").addEventListener("change", () => state && renderLeadRows());
-document.getElementById("clearFilters").addEventListener("click", () => {
-  ["fromDate", "toDate", "programFilter", "agentFilter"].forEach((id) => { document.getElementById(id).value = ""; });
-  render();
+document.addEventListener("change", (event) => {
+  const filter = event.target.closest("[data-filter]");
+  if (filter) { filters[filter.dataset.filter] = filter.value; renderPerformance(); renderKpis(); renderFunnel(); renderOverviewTables(); }
+  const column = event.target.closest("[data-column]");
+  if (column) {
+    if (column.checked) visibleColumns.add(column.dataset.column); else visibleColumns.delete(column.dataset.column);
+    localStorage.setItem("cmcg-visible-columns", JSON.stringify([...visibleColumns]));
+    renderPerformance();
+  }
 });
+
+document.addEventListener("input", (event) => {
+  const filter = event.target.closest('[data-filter="search"]');
+  if (filter) { filters.search = filter.value; renderPerformance(); }
+});
+
+document.getElementById("clearFilters").addEventListener("click", () => {
+  Object.keys(filters).forEach((key) => { filters[key] = ""; });
+  hydrateFilters(); render();
+});
+document.getElementById("assignmentLevel").addEventListener("change", () => fillOutcomeTargets());
+document.getElementById("outcomeSearch").addEventListener("input", renderOutcomes);
+document.getElementById("outcomeTypeFilter").addEventListener("change", renderOutcomes);
 document.getElementById("refreshBtn").addEventListener("click", async (event) => {
   const button = event.currentTarget; button.disabled = true;
   try { await load(); toast("Data refreshed"); } catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; }
+});
+
+document.getElementById("metaCsvFile").addEventListener("change", (event) => selectMetaFile(event.target.files[0]));
+const importCard = document.getElementById("importCard");
+["dragenter", "dragover"].forEach((name) => importCard.addEventListener(name, (event) => { event.preventDefault(); importCard.classList.add("dragging"); }));
+["dragleave", "drop"].forEach((name) => importCard.addEventListener(name, (event) => { event.preventDefault(); importCard.classList.remove("dragging"); }));
+importCard.addEventListener("drop", (event) => selectMetaFile(event.dataTransfer.files[0]));
+document.getElementById("importCsvButton").addEventListener("click", async (event) => {
+  if (!pendingMetaFile) return;
+  const button = event.currentTarget; const original = button.textContent; button.disabled = true; button.textContent = "Synchronizing…";
+  try {
+    const result = await api("/api/meta-import", { method: "POST", body: JSON.stringify({ filename: pendingMetaFile.name, csv: await pendingMetaFile.text() }) });
+    pendingMetaFile = null; document.getElementById("metaCsvFile").value = ""; document.getElementById("selectedFile").classList.add("hidden");
+    await load();
+    const summary = result.result;
+    toast(`${summary.rows} rows synced · ${summary.adsAdded} new ads · ${summary.metricsUpdated} updated`);
+  } catch (error) { toast(error.message, "error"); }
+  finally { button.disabled = !pendingMetaFile; button.textContent = original; }
 });
 
 document.getElementById("restoreFile").addEventListener("change", async (event) => {
@@ -404,22 +593,18 @@ document.getElementById("restoreFile").addEventListener("change", async (event) 
     if (file.size > 10_000_000) throw new Error("Backup file is larger than 10 MB");
     pendingRestore = JSON.parse(await file.text());
     const candidate = pendingRestore.state || pendingRestore;
-    const total = ["programs", "agents", "campaigns", "adSets", "creatives", "leads", "dailyLogs"].reduce((sum, key) => sum + (Array.isArray(candidate[key]) ? candidate[key].length : 0), 0);
+    const total = ["agents", "campaigns", "adSets", "creatives", "outcomes", "dailyLogs"].reduce((sum, key) => sum + (Array.isArray(candidate[key]) ? candidate[key].length : 0), 0);
     if (!total) throw new Error("This file does not contain CRM records");
     document.getElementById("restoreSummary").textContent = `This backup contains ${total} CRM records. Current data will be replaced after a safety backup is created.`;
     document.getElementById("restoreDialog").showModal();
   } catch (error) { pendingRestore = null; event.target.value = ""; toast(error.message, "error"); }
 });
-
 document.getElementById("confirmRestore").addEventListener("click", async (event) => {
   event.preventDefault();
   if (!pendingRestore) return;
   const button = event.currentTarget; button.disabled = true; button.textContent = "Restoring…";
-  try {
-    await api("/api/restore", { method: "POST", body: JSON.stringify(pendingRestore) });
-    pendingRestore = null; document.getElementById("restoreFile").value = ""; document.getElementById("restoreDialog").close();
-    await load(); toast("Backup restored successfully");
-  } catch (error) { toast(error.message, "error"); }
+  try { await api("/api/restore", { method: "POST", body: JSON.stringify(pendingRestore) }); pendingRestore = null; document.getElementById("restoreFile").value = ""; document.getElementById("restoreDialog").close(); await load(); toast("Backup restored successfully"); }
+  catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; button.textContent = "Restore backup"; }
 });
 

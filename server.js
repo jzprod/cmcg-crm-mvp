@@ -18,15 +18,18 @@ const MIME = {
 
 function emptyState() {
   return {
-    meta: { schemaVersion: 2, updatedAt: null },
+    meta: { schemaVersion: 3, updatedAt: null },
     centre: { name: "CMCG", city: "Tanger" },
     settings: { currency: "MAD" },
+    adAccounts: [],
     programs: [],
     agents: [],
     campaigns: [],
     adSets: [],
     creatives: [],
     usedCreativeCodes: [],
+    imports: [],
+    outcomes: [],
     leads: [],
     dailyLogs: [],
     events: [],
@@ -39,9 +42,10 @@ function normalizeState(input) {
   state.meta = { ...base.meta, ...(state.meta || {}) };
   state.centre = { ...base.centre, ...(state.centre || {}) };
   state.settings = { ...base.settings, ...(state.settings || {}) };
-  ["programs", "agents", "campaigns", "adSets", "creatives", "leads", "dailyLogs", "events"].forEach((key) => {
+  ["adAccounts", "programs", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
+  state.meta.schemaVersion = 3;
   const usedCodes = new Set(
     (Array.isArray(state.usedCreativeCodes) ? state.usedCreativeCodes : [])
       .map(normalizeCode)
@@ -190,6 +194,246 @@ function duplicateName(items, name) {
   return items.some((item) => cleanText(item.name).toLocaleLowerCase() === normalized);
 }
 
+function numeric(value) {
+  const cleaned = cleanText(value).replaceAll(",", "");
+  if (!cleaned || cleaned === "-") return 0;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseCsv(text) {
+  const input = String(text || "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index];
+    if (quoted) {
+      if (character === '"' && input[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else if (character === '"') {
+        quoted = false;
+      } else {
+        cell += character;
+      }
+    } else if (character === '"') {
+      quoted = true;
+    } else if (character === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (character === "\n") {
+      row.push(cell.replace(/\r$/, ""));
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  if (cell || row.length) {
+    row.push(cell.replace(/\r$/, ""));
+    rows.push(row);
+  }
+  if (!rows.length) return [];
+  const headers = rows.shift().map(cleanText);
+  return rows.filter((values) => values.some((value) => cleanText(value))).map((values) => Object.fromEntries(
+    headers.map((header, index) => [header, values[index] ?? ""]),
+  ));
+}
+
+function normalizeForMatch(value) {
+  return cleanText(value).normalize("NFKC").toLocaleLowerCase().replace(/\s+/g, " ");
+}
+
+function agentMatchesAdSet(agentName, adSetName) {
+  const needle = normalizeForMatch(agentName);
+  const haystack = normalizeForMatch(adSetName);
+  if (!needle || !haystack) return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}([^\\p{L}\\p{N}]|$)`, "iu").test(haystack);
+}
+
+function matchAgent(state, adSetName) {
+  const matches = state.agents.filter((agent) => agent.active !== false && agentMatchesAdSet(agent.name, adSetName));
+  if (matches.length === 1) return { agentId: matches[0].id, agentMatchStatus: "matched", agentMatchCandidates: [] };
+  if (matches.length > 1) return { agentId: "", agentMatchStatus: "ambiguous", agentMatchCandidates: matches.map((agent) => agent.id) };
+  return { agentId: "", agentMatchStatus: "unassigned", agentMatchCandidates: [] };
+}
+
+function rematchImportedAdSets(state) {
+  state.adSets.filter((adSet) => adSet.metaAdSetId).forEach((adSet) => Object.assign(adSet, matchAgent(state, adSet.name)));
+}
+
+function getOrCreateByExternalId(items, externalField, externalId, prefix, defaults) {
+  let item = items.find((candidate) => cleanText(candidate[externalField]) === cleanText(externalId));
+  const created = !item;
+  if (!item) {
+    item = { id: id(prefix), [externalField]: cleanText(externalId), createdAt: now(), ...defaults };
+    items.push(item);
+  }
+  return { item, created };
+}
+
+function currencyFromHeader(header) {
+  const match = cleanText(header).match(/\(([A-Z]{3})\)\s*$/);
+  return match?.[1] || "USD";
+}
+
+function importMetaCsv(state, csv, filename) {
+  const rows = parseCsv(csv);
+  if (!rows.length) throw new Error("The CSV report does not contain any ad rows");
+  const headers = Object.keys(rows[0]);
+  const spendHeader = headers.find((header) => /^Amount spent(?:\s*\([A-Z]{3}\))?$/i.test(header));
+  const required = ["Campaign name", "Ad set name", "Ad name", "Objective", "Account ID", "Campaign ID", "Ad set ID", "Ad ID", "Messaging conversations started", "Reporting starts", "Reporting ends"];
+  const missing = required.filter((header) => !headers.includes(header));
+  if (!spendHeader) missing.push("Amount spent (currency)");
+  if (missing.length) throw new Error(`Missing required columns: ${missing.join(", ")}`);
+
+  const importId = id("imp");
+  const importedAt = now();
+  const summary = { rows: 0, campaignsAdded: 0, adSetsAdded: 0, adsAdded: 0, metricsAdded: 0, metricsUpdated: 0, skipped: 0 };
+  const seenMetricKeys = new Set();
+  const currency = currencyFromHeader(spendHeader);
+
+  rows.forEach((row) => {
+    if (cleanText(row["Delivery level"]) && normalizeForMatch(row["Delivery level"]) !== "ad") {
+      summary.skipped += 1;
+      return;
+    }
+    const accountExternalId = cleanText(row["Account ID"]);
+    const campaignExternalId = cleanText(row["Campaign ID"]);
+    const adSetExternalId = cleanText(row["Ad set ID"]);
+    const adExternalId = cleanText(row["Ad ID"]);
+    const startDate = cleanText(row["Reporting starts"]);
+    const endDate = cleanText(row["Reporting ends"]);
+    if (!accountExternalId || !campaignExternalId || !adSetExternalId || !adExternalId || !startDate || !endDate) {
+      summary.skipped += 1;
+      return;
+    }
+
+    const accountResult = getOrCreateByExternalId(state.adAccounts, "metaAccountId", accountExternalId, "acc", {});
+    Object.assign(accountResult.item, { name: cleanText(row["Account name"]) || accountResult.item.name || "Meta ad account", updatedAt: importedAt });
+
+    const campaignResult = getOrCreateByExternalId(state.campaigns, "metaCampaignId", campaignExternalId, "cmp", {});
+    if (campaignResult.created) summary.campaignsAdded += 1;
+    Object.assign(campaignResult.item, {
+      accountId: accountResult.item.id,
+      name: cleanText(row["Campaign name"]),
+      objective: cleanText(row.Objective),
+      deliveryStatus: cleanText(row["Campaign delivery"] || row["Delivery status"]),
+      updatedAt: importedAt,
+      lastSeenAt: importedAt,
+    });
+
+    const adSetResult = getOrCreateByExternalId(state.adSets, "metaAdSetId", adSetExternalId, "ads", {});
+    if (adSetResult.created) summary.adSetsAdded += 1;
+    Object.assign(adSetResult.item, {
+      campaignId: campaignResult.item.id,
+      name: cleanText(row["Ad set name"]),
+      objective: cleanText(row.Objective),
+      deliveryStatus: cleanText(row["Ad Set delivery"] || row["Delivery status"]),
+      updatedAt: importedAt,
+      lastSeenAt: importedAt,
+      ...matchAgent(state, row["Ad set name"]),
+    });
+
+    const creativeResult = getOrCreateByExternalId(state.creatives, "metaAdId", adExternalId, "crt", { code: "" });
+    if (creativeResult.created) {
+      creativeResult.item.code = makeCode(state);
+      state.usedCreativeCodes.push(creativeResult.item.code);
+      summary.adsAdded += 1;
+    }
+    Object.assign(creativeResult.item, {
+      adSetId: adSetResult.item.id,
+      name: cleanText(row["Ad name"]),
+      deliveryStatus: cleanText(row["Delivery status"]),
+      deliveryLevel: cleanText(row["Delivery level"]),
+      pageId: cleanText(row["Page ID"]),
+      updatedAt: importedAt,
+      lastSeenAt: importedAt,
+    });
+
+    const metricKey = `${creativeResult.item.id}|${startDate}|${endDate}`;
+    if (seenMetricKeys.has(metricKey)) {
+      summary.skipped += 1;
+      return;
+    }
+    seenMetricKeys.add(metricKey);
+    let metric = state.dailyLogs.find((log) => log.source === "meta_csv" && log.creativeId === creativeResult.item.id
+      && log.reportingStart === startDate && log.reportingEnd === endDate);
+    if (!metric) {
+      metric = { id: id("log"), source: "meta_csv", creativeId: creativeResult.item.id, createdAt: importedAt };
+      state.dailyLogs.push(metric);
+      summary.metricsAdded += 1;
+    } else {
+      summary.metricsUpdated += 1;
+    }
+    Object.assign(metric, {
+      importId,
+      date: startDate,
+      reportingStart: startDate,
+      reportingEnd: endDate,
+      adSetId: adSetResult.item.id,
+      campaignId: campaignResult.item.id,
+      accountId: accountResult.item.id,
+      spend: numeric(row[spendHeader]),
+      currency,
+      messages: numeric(row["Messaging conversations started"]),
+      messagesReplied: numeric(row["Messaging conversations replied"]),
+      results: numeric(row.Results),
+      resultType: cleanText(row["Result type"]),
+      impressions: numeric(row.Impressions),
+      reach: numeric(row.Reach),
+      frequency: numeric(row.Frequency),
+      linkClicks: numeric(row["Link clicks"]),
+      shopClicks: numeric(row["Shop clicks"]),
+      clicksAll: numeric(row["Clicks (all)"]),
+      landingPageViews: numeric(row["Landing page views"]),
+      qualityRanking: cleanText(row["Quality ranking"]),
+      engagementRanking: cleanText(row["Engagement rate ranking"]),
+      conversionRanking: cleanText(row["Conversion rate ranking"]),
+      raw: row,
+      updatedAt: importedAt,
+    });
+    summary.rows += 1;
+  });
+
+  if (!summary.rows) throw new Error("No valid ad-level rows were found in this report");
+  state.settings.currency = currency;
+  state.imports.unshift({ id: importId, filename: cleanText(filename) || "Meta Ads report.csv", importedAt, currency, ...summary });
+  state.imports = state.imports.slice(0, 100);
+  return state.imports[0];
+}
+
+function resolveOutcomeTarget(state, level, targetId) {
+  const result = { creativeId: "", adSetId: "", campaignId: "", agentId: "" };
+  if (level === "ad") {
+    const creative = state.creatives.find((item) => item.id === targetId);
+    if (!creative) return null;
+    const adSet = state.adSets.find((item) => item.id === creative.adSetId);
+    const campaign = state.campaigns.find((item) => item.id === adSet?.campaignId);
+    Object.assign(result, { creativeId: creative.id, adSetId: adSet?.id || "", campaignId: campaign?.id || "", agentId: adSet?.agentId || "" });
+  } else if (level === "adSet") {
+    const adSet = state.adSets.find((item) => item.id === targetId);
+    if (!adSet) return null;
+    Object.assign(result, { adSetId: adSet.id, campaignId: adSet.campaignId || "", agentId: adSet.agentId || "" });
+  } else if (level === "campaign") {
+    const campaign = state.campaigns.find((item) => item.id === targetId);
+    if (!campaign) return null;
+    result.campaignId = campaign.id;
+  } else if (level === "agent") {
+    const agent = state.agents.find((item) => item.id === targetId);
+    if (!agent) return null;
+    result.agentId = agent.id;
+  } else {
+    return null;
+  }
+  return result;
+}
+
 async function handleApi(req, res) {
   if (!requireAuth(req, res)) return;
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -218,9 +462,14 @@ async function handleApi(req, res) {
         storage: storage.info(),
         updatedAt: state.meta.updatedAt,
         counts: {
+          accounts: state.adAccounts.length,
           programs: state.programs.length,
           agents: state.agents.length,
+          campaigns: state.campaigns.length,
+          adSets: state.adSets.length,
           creatives: state.creatives.length,
+          outcomes: state.outcomes.length,
+          imports: state.imports.length,
           leads: state.leads.length,
           dailyLogs: state.dailyLogs.length,
         },
@@ -240,6 +489,51 @@ async function handleApi(req, res) {
       restored.meta.restoredAt = now();
       await storage.write(restored);
       return json(res, 200, { restored: true, state: restored });
+    }
+
+    if (method === "POST" && url.pathname === "/api/meta-import") {
+      const body = await parseBody(req);
+      if (!cleanText(body.csv)) return json(res, 400, { error: "Choose a Meta Ads CSV report" });
+      const result = importMetaCsv(state, body.csv, body.filename);
+      await storage.write(state);
+      return json(res, 200, { result, state });
+    }
+
+    if (method === "POST" && url.pathname === "/api/outcomes") {
+      const body = await parseBody(req);
+      const type = cleanText(body.type);
+      const assignmentLevel = cleanText(body.assignmentLevel);
+      const targetId = cleanText(body.targetId);
+      if (!new Set(["booked", "showed", "registered"]).has(type)) {
+        return json(res, 400, { error: "Choose registered, booked appointment, or showed without registering" });
+      }
+      const target = resolveOutcomeTarget(state, assignmentLevel, targetId);
+      if (!target) return json(res, 400, { error: "Choose a valid ad, ad set, campaign, or agent" });
+      const item = {
+        id: id("out"),
+        type,
+        assignmentLevel,
+        targetId,
+        ...target,
+        personName: cleanText(body.personName),
+        phone: cleanText(body.phone),
+        date: cleanText(body.date) || new Date().toISOString().slice(0, 10),
+        notes: cleanText(body.notes),
+        createdAt: now(),
+      };
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(item.date)) return json(res, 400, { error: "Choose a valid outcome date" });
+      state.outcomes.push(item);
+      await storage.write(state);
+      return json(res, 201, item);
+    }
+
+    const outcomeMatch = url.pathname.match(/^\/api\/outcomes\/([^/]+)$/);
+    if (method === "DELETE" && outcomeMatch) {
+      const index = state.outcomes.findIndex((item) => item.id === outcomeMatch[1]);
+      if (index === -1) return json(res, 404, { error: "Outcome not found" });
+      const [removed] = state.outcomes.splice(index, 1);
+      await storage.write(state);
+      return json(res, 200, { removed: true, outcome: removed });
     }
 
     if (method === "POST" && url.pathname === "/api/programs") {
@@ -264,6 +558,7 @@ async function handleApi(req, res) {
       if (!item.name) return json(res, 400, { error: "Agent name is required" });
       if (duplicateName(state.agents, item.name)) return json(res, 409, { error: "This sales agent already exists" });
       state.agents.push(item);
+      rematchImportedAdSets(state);
       await storage.write(state);
       return json(res, 201, item);
     }

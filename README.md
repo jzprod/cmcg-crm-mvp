@@ -1,17 +1,20 @@
 # CMCG CRM
 
-Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It connects ad spend and WhatsApp conversations to appointments, show-ups, registrations, revenue, creatives, trainings, and sales-agent performance.
+Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It synchronizes a daily Meta Ads CSV with appointments, center visits, registrations, and sales-agent performance.
 
 ## What it does
 
-- Creates dynamic trainings, sales agents, campaigns, ad sets, and creatives.
-- Assigns every creative a permanent case-insensitive 2–3 character tracking code.
-- Tracks leads through new, contacted, qualified, booked, showed, no-show, registered, and lost stages.
-- Requires a reason when a lead is marked lost.
-- Records daily spend and messages once per creative and date.
-- Calculates CPL, booking cost, show-up cost, registration cost, and registrations per 1000 MAD.
-- Shows conversion funnels, upcoming appointments, creative performance, and agent quality.
-- Exports dashboard, lead, and spend data to CSV.
+- Imports the complete ad-level Meta Ads CSV and safely updates repeated reporting dates.
+- Creates new accounts, campaigns, ad sets, and ads automatically using stable Meta IDs.
+- Stores every imported column while hiding secondary metrics and IDs by default.
+- Lets users reveal optional columns from the Performance screen.
+- Assigns ad sets to independently created agents when the full agent name appears in the ad-set name, case-insensitively.
+- Preserves separate split-test rows when an ad name is reused under another ad set, agent, campaign, or objective.
+- Records three manual outcomes: booked appointment, showed without registering, and registered student.
+- Attributes each outcome to the exact ad, or to an ad set, campaign, or agent when the ad is unknown.
+- Counts registered students as visits while keeping “showed” exclusive to visitors who did not register.
+- Compares ads, ad sets, campaigns, and agents using spend, messages, outcomes, and cost per result.
+- Assigns every imported ad a permanent case-insensitive 2–3 character tracking code.
 - Downloads and restores full JSON backups.
 - Uses Hostinger MySQL in production and automatically snapshots the previous database state before every write.
 
@@ -45,6 +48,15 @@ DB_NAME=your_hostinger_database_name
 When all database variables are present, the app creates its MySQL tables automatically. The **Data & backup** screen must show **MySQL database** before real CRM data is entered.
 
 See [HOSTINGER_DEPLOYMENT.md](HOSTINGER_DEPLOYMENT.md) for deployment, verification, and recovery steps.
+
+## Daily workflow
+
+1. Export the saved ad-level report from Meta Ads Manager for the reporting date.
+2. Open **Import & data**, choose the CSV, and select **Import and sync**.
+3. Add only the outcomes Meta cannot know: booked, showed without registration, or registered.
+4. Use **Performance** to group and compare Ads, Ad sets, Campaigns, or Agents.
+
+Repeated imports update the same ad/reporting-date rows instead of duplicating spend. Keep the Meta ID columns in the export even though they are hidden in the normal CRM view.
 
 ## Tracking message
 

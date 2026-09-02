@@ -94,13 +94,66 @@ test("production safeguards validate records and backup restore is loss-resistan
   assert.ok(fs.readdirSync(backupDir).some((name) => name.endsWith(".json")));
 });
 
+test("Meta CSV sync is idempotent, matches agents, and supports hierarchical outcomes", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-meta-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl } = await startApp(dataFile);
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const souad = await jsonRequest(baseUrl, "/api/agents", { method: "POST", body: { name: "Souad" }, expectedStatus: 201 });
+  await jsonRequest(baseUrl, "/api/agents", { method: "POST", body: { name: "Hasan" }, expectedStatus: 201 });
+  const headers = ["Campaign name", "Ad set name", "Ad name", "Delivery status", "Delivery level", "Result type", "Results", "Amount spent (USD)", "Objective", "Account ID", "Account name", "Ad ID", "Ad set ID", "Campaign ID", "Messaging conversations started", "Reporting starts", "Reporting ends"];
+  const values = [
+    ["CMCG Traffic", "Motion graphic souad", "Motion 2", "active", "ad", "Messaging conversations started", "2", "1.19", "Traffic", "144425835727623", "Fen Nord", "6906242427079", "6906242427279", "6883602937279", "2", "2026-09-02", "2026-09-02"],
+    ["CMCG Traffic", "Motion graphic HASAN", "Motion 2", "active", "ad", "Messaging conversations started", "3", "1.06", "Traffic", "144425835727623", "Fen Nord", "6907006155279", "6907006155079", "6883602937279", "3", "2026-09-02", "2026-09-02"],
+  ];
+  const csv = [headers, ...values].map((row) => row.join(",")).join("\r\n");
+  const first = await jsonRequest(baseUrl, "/api/meta-import", { method: "POST", body: { filename: "meta.csv", csv } });
+  assert.equal(first.result.rows, 2);
+  assert.equal(first.result.adsAdded, 2);
+
+  let snapshot = (await jsonRequest(baseUrl, "/api/state")).state;
+  assert.equal(snapshot.campaigns.length, 1);
+  assert.equal(snapshot.adSets.length, 2);
+  assert.equal(snapshot.creatives.length, 2);
+  assert.equal(snapshot.dailyLogs.length, 2);
+  assert.equal(snapshot.adSets.find((item) => item.name.includes("souad")).agentId, souad.id);
+  assert.equal(snapshot.adSets.every((item) => item.agentMatchStatus === "matched"), true);
+  assert.equal(snapshot.dailyLogs[0].raw["Account ID"], "144425835727623");
+
+  const renamedCsv = csv.replace("Motion 2,active", "Motion 2 renamed,active").replace("2,1.19,Traffic", "4,2.38,Traffic");
+  const second = await jsonRequest(baseUrl, "/api/meta-import", { method: "POST", body: { filename: "meta-again.csv", csv: renamedCsv } });
+  assert.equal(second.result.adsAdded, 0);
+  assert.equal(second.result.metricsUpdated, 2);
+  snapshot = (await jsonRequest(baseUrl, "/api/state")).state;
+  assert.equal(snapshot.creatives.length, 2);
+  assert.equal(snapshot.dailyLogs.length, 2);
+  assert.ok(snapshot.creatives.some((item) => item.name === "Motion 2 renamed"));
+
+  const ad = snapshot.creatives.find((item) => item.name === "Motion 2 renamed");
+  const registered = await jsonRequest(baseUrl, "/api/outcomes", { method: "POST", body: { type: "registered", assignmentLevel: "ad", targetId: ad.id, date: "2026-09-02", personName: "Student" }, expectedStatus: 201 });
+  assert.equal(registered.creativeId, ad.id);
+  assert.ok(registered.adSetId);
+  assert.ok(registered.campaignId);
+  assert.equal(registered.agentId, souad.id);
+  const campaign = snapshot.campaigns[0];
+  const booked = await jsonRequest(baseUrl, "/api/outcomes", { method: "POST", body: { type: "booked", assignmentLevel: "campaign", targetId: campaign.id, date: "2026-09-02" }, expectedStatus: 201 });
+  assert.equal(booked.campaignId, campaign.id);
+  assert.equal(booked.adSetId, "");
+  await jsonRequest(baseUrl, `/api/outcomes/${booked.id}`, { method: "DELETE" });
+  snapshot = (await jsonRequest(baseUrl, "/api/state")).state;
+  assert.equal(snapshot.outcomes.length, 1);
+});
+
 test("production UI contains accessible controls and correctly encoded Arabic copy", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   assert.doesNotMatch(html, /CMCG CRM MVP/);
   assert.match(html, /aria-live="polite"/);
-  assert.match(html, /Data &amp; backup|Data & backup/);
+  assert.match(html, /Import &amp; data|Import & data/);
+  assert.match(html, /Add outcome/);
   assert.match(html, /<label>/);
-  assert.match(app, /مرحبا، أريد معرفة تفاصيل التكوين/);
+  assert.match(app, /cmcg-visible-columns/);
+  assert.match(app, /مرحباً، أريد معرفة تفاصيل التكوين/);
   assert.doesNotMatch(app, /Ù…Ø/);
 });
