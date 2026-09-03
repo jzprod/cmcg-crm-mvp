@@ -5,7 +5,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const { scoreRows, qualityBand, sortRows } = require("../public/quality.js");
+const { scoreRows, qualityBand, sortRows, deriveTargets } = require("../public/quality.js");
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -64,6 +64,11 @@ test("production safeguards validate records and backup restore is loss-resistan
   assert.equal(health.ok, true);
   assert.equal(health.storage.backend, "json");
   assert.equal(health.storage.persistent, false);
+  await jsonRequest(baseUrl, "/api/settings/scoring", { method: "POST", body: { targetCostRegistered: 250, closingWindowDays: 9, targetShowRate: 55, targetCloseRate: 35 }, expectedStatus: 200 });
+  await jsonRequest(baseUrl, "/api/settings/scoring", { method: "POST", body: { targetCostRegistered: 0 }, expectedStatus: 400 });
+  const settingsSnapshot = await jsonRequest(baseUrl, "/api/state");
+  assert.equal(settingsSnapshot.state.settings.scoring.targetCostRegistered, 250);
+  assert.equal(settingsSnapshot.state.settings.scoring.closingWindowDays, 9);
 
   const program = await jsonRequest(baseUrl, "/api/programs", { method: "POST", body: { name: "Accounting" }, expectedStatus: 201 });
   await jsonRequest(baseUrl, "/api/programs", { method: "POST", body: { name: "accounting" }, expectedStatus: 409 });
@@ -131,6 +136,17 @@ test("Meta CSV sync is idempotent, matches agents, and supports hierarchical out
   assert.equal(snapshot.dailyLogs.length, 2);
   assert.ok(snapshot.creatives.some((item) => item.name === "Motion 2 renamed"));
 
+  const fallbackHeaders = ["Campaign name", "Ad set name", "Ad name", "Delivery status", "Delivery level", "Result type", "Results", "Amount spent (USD)", "Objective", "Account ID", "Account name", "Ad ID", "Ad set ID", "Campaign ID", "Messaging conversations started"];
+  const fallbackValues = [["CMCG Sales", "Evening souad", "Filename date ad", "active", "ad", "Messaging conversations started", "1", "5.00", "Sales", "144425835727623", "Fen Nord", "6909999999999", "6909999999888", "6889999999777", "1"]];
+  const fallbackCsv = [fallbackHeaders, ...fallbackValues].map((row) => row.join(",")).join("\r\n");
+  await jsonRequest(baseUrl, "/api/meta-import", { method: "POST", body: { filename: "Fen-Nord-Ads-Sep-1-2026-Sep-1-2026.csv", csv: fallbackCsv } });
+  snapshot = (await jsonRequest(baseUrl, "/api/state")).state;
+  const fallbackAd = snapshot.creatives.find((item) => item.metaAdId === "6909999999999");
+  const fallbackLog = snapshot.dailyLogs.find((log) => log.creativeId === fallbackAd.id);
+  assert.equal(fallbackLog.date, "2026-09-01");
+  assert.equal(fallbackLog.reportingStart, "2026-09-01");
+  assert.equal(fallbackLog.reportingEnd, "2026-09-01");
+
   const ad = snapshot.creatives.find((item) => item.name === "Motion 2 renamed");
   const registered = await jsonRequest(baseUrl, "/api/outcomes", { method: "POST", body: { type: "registered", assignmentLevel: "ad", targetId: ad.id, date: "2026-09-02", personName: "Student" }, expectedStatus: 201 });
   assert.equal(registered.creativeId, ad.id);
@@ -146,25 +162,35 @@ test("Meta CSV sync is idempotent, matches agents, and supports hierarchical out
   assert.equal(snapshot.outcomes.length, 1);
 });
 
-test("quality score weights outcomes, flags wasted spend, and sorts every entity consistently", () => {
-  const rows = scoreRows([
-    { name: "Strong ad", spend: 100, booked: 10, showed: 5, registered: 2, messages: 20 },
-    { name: "Watch ad", spend: 100, booked: 5, showed: 1, registered: 1, messages: 12 },
-    { name: "Weak ad", spend: 80, booked: 0, showed: 0, registered: 0, messages: 8 },
-    { name: "No spend", spend: 0, booked: 1, showed: 0, registered: 0, messages: 1 },
-  ]);
+test("quality score is target-based, closing-window aware, and separates agent closing quality", () => {
+  const settings = { scoring: { targetCostRegistered: 50, closingWindowDays: 7, targetShowRate: 60, targetCloseRate: 40 } };
+  const targets = deriveTargets(settings);
+  assert.equal(targets.targetCostVisit, 20);
+  assert.equal(targets.targetCostBooked, 12);
 
-  assert.equal(rows.find((row) => row.name === "Strong ad").qualityScore, 100);
-  assert.equal(rows.find((row) => row.name === "Watch ad").qualityScore, 41);
-  assert.equal(rows.find((row) => row.name === "Weak ad").qualityScore, 0);
-  assert.equal(rows.find((row) => row.name === "No spend").qualityScore, null);
-  assert.equal(qualityBand(100).label, "Strong");
-  assert.equal(qualityBand(41).label, "Watch");
-  assert.equal(qualityBand(0).label, "Weak");
-  assert.equal(qualityBand(null).label, "No data");
-  assert.deepEqual(sortRows(rows, "quality").map((row) => row.name), ["Strong ad", "Watch ad", "Weak ad", "No spend"]);
-  assert.deepEqual(sortRows(rows, "registered").slice(0, 2).map((row) => row.name), ["Strong ad", "Watch ad"]);
-  assert.equal(sortRows(rows, "costRegistered")[0].name, "Strong ad");
+  const rows = scoreRows([
+    { name: "Fresh tiny spend", spend: 2, booked: 0, showed: 0, registered: 0, messages: 1, firstActivityDate: "2026-09-02" },
+    { name: "Mature tiny spend", spend: 2, booked: 0, showed: 0, registered: 0, messages: 1, firstActivityDate: "2026-08-20" },
+    { name: "Strong ad", spend: 50, booked: 5, showed: 1, registered: 1, messages: 20, firstActivityDate: "2026-08-20" },
+    { name: "Watch no reg", spend: 60, booked: 2, showed: 1, registered: 0, messages: 8, firstActivityDate: "2026-08-20" },
+    { name: "Weak no reg", spend: 80, booked: 0, showed: 0, registered: 0, messages: 8, firstActivityDate: "2026-08-20" },
+    { name: "No spend", spend: 0, booked: 1, showed: 0, registered: 0, messages: 1, firstActivityDate: "2026-08-20" },
+  ], settings, new Date("2026-09-03T00:00:00Z"));
+
+  assert.equal(rows.find((row) => row.name === "Fresh tiny spend").qualityStatus.key, "pending");
+  assert.equal(rows.find((row) => row.name === "Mature tiny spend").qualityStatus.key, "insufficient");
+  assert.equal(rows.find((row) => row.name === "Strong ad").qualityStatus.key, "strong");
+  assert.equal(rows.find((row) => row.name === "Watch no reg").qualityStatus.key, "watch");
+  assert.equal(rows.find((row) => row.name === "Weak no reg").qualityStatus.key, "weak");
+  assert.equal(rows.find((row) => row.name === "No spend").qualityStatus.key, "none");
+  assert.equal(rows.find((row) => row.name === "Strong ad").visits, 2);
+  assert.equal(rows.find((row) => row.name === "Strong ad").costVisit, 25);
+  assert.equal(rows.find((row) => row.name === "Strong ad").showRate, 0.4);
+  assert.equal(rows.find((row) => row.name === "Strong ad").closeRate, 0.5);
+  assert.ok(rows.find((row) => row.name === "Strong ad").agentClosingScore > 0);
+  assert.equal(qualityBand(rows.find((row) => row.name === "Weak no reg")).label, "Weak");
+  assert.deepEqual(sortRows(rows, "quality").slice(0, 2).map((row) => row.name), ["Strong ad", "Watch no reg"]);
+  assert.equal(sortRows(rows, "costVisit")[0].name, "Strong ad");
 });
 
 test("production UI contains accessible controls and correctly encoded Arabic copy", () => {
@@ -174,8 +200,12 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /Import &amp; data|Import & data/);
   assert.match(html, /Add outcome/);
+  assert.match(html, /Business targets/);
+  assert.match(html, /scoringNotice/);
   assert.match(html, /<label>/);
   assert.match(app, /cmcg-visible-columns/);
+  assert.match(app, /Business quality - highest/);
+  assert.match(app, /agentClosing/);
   assert.match(app, /مرحباً، أريد معرفة تفاصيل التكوين/);
   assert.doesNotMatch(app, /Ù…Ø/);
 });

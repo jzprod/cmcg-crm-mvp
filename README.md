@@ -5,6 +5,7 @@ Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It syn
 ## What it does
 
 - Imports the complete ad-level Meta Ads CSV and safely updates repeated reporting dates.
+- Assigns spend to the actual report date from Meta's reporting columns, or from the filename when those columns are missing.
 - Creates new accounts, campaigns, ad sets, and ads automatically using stable Meta IDs.
 - Stores every imported column while hiding secondary metrics and IDs by default.
 - Lets users reveal optional columns from the Performance screen.
@@ -12,14 +13,15 @@ Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It syn
 - Preserves separate split-test rows when an ad name is reused under another ad set, agent, campaign, or objective.
 - Records three manual outcomes: booked appointment, showed without registering, and registered student.
 - Attributes each outcome to the exact ad, or to an ad set, campaign, or agent when the ad is unknown.
-- Counts registered students as visits while keeping “showed” exclusive to visitors who did not register.
-- Compares ads, ad sets, campaigns, and agents using spend, messages, outcomes, cost per outcome, and a color-coded 0–100 quality score.
-- Sorts every performance level by quality, spend, outcome totals, messages, or lowest cost per outcome.
-- Assigns every imported ad a permanent case-insensitive 2–3 character tracking code.
+- Counts registered students as visits while keeping "showed" exclusive to visitors who did not register.
+- Compares ads, ad sets, campaigns, and agents using spend, messages, outcomes, cost per visit, cost per registration, lag-aware business quality, and confidence.
+- Separates business quality from agent closing quality so ads and sales follow-up can be judged fairly.
+- Sorts every performance level by quality, spend, outcome totals, messages, rates, or lowest cost per outcome.
+- Assigns every imported ad a permanent case-insensitive 2-3 character tracking code.
 - Downloads and restores full JSON backups.
 - Uses Hostinger MySQL in production and automatically snapshots the previous database state before every write.
 
-## Run locally
+## Run Locally
 
 ```bash
 npm install
@@ -34,7 +36,7 @@ Run regression tests:
 npm test
 ```
 
-## Production environment variables
+## Production Environment Variables
 
 ```text
 CRM_USER=your_private_admin_username
@@ -50,26 +52,21 @@ When all database variables are present, the app creates its MySQL tables automa
 
 See [HOSTINGER_DEPLOYMENT.md](HOSTINGER_DEPLOYMENT.md) for deployment, verification, and recovery steps.
 
-## Daily workflow
+## Daily Workflow
 
 1. Export the saved ad-level report from Meta Ads Manager for the reporting date.
 2. Open **Import & data**, choose the CSV, and select **Import and sync**.
-3. Add only the outcomes Meta cannot know: booked, showed without registration, or registered.
-4. Use **Performance** to group and compare Ads, Ad sets, Campaigns, or Agents.
+3. Open **Performance**, set your maximum profitable cost per registered student in **Scoring settings**, and keep the closing-window assumptions realistic.
+4. Add only the outcomes Meta cannot know: booked, showed without registration, or registered.
+5. Use **Performance** to group and compare Ads, Ad sets, Campaigns, or Agents.
 
-The quality score is relative to the rows in the selected view. It weights booked-appointment efficiency at 20%, showed-without-registration efficiency at 30%, and registration efficiency at 50%. Green is strong (70–100), amber needs attention (40–69), red is weak (0–39), and gray means there is not enough spend/outcome data for a comparison.
+Business quality is target-based, not relative. It weights cost per registered student at 60%, cost per total visit at 20%, cost per booked appointment at 10%, and visit-to-registration close rate at 10%. Rows stay **Awaiting** inside the closing window, tiny mature spends stay **Not enough**, and a row only turns **Weak** after enough time and spend have passed to judge it fairly.
 
 Repeated imports update the same ad/reporting-date rows instead of duplicating spend. Keep the Meta ID columns in the export even though they are hidden in the normal CRM view.
 
-## Tracking message
+## Tracking Message
 
-Each creative receives a short code such as `A7`. The welcome message is:
-
-```text
-مرحبا، أريد معرفة تفاصيل التكوين في مركز CMCG. كود الإعلان: A7
-```
-
-Codes are normalized to uppercase, so lowercase and uppercase entries match the same creative. A used code is never assigned again.
+Each creative receives a short code such as `A7`. Codes are normalized to uppercase, so lowercase and uppercase entries match the same creative. A used code is never assigned again.
 
 ## Privacy
 

@@ -16,11 +16,36 @@ const MIME = {
   ".svg": "image/svg+xml",
 };
 
+const DEFAULT_SCORING = {
+  targetCostRegistered: 0,
+  closingWindowDays: 7,
+  targetShowRate: 60,
+  targetCloseRate: 40,
+};
+
+function finiteNumber(value) {
+  const result = Number(value);
+  return Number.isFinite(result) ? result : 0;
+}
+
+function normalizeScoringSettings(input = {}) {
+  const targetCostRegistered = finiteNumber(input.targetCostRegistered);
+  const closingWindowDays = Math.round(finiteNumber(input.closingWindowDays)) || DEFAULT_SCORING.closingWindowDays;
+  const targetShowRate = finiteNumber(input.targetShowRate) || DEFAULT_SCORING.targetShowRate;
+  const targetCloseRate = finiteNumber(input.targetCloseRate) || DEFAULT_SCORING.targetCloseRate;
+  return {
+    targetCostRegistered: targetCostRegistered > 0 ? targetCostRegistered : 0,
+    closingWindowDays: Math.min(90, Math.max(1, closingWindowDays)),
+    targetShowRate: Math.min(100, Math.max(1, targetShowRate)),
+    targetCloseRate: Math.min(100, Math.max(1, targetCloseRate)),
+  };
+}
+
 function emptyState() {
   return {
     meta: { schemaVersion: 3, updatedAt: null },
     centre: { name: "CMCG", city: "Tanger" },
-    settings: { currency: "MAD" },
+    settings: { currency: "MAD", scoring: { ...DEFAULT_SCORING } },
     adAccounts: [],
     programs: [],
     agents: [],
@@ -42,6 +67,13 @@ function normalizeState(input) {
   state.meta = { ...base.meta, ...(state.meta || {}) };
   state.centre = { ...base.centre, ...(state.centre || {}) };
   state.settings = { ...base.settings, ...(state.settings || {}) };
+  state.settings.scoring = normalizeScoringSettings({
+    targetCostRegistered: state.settings.targetCostRegistered,
+    closingWindowDays: state.settings.closingWindowDays,
+    targetShowRate: state.settings.targetShowRate,
+    targetCloseRate: state.settings.targetCloseRate,
+    ...(state.settings.scoring || {}),
+  });
   ["adAccounts", "programs", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
@@ -282,14 +314,38 @@ function currencyFromHeader(header) {
   return match?.[1] || "USD";
 }
 
+function normalizeReportDate(value) {
+  const text = cleanText(value);
+  if (!text) return "";
+  const iso = text.match(/\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const named = text.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*[-\s_]+(\d{1,2})[-,\s_]+(\d{4})\b/i);
+  if (!named) return "";
+  const months = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", sept: "09", oct: "10", nov: "11", dec: "12" };
+  return `${named[3]}-${months[named[1].toLocaleLowerCase()]}-${named[2].padStart(2, "0")}`;
+}
+
+function datesFromFilename(filename) {
+  const text = cleanText(filename).replace(/[._]/g, "-");
+  const matches = [...text.matchAll(/\b(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*[-\s_]+\d{1,2}[-,\s_]+\d{4})\b/gi)]
+    .map((match) => normalizeReportDate(match[0]))
+    .filter(Boolean);
+  if (!matches.length) return { startDate: "", endDate: "" };
+  return { startDate: matches[0], endDate: matches[1] || matches[0] };
+}
+
 function importMetaCsv(state, csv, filename) {
   const rows = parseCsv(csv);
   if (!rows.length) throw new Error("The CSV report does not contain any ad rows");
   const headers = Object.keys(rows[0]);
   const spendHeader = headers.find((header) => /^Amount spent(?:\s*\([A-Z]{3}\))?$/i.test(header));
-  const required = ["Campaign name", "Ad set name", "Ad name", "Objective", "Account ID", "Campaign ID", "Ad set ID", "Ad ID", "Messaging conversations started", "Reporting starts", "Reporting ends"];
+  const required = ["Campaign name", "Ad set name", "Ad name", "Objective", "Account ID", "Campaign ID", "Ad set ID", "Ad ID", "Messaging conversations started"];
   const missing = required.filter((header) => !headers.includes(header));
   if (!spendHeader) missing.push("Amount spent (currency)");
+  const filenameDates = datesFromFilename(filename);
+  if ((!headers.includes("Reporting starts") || !headers.includes("Reporting ends")) && (!filenameDates.startDate || !filenameDates.endDate)) {
+    missing.push("Reporting starts/ends columns or report date in filename");
+  }
   if (missing.length) throw new Error(`Missing required columns: ${missing.join(", ")}`);
 
   const importId = id("imp");
@@ -307,8 +363,8 @@ function importMetaCsv(state, csv, filename) {
     const campaignExternalId = cleanText(row["Campaign ID"]);
     const adSetExternalId = cleanText(row["Ad set ID"]);
     const adExternalId = cleanText(row["Ad ID"]);
-    const startDate = cleanText(row["Reporting starts"]);
-    const endDate = cleanText(row["Reporting ends"]);
+    const startDate = normalizeReportDate(row["Reporting starts"]) || filenameDates.startDate;
+    const endDate = normalizeReportDate(row["Reporting ends"]) || filenameDates.endDate || startDate;
     if (!accountExternalId || !campaignExternalId || !adSetExternalId || !adExternalId || !startDate || !endDate) {
       summary.skipped += 1;
       return;
@@ -491,6 +547,17 @@ async function handleApi(req, res) {
       return json(res, 200, { restored: true, state: restored });
     }
 
+    if (method === "POST" && url.pathname === "/api/settings/scoring") {
+      const body = await parseBody(req);
+      const scoring = normalizeScoringSettings(body);
+      if (scoring.targetCostRegistered <= 0) {
+        return json(res, 400, { error: "Enter the maximum acceptable cost per registered student" });
+      }
+      state.settings.scoring = scoring;
+      await storage.write(state);
+      return json(res, 200, { settings: state.settings });
+    }
+
     if (method === "POST" && url.pathname === "/api/meta-import") {
       const body = await parseBody(req);
       if (!cleanText(body.csv)) return json(res, 400, { error: "Choose a Meta Ads CSV report" });
@@ -518,10 +585,12 @@ async function handleApi(req, res) {
         personName: cleanText(body.personName),
         phone: cleanText(body.phone),
         date: cleanText(body.date) || new Date().toISOString().slice(0, 10),
+        sourceDate: cleanText(body.sourceDate),
         notes: cleanText(body.notes),
         createdAt: now(),
       };
       if (!/^\d{4}-\d{2}-\d{2}$/.test(item.date)) return json(res, 400, { error: "Choose a valid outcome date" });
+      if (item.sourceDate && !/^\d{4}-\d{2}-\d{2}$/.test(item.sourceDate)) return json(res, 400, { error: "Choose a valid first contact date" });
       state.outcomes.push(item);
       await storage.write(state);
       return json(res, 201, item);

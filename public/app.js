@@ -24,17 +24,23 @@ let sortBy = "quality";
 
 const columnDefinitions = [
   { key: "entity", label: "Name", required: true },
-  { key: "quality", label: "Quality score", required: true },
+  { key: "quality", label: "Business quality", required: true },
+  { key: "status", label: "Status", default: true },
   { key: "agent", label: "Agent", default: true },
   { key: "objective", label: "Objective", default: true },
   { key: "spend", label: "Spend", default: true, numeric: true },
   { key: "messages", label: "Messages", default: true, numeric: true },
   { key: "booked", label: "Booked", default: true, numeric: true },
+  { key: "visits", label: "Total visits", default: true, numeric: true },
   { key: "showed", label: "Showed, no registration", default: true, numeric: true },
   { key: "registered", label: "Registered", default: true, numeric: true },
   { key: "costBooked", label: "Cost / booked", default: true, numeric: true },
-  { key: "costShowed", label: "Cost / showed", default: true, numeric: true },
+  { key: "costVisit", label: "Cost / visit", default: true, numeric: true },
+  { key: "costShowed", label: "Cost / showed only", default: false, numeric: true },
   { key: "costRegistered", label: "Cost / registered", default: true, numeric: true },
+  { key: "showRate", label: "Show rate", default: false, numeric: true },
+  { key: "closeRate", label: "Close rate", default: false, numeric: true },
+  { key: "agentClosing", label: "Agent closing", default: false },
   { key: "campaign", label: "Campaign", default: false },
   { key: "adSet", label: "Ad set", default: false },
   { key: "code", label: "Short code", default: false },
@@ -79,8 +85,8 @@ function readColumns() {
   try {
     const stored = JSON.parse(localStorage.getItem("cmcg-visible-columns"));
     const currentVersion = localStorage.getItem("cmcg-columns-version");
-    if (Array.isArray(stored) && currentVersion === "2") return new Set([...stored, "entity", "quality", "action"]);
-    localStorage.setItem("cmcg-columns-version", "2");
+    if (Array.isArray(stored) && currentVersion === "3") return new Set([...stored, "entity", "quality", "action"]);
+    localStorage.setItem("cmcg-columns-version", "3");
   } catch {}
   return new Set(defaultColumns());
 }
@@ -95,10 +101,18 @@ const money = (value) => `${new Intl.NumberFormat("en-MA", { minimumFractionDigi
 const cost = (spend, count) => (count ? money(spend / count) : "—");
 const legacyWelcomeMessage = "مرحباً، أريد معرفة تفاصيل التكوين في مركز CMCG. كود الإعلان:";
 
+const percent = (value) => Number.isFinite(Number(value)) ? `${number(Number(value) * 100)}%` : "-";
+
 function normalizeState() {
   ["adAccounts", "programs", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
+  state.settings = state.settings || {};
+  state.settings.scoring = CmcgQuality.normalizeSettings(state.settings.scoring || state.settings);
+}
+
+function scoringTargets() {
+  return CmcgQuality.deriveTargets(state?.settings?.scoring || {});
 }
 
 function formatSavedAt(value) {
@@ -186,16 +200,25 @@ function filteredLogs() {
 }
 
 function filteredOutcomes() {
-  return state.outcomes.filter((outcome) => overlapsRange(outcome.date, outcome.date)
+  return state.outcomes.filter((outcome) => overlapsRange(outcome.sourceDate || outcome.date, outcome.date)
     && relationMatches(relationForOutcome(outcome), [outcome.personName, outcome.phone, outcome.notes].join(" ")));
 }
 
 function emptyMetrics() {
-  return { spend: 0, messages: 0, messagesReplied: 0, results: 0, impressions: 0, reach: 0, linkClicks: 0, shopClicks: 0, clicksAll: 0, landingPageViews: 0, booked: 0, showed: 0, registered: 0 };
+  return { spend: 0, messages: 0, messagesReplied: 0, results: 0, impressions: 0, reach: 0, linkClicks: 0, shopClicks: 0, clicksAll: 0, landingPageViews: 0, booked: 0, showed: 0, registered: 0, visits: 0, firstActivityDate: "", lastActivityDate: "" };
+}
+
+function recordActivityDate(target, value) {
+  const date = dateOnly(value);
+  if (!date) return;
+  if (!target.firstActivityDate || date < target.firstActivityDate) target.firstActivityDate = date;
+  if (!target.lastActivityDate || date > target.lastActivityDate) target.lastActivityDate = date;
 }
 
 function addLogMetrics(target, log) {
   ["spend", "messages", "messagesReplied", "results", "impressions", "reach", "linkClicks", "shopClicks", "clicksAll", "landingPageViews"].forEach((key) => { target[key] += Number(log[key] || 0); });
+  recordActivityDate(target, log.reportingStart || log.date);
+  recordActivityDate(target, log.reportingEnd || log.date);
 }
 
 function groupKeyForRelation(relation, type) {
@@ -251,9 +274,14 @@ function performanceRows(type = groupBy, useFilters = true, criterion = sortBy) 
     if (type === "campaign" && !outcome.campaignId) return;
     if (type === "agent" && !outcome.agentId) return;
     const row = ensure(key);
-    if (row) row[outcome.type] += 1;
+    if (row) {
+      row[outcome.type] += 1;
+      if (outcome.type === "registered" || outcome.type === "showed") row.visits += 1;
+      recordActivityDate(row, outcome.sourceDate || outcome.date);
+      recordActivityDate(row, outcome.date);
+    }
   });
-  return CmcgQuality.sortRows(CmcgQuality.scoreRows([...rows.values()]), criterion);
+  return CmcgQuality.sortRows(CmcgQuality.scoreRows([...rows.values()], state.settings), criterion);
 }
 
 function overallMetrics(useFilters = true) {
@@ -261,8 +289,11 @@ function overallMetrics(useFilters = true) {
   const logs = useFilters ? filteredLogs() : state.dailyLogs;
   const outcomes = useFilters ? filteredOutcomes() : state.outcomes;
   logs.forEach((log) => addLogMetrics(values, log));
-  outcomes.forEach((outcome) => { values[outcome.type] += 1; });
-  values.visited = values.showed + values.registered;
+  outcomes.forEach((outcome) => {
+    values[outcome.type] += 1;
+    if (outcome.type === "registered" || outcome.type === "showed") values.visits += 1;
+  });
+  values.visited = values.visits;
   return values;
 }
 
@@ -318,11 +349,42 @@ function qualityRowClass(row) {
   return `quality-row-${CmcgQuality.qualityBand(row.qualityScore).key}`;
 }
 
+function qualityBadge(row) {
+  const band = CmcgQuality.qualityBand(row);
+  const score = row.qualityScore === null || row.qualityScore === undefined ? "-" : row.qualityScore;
+  const confidence = row.qualityConfidence?.label || "Low confidence";
+  const detail = band.key === "pending" ? `Inside ${row.closingWindowDays || scoringTargets().closingWindowDays}-day closing window` : confidence;
+  return `<span class="quality-badge quality-${band.key}" title="${escapeHtml(detail)}"><strong>${score}</strong><span>${escapeHtml(band.label)}<small>${escapeHtml(row.qualityConfidence?.key || "low")}</small></span></span>`;
+}
+
+function agentClosingBadge(row) {
+  const band = row.agentClosingStatus || { key: "none", label: "No data" };
+  const score = row.agentClosingScore === null || row.agentClosingScore === undefined ? "-" : row.agentClosingScore;
+  return `<span class="quality-badge quality-${band.key}" title="Agent score uses show rate and visit-to-registration close rate"><strong>${score}</strong><span>${escapeHtml(band.label)}<small>sales</small></span></span>`;
+}
+
+function statusPill(row) {
+  const band = CmcgQuality.qualityBand(row);
+  const confidence = row.qualityConfidence?.label || "Low confidence";
+  return `<span class="status-pill quality-${band.key}" title="${escapeHtml(confidence)}">${escapeHtml(band.label)}</span>`;
+}
+
+function qualityRowClass(row) {
+  return `quality-row-${CmcgQuality.qualityBand(row).key}`;
+}
+
 function renderOverviewTables() {
   const ads = performanceRows("ad", false, "quality").slice(0, 7);
   document.getElementById("overviewRows").innerHTML = ads.length ? ads.map((row) => `<tr class="${qualityRowClass(row)}"><td>${entityCell(row, "ad")}</td><td>${qualityBadge(row)}</td><td>${escapeHtml(row.relation.agent?.name || "Unassigned")}</td><td class="number-cell">${money(row.spend)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed + row.registered}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td><td>${addOutcomeButton("ad", row.targetId, row.name)}</td></tr>`).join("") : '<tr><td colspan="10" class="empty">Import a Meta Ads report to see performance.</td></tr>';
   const agents = performanceRows("agent", false, "quality").filter((row) => row.key !== "__unassigned");
   document.getElementById("agentRows").innerHTML = agents.length ? agents.map((row) => `<tr class="${qualityRowClass(row)}"><td><strong>${escapeHtml(row.name)}</strong></td><td>${qualityBadge(row)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td></tr>`).join("") : '<tr><td colspan="7" class="empty">Add agents to compare their results.</td></tr>';
+}
+
+function renderOverviewTables() {
+  const ads = performanceRows("ad", false, "quality").slice(0, 7);
+  document.getElementById("overviewRows").innerHTML = ads.length ? ads.map((row) => `<tr class="${qualityRowClass(row)}"><td>${entityCell(row, "ad")}</td><td>${qualityBadge(row)}</td><td>${escapeHtml(row.relation.agent?.name || "Unassigned")}</td><td class="number-cell">${money(row.spend)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.visits}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td><td>${addOutcomeButton("ad", row.targetId, row.name)}</td></tr>`).join("") : '<tr><td colspan="10" class="empty">Import a Meta Ads report to see performance.</td></tr>';
+  const agents = performanceRows("agent", false, "quality").filter((row) => row.key !== "__unassigned");
+  document.getElementById("agentRows").innerHTML = agents.length ? agents.map((row) => `<tr class="${qualityRowClass(row)}"><td><strong>${escapeHtml(row.name)}</strong></td><td>${qualityBadge(row)}</td><td>${agentClosingBadge(row)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.visits}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td></tr>`).join("") : '<tr><td colspan="8" class="empty">Add agents to compare their results.</td></tr>';
 }
 
 function entityCell(row, type = groupBy) {
@@ -341,10 +403,13 @@ function cellValue(column, row) {
   const values = {
     entity: entityCell(row),
     quality: qualityBadge(row),
+    status: statusPill(row),
+    agentClosing: groupBy === "agent" ? agentClosingBadge(row) : "-",
     agent: escapeHtml(relation.agent?.name || (groupBy === "agent" ? row.name : "Unassigned")),
     objective: escapeHtml(relation.objective || relation.adSet?.objective || relation.campaign?.objective || "—"),
-    spend: money(row.spend), messages: number(row.messages), booked: row.booked, showed: row.showed, registered: `<strong>${row.registered}</strong>`,
-    costBooked: cost(row.spend, row.booked), costShowed: cost(row.spend, row.showed), costRegistered: cost(row.spend, row.registered),
+    spend: money(row.spend), messages: number(row.messages), booked: row.booked, visits: row.visits, showed: row.showed, registered: `<strong>${row.registered}</strong>`,
+    costBooked: cost(row.spend, row.booked), costVisit: cost(row.spend, row.visits), costShowed: cost(row.spend, row.showed), costRegistered: cost(row.spend, row.registered),
+    showRate: percent(row.showRate), closeRate: percent(row.closeRate),
     campaign: escapeHtml(relation.campaign?.name || (groupBy === "campaign" ? row.name : "—")),
     adSet: escapeHtml(relation.adSet?.name || (groupBy === "adSet" ? row.name : "—")),
     code: relation.ad?.code ? `<span class="code">${escapeHtml(relation.ad.code)}</span>` : "—",
@@ -371,7 +436,11 @@ function renderColumnOptions() {
 
 function renderPerformance() {
   const rows = performanceRows();
-  const columns = columnDefinitions.filter((column) => visibleColumns.has(column.key));
+  const agentColumns = new Set(["agentClosing", "showRate", "closeRate"]);
+  const columns = columnDefinitions.filter((column) => {
+    if (groupBy !== "agent" && column.key === "agentClosing") return false;
+    return visibleColumns.has(column.key) || (groupBy === "agent" && agentColumns.has(column.key));
+  });
   document.getElementById("performanceCount").textContent = `${rows.length} ${groupBy === "ad" ? "ads" : groupBy === "adSet" ? "ad sets" : groupBy === "campaign" ? "campaigns" : "agents"}`;
   document.getElementById("performanceTable").innerHTML = `<table><thead><tr>${columns.map((column) => `<th class="${column.numeric ? "number-cell" : ""}">${escapeHtml(column.label)}</th>`).join("")}</tr></thead><tbody>${rows.length ? rows.map((row) => `<tr class="${qualityRowClass(row)}">${columns.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cellValue(column, row)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${columns.length}" class="empty">No performance matches these filters.</td></tr>`}</tbody></table>`;
   renderColumnOptions();
@@ -413,7 +482,7 @@ function renderAgents() {
   document.getElementById("agentCards").innerHTML = state.agents.length ? state.agents.map((agent) => {
     const adSets = state.adSets.filter((adSet) => adSet.agentId === agent.id);
     const metrics = rows.find((row) => row.key === agent.id) || emptyMetrics();
-    return `<article class="card agent-card"><div class="agent-avatar" aria-hidden="true">${escapeHtml(agent.name.slice(0, 1).toUpperCase())}</div><div class="agent-main"><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.whatsapp || "No WhatsApp number")}</small></div><div class="agent-stat"><strong>${adSets.length}</strong><span>matched ad sets</span></div><div class="agent-stat"><strong>${metrics.registered || 0}</strong><span>registrations</span></div><button class="row-add" type="button" data-add-outcome data-level="agent" data-target="${escapeHtml(agent.id)}" aria-label="Add outcome for ${escapeHtml(agent.name)}">+</button></article>`;
+    return `<article class="card agent-card"><div class="agent-avatar" aria-hidden="true">${escapeHtml(agent.name.slice(0, 1).toUpperCase())}</div><div class="agent-main"><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.whatsapp || "No WhatsApp number")}</small></div><div class="agent-stat"><strong>${adSets.length}</strong><span>matched ad sets</span></div><div class="agent-stat"><strong>${metrics.registered || 0}</strong><span>registrations</span></div><div class="agent-stat closing-stat">${agentClosingBadge(metrics)}</div><button class="row-add" type="button" data-add-outcome data-level="agent" data-target="${escapeHtml(agent.id)}" aria-label="Add outcome for ${escapeHtml(agent.name)}">+</button></article>`;
   }).join("") : '<div class="empty card">Add your first sales agent. Existing imported ad sets will be matched immediately.</div>';
   const unassigned = state.adSets.filter((adSet) => adSet.metaAdSetId && !adSet.agentId);
   document.getElementById("unassignedAdSets").innerHTML = unassigned.length ? unassigned.map((adSet) => `<div class="simple-list-row"><div><strong>${escapeHtml(adSet.name)}</strong><small>${escapeHtml(byId(state.campaigns, adSet.campaignId)?.name || "Unknown campaign")}</small></div><span class="status-pill ${adSet.agentMatchStatus === "ambiguous" ? "warning" : ""}">${adSet.agentMatchStatus === "ambiguous" ? "Multiple names found" : "No matching agent"}</span></div>`).join("") : '<div class="empty success-empty">All imported ad sets are assigned.</div>';
@@ -436,6 +505,53 @@ function renderStorage() {
   document.getElementById("systemCounts").innerHTML = counts.map(([value, label]) => `<span class="system-count"><strong>${value}</strong> ${label}</span>`).join("");
 }
 
+function renderScoringSettings() {
+  const notice = document.getElementById("scoringNotice");
+  if (!notice) return;
+  const targets = scoringTargets();
+  if (!targets.configured) {
+    notice.className = "alert warning scoring-alert";
+    notice.innerHTML = `<div><strong>Set your registration target to activate scoring.</strong><span>Until this is saved, rows show "Set target" instead of judging performance.</span></div><button class="button secondary" type="button" data-open-scoring>Scoring settings</button>`;
+    return;
+  }
+  notice.className = "alert info scoring-alert";
+  notice.innerHTML = `<div><strong>Scoring target: registered at or below ${money(targets.targetCostRegistered)}.</strong><span>Matures after ${targets.closingWindowDays} days. Visit target: ${money(targets.targetCostVisit)}. Booked target: ${money(targets.targetCostBooked)}.</span></div><button class="button secondary" type="button" data-open-scoring>Edit scoring</button>`;
+}
+
+function hydrateSortOptions() {
+  const select = document.getElementById("performanceSort");
+  if (!select || select.dataset.ready === "true") return;
+  const options = [
+    ["quality", "Business quality - highest"],
+    ["agentClosing", "Agent closing - highest"],
+    ["spendHigh", "Spend - highest"],
+    ["spendLow", "Spend - lowest"],
+    ["booked", "Booked appointments - most"],
+    ["visits", "Total visits - most"],
+    ["showed", "Showed, no registration - most"],
+    ["registered", "Registered students - most"],
+    ["costBooked", "Cost / booked - lowest"],
+    ["costVisit", "Cost / visit - lowest"],
+    ["costRegistered", "Cost / registered - lowest"],
+    ["showRate", "Show rate - highest"],
+    ["closeRate", "Close rate - highest"],
+    ["messages", "Messages - most"],
+  ];
+  select.replaceChildren(...options.map(([value, label]) => option(label, value)));
+  select.value = sortBy;
+  select.dataset.ready = "true";
+}
+
+function updateScoringPreview() {
+  const form = document.getElementById("scoringForm");
+  const preview = document.getElementById("scoringPreview");
+  if (!form || !preview) return;
+  const targets = CmcgQuality.deriveTargets(formPayload(form));
+  preview.textContent = targets.configured
+    ? `Visit target: ${money(targets.targetCostVisit)}. Booked appointment target: ${money(targets.targetCostBooked)}.`
+    : "Enter your maximum profitable registration cost to calculate the visit and booked targets.";
+}
+
 function hydrateFilters() {
   const objectives = [...new Set(state.campaigns.map((campaign) => campaign.objective).filter(Boolean))].sort();
   document.querySelectorAll('[data-filter="agentId"]').forEach((select) => {
@@ -455,8 +571,9 @@ function hydrateFilters() {
 
 function render() {
   hydrateFilters();
+  hydrateSortOptions();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
-  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderAgents(); renderImports(); renderStorage();
+  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderAgents(); renderImports(); renderStorage(); renderScoringSettings();
 }
 
 function showPanel(name, updateHash = true) {
@@ -492,10 +609,22 @@ function openOutcome({ level = "ad", targetId = "", type = "" } = {}) {
   const form = document.getElementById("outcomeForm");
   form.reset();
   form.elements.date.value = new Date().toISOString().slice(0, 10);
+  if (form.elements.sourceDate) form.elements.sourceDate.value = "";
   form.elements.assignmentLevel.value = level;
   if (type && form.elements.type) form.querySelector(`input[name="type"][value="${CSS.escape(type)}"]`).checked = true;
   fillOutcomeTargets(targetId);
   document.getElementById("outcomeDialog").showModal();
+}
+
+function openScoringSettings() {
+  const form = document.getElementById("scoringForm");
+  const settings = CmcgQuality.normalizeSettings(state.settings.scoring || {});
+  form.elements.targetCostRegistered.value = settings.targetCostRegistered || "";
+  form.elements.closingWindowDays.value = settings.closingWindowDays;
+  form.elements.targetShowRate.value = settings.targetShowRate;
+  form.elements.targetCloseRate.value = settings.targetCloseRate;
+  updateScoringPreview();
+  document.getElementById("scoringDialog").showModal();
 }
 
 function selectMetaFile(file) {
@@ -522,6 +651,11 @@ document.addEventListener("submit", async (event) => {
       await api("/api/outcomes", { method: "POST", body: JSON.stringify(formPayload(form)) });
       document.getElementById("outcomeDialog").close();
       await load(); toast("Outcome saved");
+    } else if (form.id === "scoringForm") {
+      const result = await api("/api/settings/scoring", { method: "POST", body: JSON.stringify(formPayload(form)) });
+      state.settings = result.settings;
+      document.getElementById("scoringDialog").close();
+      render(); toast("Scoring settings saved");
     } else if (form.dataset.create === "agents") {
       await api("/api/agents", { method: "POST", body: JSON.stringify(formPayload(form)) });
       form.reset(); await load(); toast("Agent added and ad sets rematched");
@@ -537,9 +671,11 @@ document.addEventListener("click", async (event) => {
   if (tabLink) showPanel(tabLink.dataset.tabLink);
   if (event.target.closest("[data-open-import]")) { showPanel("data"); setTimeout(() => document.getElementById("metaCsvFile").focus(), 250); }
   if (event.target.closest("[data-go-performance]")) showPanel("performance");
+  if (event.target.closest("[data-open-scoring]")) openScoringSettings();
   const add = event.target.closest("[data-add-outcome]");
   if (add) openOutcome({ level: add.dataset.level || "ad", targetId: add.dataset.target || "" });
   if (event.target.closest("[data-close-outcome]")) document.getElementById("outcomeDialog").close();
+  if (event.target.closest("[data-close-scoring]")) document.getElementById("scoringDialog").close();
   const grouping = event.target.closest("[data-group]");
   if (grouping) {
     groupBy = grouping.dataset.group;
@@ -568,6 +704,7 @@ document.addEventListener("change", (event) => {
 document.addEventListener("input", (event) => {
   const filter = event.target.closest('[data-filter="search"]');
   if (filter) { filters.search = filter.value; renderPerformance(); }
+  if (event.target.closest("#scoringForm input")) updateScoringPreview();
 });
 
 document.getElementById("clearFilters").addEventListener("click", () => {
