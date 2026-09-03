@@ -4,7 +4,6 @@
   if (root) root.CmcgQuality = api;
 }(typeof globalThis !== "undefined" ? globalThis : this, function createQualityScore() {
   const defaultScoringSettings = {
-    targetCostRegistered: 0,
     closingWindowDays: 7,
     targetShowRate: 60,
     targetCloseRate: 40,
@@ -27,35 +26,17 @@
   function normalizeSettings(settings = {}) {
     const input = settings.scoring && typeof settings.scoring === "object" ? settings.scoring : settings;
     return {
-      targetCostRegistered: positiveNumber(input.targetCostRegistered),
       closingWindowDays: clamp(Math.round(positiveNumber(input.closingWindowDays) || defaultScoringSettings.closingWindowDays), 1, 90),
       targetShowRate: clamp(positiveNumber(input.targetShowRate) || defaultScoringSettings.targetShowRate, 1, 100),
       targetCloseRate: clamp(positiveNumber(input.targetCloseRate) || defaultScoringSettings.targetCloseRate, 1, 100),
     };
   }
 
-  function deriveTargets(settings = {}) {
-    const scoring = normalizeSettings(settings);
-    const targetCostRegistered = positiveNumber(scoring.targetCostRegistered);
-    if (!targetCostRegistered) {
-      return {
-        ...scoring,
-        configured: false,
-        targetCostRegistered: 0,
-        targetCostVisit: 0,
-        targetCostBooked: 0,
-      };
-    }
-    const showRate = scoring.targetShowRate / 100;
-    const closeRate = scoring.targetCloseRate / 100;
-    const targetCostVisit = targetCostRegistered * closeRate;
-    return {
-      ...scoring,
-      configured: true,
-      targetCostRegistered,
-      targetCostVisit,
-      targetCostBooked: targetCostVisit * showRate,
-    };
+  function percentile(values, point = 0.5) {
+    const sorted = values.filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+    if (!sorted.length) return 0;
+    const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * point) - 1));
+    return sorted[index];
   }
 
   function parseDate(value) {
@@ -77,6 +58,58 @@
     return value > 0 && amount > 0 ? amount / value : Number.POSITIVE_INFINITY;
   }
 
+  function metricsFor(row) {
+    const spend = finiteNumber(row.spend);
+    const booked = finiteNumber(row.booked);
+    const showed = finiteNumber(row.showed);
+    const registered = finiteNumber(row.registered);
+    const visits = showed + registered;
+    return {
+      ...row,
+      spend,
+      booked,
+      showed,
+      registered,
+      visits,
+      costBooked: costPer(spend, booked),
+      costVisit: costPer(spend, visits),
+      costRegistered: costPer(spend, registered),
+      showRate: booked > 0 ? visits / booked : null,
+      closeRate: visits > 0 ? registered / visits : null,
+      outcomeVolume: (registered * 5) + (visits * 2) + booked,
+    };
+  }
+
+  function deriveTargets(settings = {}, rows = []) {
+    if (Array.isArray(settings)) {
+      rows = settings;
+      settings = {};
+    }
+    const scoring = normalizeSettings(settings);
+    const metrics = rows.map(metricsFor);
+    const targetCostRegistered = percentile(metrics.map((row) => row.costRegistered), 0.6);
+    const targetCostVisit = percentile(metrics.map((row) => row.costVisit), 0.6);
+    const targetCostBooked = percentile(metrics.map((row) => row.costBooked), 0.6);
+    const learnedShowRate = percentile(metrics.map((row) => row.showRate), 0.5);
+    const learnedCloseRate = percentile(metrics.map((row) => row.closeRate), 0.5);
+    const spendBenchmark = percentile(metrics.filter((row) => row.outcomeVolume > 0).map((row) => row.spend), 0.5)
+      || percentile(metrics.map((row) => row.spend), 0.5)
+      || 50;
+    const maxOutcomeVolume = Math.max(0, ...metrics.map((row) => row.outcomeVolume));
+    return {
+      ...scoring,
+      configured: Boolean(targetCostRegistered || targetCostVisit || targetCostBooked || maxOutcomeVolume),
+      automatic: true,
+      targetCostRegistered,
+      targetCostVisit,
+      targetCostBooked,
+      targetShowRate: learnedShowRate ? learnedShowRate * 100 : scoring.targetShowRate,
+      targetCloseRate: learnedCloseRate ? learnedCloseRate * 100 : scoring.targetCloseRate,
+      spendBenchmark,
+      maxOutcomeVolume,
+    };
+  }
+
   function costComponent(target, actual) {
     if (!target || !Number.isFinite(actual) || actual <= 0) return 0;
     return Math.min(100, (target / actual) * 100);
@@ -87,82 +120,74 @@
     return Math.min(100, (actualRate / (targetRatePercent / 100)) * 100);
   }
 
+  function volumeComponent(targets, row) {
+    return targets.maxOutcomeVolume > 0 ? Math.min(100, (row.outcomeVolume / targets.maxOutcomeVolume) * 100) : 0;
+  }
+
+  function weightedScore(row, targets) {
+    const parts = [];
+    if (targets.targetCostRegistered) parts.push([costComponent(targets.targetCostRegistered, row.costRegistered), 45]);
+    if (targets.targetCostVisit) parts.push([costComponent(targets.targetCostVisit, row.costVisit), 20]);
+    if (targets.targetCostBooked) parts.push([costComponent(targets.targetCostBooked, row.costBooked), 15]);
+    if (targets.maxOutcomeVolume) parts.push([volumeComponent(targets, row), 15]);
+    if (row.closeRate !== null) parts.push([rateComponent(targets.targetCloseRate, row.closeRate), 5]);
+    const totalWeight = parts.reduce((sum, [, weight]) => sum + weight, 0);
+    if (!totalWeight) return null;
+    return Math.round(parts.reduce((sum, [score, weight]) => sum + (score * weight), 0) / totalWeight);
+  }
+
   function confidenceFor(row, targets, mature) {
-    const spend = finiteNumber(row.spend);
-    const registrations = finiteNumber(row.registered);
-    const visits = finiteNumber(row.visits);
-    const booked = finiteNumber(row.booked);
-    if (!targets.configured || spend <= 0 || !mature) return { key: "low", label: "Low confidence" };
-    if (registrations >= 5 || spend >= targets.targetCostRegistered * 3 || visits >= 10) return { key: "high", label: "High confidence" };
-    if (registrations >= 2 || spend >= targets.targetCostRegistered * 1.5 || visits >= 4 || booked >= 8) return { key: "medium", label: "Medium confidence" };
+    if (!targets.configured || row.spend <= 0 || !mature) return { key: "low", label: "Low confidence" };
+    if (row.registered >= 5 || row.visits >= 12 || row.booked >= 18 || row.spend >= targets.spendBenchmark * 3) return { key: "high", label: "High confidence" };
+    if (row.registered >= 2 || row.visits >= 4 || row.booked >= 8 || row.spend >= targets.spendBenchmark * 1.5) return { key: "medium", label: "Medium confidence" };
     return { key: "low", label: "Low confidence" };
   }
 
   function statusFor(row, targets, score, mature) {
-    const spend = finiteNumber(row.spend);
-    const registered = finiteNumber(row.registered);
-    if (!targets.configured) return { key: "setup", label: "Set target", final: false };
-    if (spend <= 0) return { key: "none", label: "No spend", final: false };
+    if (row.spend <= 0) return { key: "none", label: "No spend", final: false };
+    if (!targets.configured) return { key: "learning", label: "Learning", final: false };
     if (!mature) return { key: "pending", label: "Awaiting", final: false };
-    if (registered <= 0 && spend < targets.targetCostRegistered * 0.5) return { key: "insufficient", label: "Not enough", final: false };
-    if (registered <= 0 && spend < targets.targetCostRegistered * 1.5) return { key: "watch", label: "Watch", final: false };
+    if (row.outcomeVolume <= 0 && row.spend < targets.spendBenchmark * 0.75) return { key: "insufficient", label: "Not enough", final: false };
+    if (row.outcomeVolume <= 0 && row.spend < targets.spendBenchmark * 1.5) return { key: "watch", label: "Watch", final: false };
+    if (row.registered <= 0 && row.outcomeVolume > 0) {
+      const efficientVisit = targets.targetCostVisit && row.costVisit <= targets.targetCostVisit * 1.25;
+      const efficientBooked = targets.targetCostBooked && row.costBooked <= targets.targetCostBooked * 1.25;
+      if (efficientVisit || efficientBooked) return { key: "watch", label: "Watch", final: false };
+    }
+    if (score === null) return { key: "learning", label: "Learning", final: false };
     if (score >= 80) return { key: "strong", label: "Strong", final: true };
     if (score >= 55) return { key: "watch", label: "Watch", final: true };
     return { key: "weak", label: "Weak", final: true };
   }
 
+  function agentClosingScore(row, targets) {
+    const parts = [];
+    if (row.showRate !== null) parts.push(rateComponent(targets.targetShowRate, row.showRate));
+    if (row.closeRate !== null) parts.push(rateComponent(targets.targetCloseRate, row.closeRate));
+    if (!parts.length || !targets.configured) return null;
+    return Math.round(parts.reduce((sum, value) => sum + value, 0) / parts.length);
+  }
+
   function scoreRows(rows, settings = {}, today = new Date()) {
-    const targets = deriveTargets(settings);
+    const targets = deriveTargets(settings, rows);
     return rows.map((row) => {
-      const spend = finiteNumber(row.spend);
-      const booked = finiteNumber(row.booked);
-      const showed = finiteNumber(row.showed);
-      const registered = finiteNumber(row.registered);
-      const visits = showed + registered;
-      const costBooked = costPer(spend, booked);
-      const costVisit = costPer(spend, visits);
-      const costRegistered = costPer(spend, registered);
-      const showRate = booked > 0 ? visits / booked : null;
-      const closeRate = visits > 0 ? registered / visits : null;
-      const ageDays = ageDaysSince(row.firstActivityDate || row.reportingStart || row.date, today);
+      const metrics = metricsFor(row);
+      const ageDays = ageDaysSince(metrics.firstActivityDate || metrics.reportingStart || metrics.date, today);
       const mature = ageDays !== null && ageDays >= targets.closingWindowDays;
-
-      const rawScore = Math.round(
-        (costComponent(targets.targetCostRegistered, costRegistered) * 0.60)
-        + (costComponent(targets.targetCostVisit, costVisit) * 0.20)
-        + (costComponent(targets.targetCostBooked, costBooked) * 0.10)
-        + (rateComponent(targets.targetCloseRate, closeRate) * 0.10),
-      );
-      const status = statusFor({ ...row, spend, registered, visits, booked }, targets, rawScore, mature);
-      const score = targets.configured && spend > 0 && status.key !== "insufficient" ? rawScore : null;
-
-      const closingComponents = [];
-      if (showRate !== null) closingComponents.push(rateComponent(targets.targetShowRate, showRate));
-      if (closeRate !== null) closingComponents.push(rateComponent(targets.targetCloseRate, closeRate));
-      const agentClosingScore = targets.configured && closingComponents.length
-        ? Math.round(closingComponents.reduce((sum, value) => sum + value, 0) / closingComponents.length)
-        : null;
-
+      const score = weightedScore(metrics, targets);
+      const status = statusFor(metrics, targets, score, mature);
+      const closingScore = agentClosingScore(metrics, targets);
+      const confidence = confidenceFor(metrics, targets, mature);
       return {
-        ...row,
-        spend,
-        booked,
-        showed,
-        registered,
-        visits,
-        costBooked,
-        costVisit,
-        costRegistered,
-        showRate,
-        closeRate,
+        ...metrics,
         ageDays,
         closingWindowDays: targets.closingWindowDays,
-        qualityScore: score,
+        qualityScore: status.key === "learning" || status.key === "insufficient" ? null : score,
         qualityStatus: status,
-        qualityConfidence: confidenceFor({ ...row, spend, registered, visits, booked }, targets, mature),
+        qualityConfidence: confidence,
         qualityTargets: targets,
-        agentClosingScore,
-        agentClosingStatus: agentClosingScore === null ? { key: "none", label: "No data", final: false } : statusFor({ ...row, spend, registered, visits, booked }, targets, agentClosingScore, mature),
+        agentClosingScore: closingScore,
+        agentClosingStatus: closingScore === null ? { key: "none", label: "No data", final: false } : statusFor(metrics, targets, closingScore, mature),
       };
     });
   }

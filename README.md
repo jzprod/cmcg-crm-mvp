@@ -15,10 +15,12 @@ Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It syn
 - Attributes each outcome to the exact ad, or to an ad set, campaign, or agent when the ad is unknown.
 - Counts registered students as visits while keeping "showed" exclusive to visitors who did not register.
 - Compares ads, ad sets, campaigns, and agents using spend, messages, outcomes, cost per visit, cost per registration, lag-aware business quality, and confidence.
+- Learns scoring benchmarks automatically from gathered Meta spend and manual outcomes, so no manual Performance scoring setup is required.
 - Separates business quality from agent closing quality so ads and sales follow-up can be judged fairly.
 - Sorts every performance level by quality, spend, outcome totals, messages, rates, or lowest cost per outcome.
 - Assigns every imported ad a permanent case-insensitive 2-3 character tracking code.
 - Downloads and restores full JSON backups.
+- Provides a confirmed clean-start reset for removing old imports, spend, ads, outcomes, leads, and used creative codes.
 - Uses Hostinger MySQL in production and automatically snapshots the previous database state before every write.
 
 ## Run Locally
@@ -56,11 +58,12 @@ See [HOSTINGER_DEPLOYMENT.md](HOSTINGER_DEPLOYMENT.md) for deployment, verificat
 
 1. Export the saved ad-level report from Meta Ads Manager for the reporting date.
 2. Open **Import & data**, choose the CSV, and select **Import and sync**.
-3. Open **Performance**, set your maximum profitable cost per registered student in **Scoring settings**, and keep the closing-window assumptions realistic.
-4. Add only the outcomes Meta cannot know: booked, showed without registration, or registered.
-5. Use **Performance** to group and compare Ads, Ad sets, Campaigns, or Agents.
+3. Add only the outcomes Meta cannot know: booked, showed without registration, or registered.
+4. Use **Performance** to group and compare Ads, Ad sets, Campaigns, or Agents.
 
-Business quality is target-based, not relative. It weights cost per registered student at 60%, cost per total visit at 20%, cost per booked appointment at 10%, and visit-to-registration close rate at 10%. Rows stay **Awaiting** inside the closing window, tiny mature spends stay **Not enough**, and a row only turns **Weak** after enough time and spend have passed to judge it fairly.
+Business quality learns from gathered data. It rewards low cost per registered student, low cost per total visit, low cost per booked appointment, strong outcome volume, and healthy visit-to-registration close rate. Rows stay **Awaiting** inside the closing window, tiny mature spends stay **Not enough**, and a row only turns **Weak** after enough time and spend have passed to judge it fairly.
+
+To start over with real production data, open **Import & data**, download a backup if needed, then use **Reset CRM data**.
 
 Repeated imports update the same ad/reporting-date rows instead of duplicating spend. Keep the Meta ID columns in the export even though they are hidden in the normal CRM view.
 

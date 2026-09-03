@@ -112,7 +112,7 @@ function normalizeState() {
 }
 
 function scoringTargets() {
-  return CmcgQuality.deriveTargets(state?.settings?.scoring || {});
+  return CmcgQuality.deriveTargets(state?.settings || {}, []);
 }
 
 function formatSavedAt(value) {
@@ -340,16 +340,6 @@ function addOutcomeButton(level, targetId, label) {
 }
 
 function qualityBadge(row) {
-  const band = CmcgQuality.qualityBand(row.qualityScore);
-  const score = row.qualityScore === null ? "—" : row.qualityScore;
-  return `<span class="quality-badge quality-${band.key}" title="Relative score: 20% booked, 30% showed without registration, 50% registered"><strong>${score}</strong><span>${band.label}</span></span>`;
-}
-
-function qualityRowClass(row) {
-  return `quality-row-${CmcgQuality.qualityBand(row.qualityScore).key}`;
-}
-
-function qualityBadge(row) {
   const band = CmcgQuality.qualityBand(row);
   const score = row.qualityScore === null || row.qualityScore === undefined ? "-" : row.qualityScore;
   const confidence = row.qualityConfidence?.label || "Low confidence";
@@ -371,13 +361,6 @@ function statusPill(row) {
 
 function qualityRowClass(row) {
   return `quality-row-${CmcgQuality.qualityBand(row).key}`;
-}
-
-function renderOverviewTables() {
-  const ads = performanceRows("ad", false, "quality").slice(0, 7);
-  document.getElementById("overviewRows").innerHTML = ads.length ? ads.map((row) => `<tr class="${qualityRowClass(row)}"><td>${entityCell(row, "ad")}</td><td>${qualityBadge(row)}</td><td>${escapeHtml(row.relation.agent?.name || "Unassigned")}</td><td class="number-cell">${money(row.spend)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed + row.registered}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td><td>${addOutcomeButton("ad", row.targetId, row.name)}</td></tr>`).join("") : '<tr><td colspan="10" class="empty">Import a Meta Ads report to see performance.</td></tr>';
-  const agents = performanceRows("agent", false, "quality").filter((row) => row.key !== "__unassigned");
-  document.getElementById("agentRows").innerHTML = agents.length ? agents.map((row) => `<tr class="${qualityRowClass(row)}"><td><strong>${escapeHtml(row.name)}</strong></td><td>${qualityBadge(row)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.showed}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td></tr>`).join("") : '<tr><td colspan="7" class="empty">Add agents to compare their results.</td></tr>';
 }
 
 function renderOverviewTables() {
@@ -508,14 +491,18 @@ function renderStorage() {
 function renderScoringSettings() {
   const notice = document.getElementById("scoringNotice");
   if (!notice) return;
-  const targets = scoringTargets();
+  const rows = performanceRows(groupBy, true, "quality");
+  const targets = rows[0]?.qualityTargets || CmcgQuality.deriveTargets(state.settings, rows);
   if (!targets.configured) {
-    notice.className = "alert warning scoring-alert";
-    notice.innerHTML = `<div><strong>Set your registration target to activate scoring.</strong><span>Until this is saved, rows show "Set target" instead of judging performance.</span></div><button class="button secondary" type="button" data-open-scoring>Scoring settings</button>`;
+    notice.className = "alert info scoring-alert";
+    notice.innerHTML = `<div><strong>Automatic scoring is learning from your real data.</strong><span>Import Meta reports and record booked appointments, visits, and registrations. The CRM will build cost benchmarks as outcomes arrive.</span></div>`;
     return;
   }
   notice.className = "alert info scoring-alert";
-  notice.innerHTML = `<div><strong>Scoring target: registered at or below ${money(targets.targetCostRegistered)}.</strong><span>Matures after ${targets.closingWindowDays} days. Visit target: ${money(targets.targetCostVisit)}. Booked target: ${money(targets.targetCostBooked)}.</span></div><button class="button secondary" type="button" data-open-scoring>Edit scoring</button>`;
+  const registered = targets.targetCostRegistered ? `Registration benchmark: ${money(targets.targetCostRegistered)}.` : "Registration benchmark is still learning.";
+  const visit = targets.targetCostVisit ? `Visit benchmark: ${money(targets.targetCostVisit)}.` : "";
+  const booked = targets.targetCostBooked ? `Booked benchmark: ${money(targets.targetCostBooked)}.` : "";
+  notice.innerHTML = `<div><strong>Automatic scoring is active.</strong><span>${escapeHtml(registered)} ${escapeHtml(visit)} ${escapeHtml(booked)} Rows mature after ${targets.closingWindowDays} days.</span></div>`;
 }
 
 function hydrateSortOptions() {
@@ -540,16 +527,6 @@ function hydrateSortOptions() {
   select.replaceChildren(...options.map(([value, label]) => option(label, value)));
   select.value = sortBy;
   select.dataset.ready = "true";
-}
-
-function updateScoringPreview() {
-  const form = document.getElementById("scoringForm");
-  const preview = document.getElementById("scoringPreview");
-  if (!form || !preview) return;
-  const targets = CmcgQuality.deriveTargets(formPayload(form));
-  preview.textContent = targets.configured
-    ? `Visit target: ${money(targets.targetCostVisit)}. Booked appointment target: ${money(targets.targetCostBooked)}.`
-    : "Enter your maximum profitable registration cost to calculate the visit and booked targets.";
 }
 
 function hydrateFilters() {
@@ -616,17 +593,6 @@ function openOutcome({ level = "ad", targetId = "", type = "" } = {}) {
   document.getElementById("outcomeDialog").showModal();
 }
 
-function openScoringSettings() {
-  const form = document.getElementById("scoringForm");
-  const settings = CmcgQuality.normalizeSettings(state.settings.scoring || {});
-  form.elements.targetCostRegistered.value = settings.targetCostRegistered || "";
-  form.elements.closingWindowDays.value = settings.closingWindowDays;
-  form.elements.targetShowRate.value = settings.targetShowRate;
-  form.elements.targetCloseRate.value = settings.targetCloseRate;
-  updateScoringPreview();
-  document.getElementById("scoringDialog").showModal();
-}
-
 function selectMetaFile(file) {
   if (!file) return;
   if (!file.name.toLocaleLowerCase().endsWith(".csv")) return toast("Choose the CSV version of your Meta report", "error");
@@ -651,11 +617,6 @@ document.addEventListener("submit", async (event) => {
       await api("/api/outcomes", { method: "POST", body: JSON.stringify(formPayload(form)) });
       document.getElementById("outcomeDialog").close();
       await load(); toast("Outcome saved");
-    } else if (form.id === "scoringForm") {
-      const result = await api("/api/settings/scoring", { method: "POST", body: JSON.stringify(formPayload(form)) });
-      state.settings = result.settings;
-      document.getElementById("scoringDialog").close();
-      render(); toast("Scoring settings saved");
     } else if (form.dataset.create === "agents") {
       await api("/api/agents", { method: "POST", body: JSON.stringify(formPayload(form)) });
       form.reset(); await load(); toast("Agent added and ad sets rematched");
@@ -671,11 +632,10 @@ document.addEventListener("click", async (event) => {
   if (tabLink) showPanel(tabLink.dataset.tabLink);
   if (event.target.closest("[data-open-import]")) { showPanel("data"); setTimeout(() => document.getElementById("metaCsvFile").focus(), 250); }
   if (event.target.closest("[data-go-performance]")) showPanel("performance");
-  if (event.target.closest("[data-open-scoring]")) openScoringSettings();
+  if (event.target.closest("#openResetData")) document.getElementById("resetDataDialog").showModal();
   const add = event.target.closest("[data-add-outcome]");
   if (add) openOutcome({ level: add.dataset.level || "ad", targetId: add.dataset.target || "" });
   if (event.target.closest("[data-close-outcome]")) document.getElementById("outcomeDialog").close();
-  if (event.target.closest("[data-close-scoring]")) document.getElementById("scoringDialog").close();
   const grouping = event.target.closest("[data-group]");
   if (grouping) {
     groupBy = grouping.dataset.group;
@@ -704,7 +664,6 @@ document.addEventListener("change", (event) => {
 document.addEventListener("input", (event) => {
   const filter = event.target.closest('[data-filter="search"]');
   if (filter) { filters.search = filter.value; renderPerformance(); }
-  if (event.target.closest("#scoringForm input")) updateScoringPreview();
 });
 
 document.getElementById("clearFilters").addEventListener("click", () => {
@@ -758,6 +717,25 @@ document.getElementById("confirmRestore").addEventListener("click", async (event
   try { await api("/api/restore", { method: "POST", body: JSON.stringify(pendingRestore) }); pendingRestore = null; document.getElementById("restoreFile").value = ""; document.getElementById("restoreDialog").close(); await load(); toast("Backup restored successfully"); }
   catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; button.textContent = "Restore backup"; }
+});
+
+document.getElementById("confirmResetData").addEventListener("click", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget;
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Resetting...";
+  try {
+    await api("/api/reset-data", { method: "POST", body: JSON.stringify({ confirm: true }) });
+    document.getElementById("resetDataDialog").close();
+    await load();
+    toast("CRM data reset. Import your first real report.");
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
 });
 
 load().catch((error) => toast(error.message, "error"));

@@ -17,7 +17,6 @@ const MIME = {
 };
 
 const DEFAULT_SCORING = {
-  targetCostRegistered: 0,
   closingWindowDays: 7,
   targetShowRate: 60,
   targetCloseRate: 40,
@@ -29,12 +28,10 @@ function finiteNumber(value) {
 }
 
 function normalizeScoringSettings(input = {}) {
-  const targetCostRegistered = finiteNumber(input.targetCostRegistered);
   const closingWindowDays = Math.round(finiteNumber(input.closingWindowDays)) || DEFAULT_SCORING.closingWindowDays;
   const targetShowRate = finiteNumber(input.targetShowRate) || DEFAULT_SCORING.targetShowRate;
   const targetCloseRate = finiteNumber(input.targetCloseRate) || DEFAULT_SCORING.targetCloseRate;
   return {
-    targetCostRegistered: targetCostRegistered > 0 ? targetCostRegistered : 0,
     closingWindowDays: Math.min(90, Math.max(1, closingWindowDays)),
     targetShowRate: Math.min(100, Math.max(1, targetShowRate)),
     targetCloseRate: Math.min(100, Math.max(1, targetCloseRate)),
@@ -68,7 +65,6 @@ function normalizeState(input) {
   state.centre = { ...base.centre, ...(state.centre || {}) };
   state.settings = { ...base.settings, ...(state.settings || {}) };
   state.settings.scoring = normalizeScoringSettings({
-    targetCostRegistered: state.settings.targetCostRegistered,
     closingWindowDays: state.settings.closingWindowDays,
     targetShowRate: state.settings.targetShowRate,
     targetCloseRate: state.settings.targetCloseRate,
@@ -550,12 +546,18 @@ async function handleApi(req, res) {
     if (method === "POST" && url.pathname === "/api/settings/scoring") {
       const body = await parseBody(req);
       const scoring = normalizeScoringSettings(body);
-      if (scoring.targetCostRegistered <= 0) {
-        return json(res, 400, { error: "Enter the maximum acceptable cost per registered student" });
-      }
       state.settings.scoring = scoring;
       await storage.write(state);
       return json(res, 200, { settings: state.settings });
+    }
+
+    if (method === "POST" && url.pathname === "/api/reset-data") {
+      const reset = emptyState();
+      reset.centre = { ...reset.centre, ...(state.centre || {}) };
+      reset.settings = { ...reset.settings, currency: state.settings?.currency || reset.settings.currency };
+      reset.meta.resetAt = now();
+      await storage.write(reset);
+      return json(res, 200, { reset: true, state: reset });
     }
 
     if (method === "POST" && url.pathname === "/api/meta-import") {

@@ -64,11 +64,10 @@ test("production safeguards validate records and backup restore is loss-resistan
   assert.equal(health.ok, true);
   assert.equal(health.storage.backend, "json");
   assert.equal(health.storage.persistent, false);
-  await jsonRequest(baseUrl, "/api/settings/scoring", { method: "POST", body: { targetCostRegistered: 250, closingWindowDays: 9, targetShowRate: 55, targetCloseRate: 35 }, expectedStatus: 200 });
-  await jsonRequest(baseUrl, "/api/settings/scoring", { method: "POST", body: { targetCostRegistered: 0 }, expectedStatus: 400 });
+  await jsonRequest(baseUrl, "/api/settings/scoring", { method: "POST", body: { closingWindowDays: 9, targetShowRate: 55, targetCloseRate: 35 }, expectedStatus: 200 });
   const settingsSnapshot = await jsonRequest(baseUrl, "/api/state");
-  assert.equal(settingsSnapshot.state.settings.scoring.targetCostRegistered, 250);
   assert.equal(settingsSnapshot.state.settings.scoring.closingWindowDays, 9);
+  assert.equal(settingsSnapshot.state.settings.scoring.targetShowRate, 55);
 
   const program = await jsonRequest(baseUrl, "/api/programs", { method: "POST", body: { name: "Accounting" }, expectedStatus: 201 });
   await jsonRequest(baseUrl, "/api/programs", { method: "POST", body: { name: "accounting" }, expectedStatus: 409 });
@@ -94,6 +93,16 @@ test("production safeguards validate records and backup restore is loss-resistan
   assert.equal(restored.state.agents.length, 1);
   assert.equal(restored.state.agents[0].name, "Sara");
   assert.ok(restored.state.meta.restoredAt);
+
+  await jsonRequest(baseUrl, "/api/reset-data", { method: "POST", body: { confirm: true } });
+  const reset = (await jsonRequest(baseUrl, "/api/state")).state;
+  assert.equal(reset.agents.length, 0);
+  assert.equal(reset.campaigns.length, 0);
+  assert.equal(reset.creatives.length, 0);
+  assert.equal(reset.dailyLogs.length, 0);
+  assert.equal(reset.outcomes.length, 0);
+  assert.equal(reset.usedCreativeCodes.length, 0);
+  assert.ok(reset.meta.resetAt);
 
   const backupDir = path.join(tempDir, "backups");
   assert.equal(fs.existsSync(backupDir), true);
@@ -162,20 +171,24 @@ test("Meta CSV sync is idempotent, matches agents, and supports hierarchical out
   assert.equal(snapshot.outcomes.length, 1);
 });
 
-test("quality score is target-based, closing-window aware, and separates agent closing quality", () => {
-  const settings = { scoring: { targetCostRegistered: 50, closingWindowDays: 7, targetShowRate: 60, targetCloseRate: 40 } };
-  const targets = deriveTargets(settings);
-  assert.equal(targets.targetCostVisit, 20);
-  assert.equal(targets.targetCostBooked, 12);
-
-  const rows = scoreRows([
+test("quality score auto-learns from gathered data and stays closing-window aware", () => {
+  const sourceRows = [
     { name: "Fresh tiny spend", spend: 2, booked: 0, showed: 0, registered: 0, messages: 1, firstActivityDate: "2026-09-02" },
     { name: "Mature tiny spend", spend: 2, booked: 0, showed: 0, registered: 0, messages: 1, firstActivityDate: "2026-08-20" },
     { name: "Strong ad", spend: 50, booked: 5, showed: 1, registered: 1, messages: 20, firstActivityDate: "2026-08-20" },
-    { name: "Watch no reg", spend: 60, booked: 2, showed: 1, registered: 0, messages: 8, firstActivityDate: "2026-08-20" },
-    { name: "Weak no reg", spend: 80, booked: 0, showed: 0, registered: 0, messages: 8, firstActivityDate: "2026-08-20" },
+    { name: "High volume ad", spend: 120, booked: 14, showed: 4, registered: 3, messages: 45, firstActivityDate: "2026-08-20" },
+    { name: "Watch no reg", spend: 20, booked: 2, showed: 1, registered: 0, messages: 8, firstActivityDate: "2026-08-20" },
+    { name: "Weak no reg", spend: 220, booked: 0, showed: 0, registered: 0, messages: 8, firstActivityDate: "2026-08-20" },
     { name: "No spend", spend: 0, booked: 1, showed: 0, registered: 0, messages: 1, firstActivityDate: "2026-08-20" },
-  ], settings, new Date("2026-09-03T00:00:00Z"));
+  ];
+  const targets = deriveTargets({}, sourceRows);
+  assert.equal(targets.automatic, true);
+  assert.equal(targets.configured, true);
+  assert.equal(targets.targetCostRegistered, 50);
+  assert.equal(targets.targetCostVisit, 20);
+  assert.equal(targets.targetCostBooked, 10);
+
+  const rows = scoreRows(sourceRows, {}, new Date("2026-09-03T00:00:00Z"));
 
   assert.equal(rows.find((row) => row.name === "Fresh tiny spend").qualityStatus.key, "pending");
   assert.equal(rows.find((row) => row.name === "Mature tiny spend").qualityStatus.key, "insufficient");
@@ -189,8 +202,8 @@ test("quality score is target-based, closing-window aware, and separates agent c
   assert.equal(rows.find((row) => row.name === "Strong ad").closeRate, 0.5);
   assert.ok(rows.find((row) => row.name === "Strong ad").agentClosingScore > 0);
   assert.equal(qualityBand(rows.find((row) => row.name === "Weak no reg")).label, "Weak");
-  assert.deepEqual(sortRows(rows, "quality").slice(0, 2).map((row) => row.name), ["Strong ad", "Watch no reg"]);
-  assert.equal(sortRows(rows, "costVisit")[0].name, "Strong ad");
+  assert.deepEqual(sortRows(rows, "quality").slice(0, 2).map((row) => row.name), ["High volume ad", "Strong ad"]);
+  assert.equal(sortRows(rows, "costVisit")[0].name, "High volume ad");
 });
 
 test("production UI contains accessible controls and correctly encoded Arabic copy", () => {
@@ -200,11 +213,13 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /Import &amp; data|Import & data/);
   assert.match(html, /Add outcome/);
-  assert.match(html, /Business targets/);
+  assert.match(html, /Reset CRM data/);
   assert.match(html, /scoringNotice/);
   assert.match(html, /<label>/);
   assert.match(app, /cmcg-visible-columns/);
   assert.match(app, /Business quality - highest/);
+  assert.match(app, /Automatic scoring is learning/);
+  assert.match(app, /reset-data/);
   assert.match(app, /agentClosing/);
   assert.match(app, /مرحباً، أريد معرفة تفاصيل التكوين/);
   assert.doesNotMatch(app, /Ù…Ø/);
