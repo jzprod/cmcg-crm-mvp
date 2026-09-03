@@ -27,11 +27,13 @@
         <main>
           <section id="authWarning" class="alert danger hidden" role="alert"><strong>Public access is not protected.</strong> Add CRM_USER and CRM_PASSWORD in Hostinger environment variables.</section>
           <section id="storageWarning" class="alert warning hidden" role="alert"><strong>Deployment-safe storage is not configured.</strong> Connect MySQL before entering production data.</section>
+          <section class="card period-card" aria-label="Reporting period"><div><p class="section-kicker">Reporting period</p><strong id="periodSummary">Last 7 days</strong></div><label><span>Preset</span><select id="periodPreset"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7">Last 7 days</option><option value="thisWeek">This week</option><option value="thisMonth">This month</option><option value="thisYear">This year</option><option value="lifetime">Lifetime</option><option value="custom">Custom</option></select></label><label><span>From</span><input id="periodFrom" type="date" /></label><label><span>To</span><input id="periodTo" type="date" /></label></section>
 
           <section id="dashboard" class="panel active">
             <div class="page-heading"><div><p class="section-kicker">Today’s picture</p><h2>From messages to students</h2><p>See what is working, then record a result in seconds.</p></div><button class="button outcome-button" type="button" data-add-outcome><span aria-hidden="true">+</span> Add outcome</button></div>
             <div id="welcomeState" class="welcome-state hidden"></div>
             <div id="kpis" class="kpis" aria-live="polite"></div>
+            <article class="card overview-chart-card"><div class="card-head"><div><p class="section-kicker">Trend graph</p><h3>Click cards to compare metrics</h3><p>Add multiple metrics. Cost / registered is reversed so up means better.</p></div></div><div id="overviewChart" class="overview-chart" aria-live="polite"></div></article>
             <div class="dashboard-grid">
               <article class="card chart-card"><div class="card-head"><div><p class="section-kicker">Conversion</p><h3>Outcome flow</h3><p>Registered students are included in total visits.</p></div></div><div id="funnel" class="funnel"></div></article>
               <article class="card attention-card"><div class="card-head"><div><p class="section-kicker">Needs attention</p><h3>Assignment health</h3></div></div><div id="attentionList" class="attention-list"></div></article>

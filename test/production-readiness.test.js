@@ -94,6 +94,15 @@ test("production safeguards validate records and backup restore is loss-resistan
   assert.equal(restored.state.agents[0].name, "Sara");
   assert.ok(restored.state.meta.restoredAt);
 
+  const updatedAgent = await jsonRequest(baseUrl, `/api/agents/${restored.state.agents[0].id}`, { method: "PATCH", body: { name: "Sarah", whatsapp: "+212600000000" } });
+  assert.equal(updatedAgent.name, "Sarah");
+  assert.equal(updatedAgent.whatsapp, "+212600000000");
+  await jsonRequest(baseUrl, "/api/agents", { method: "POST", body: { name: "sarah" }, expectedStatus: 409 });
+  await jsonRequest(baseUrl, `/api/agents/${updatedAgent.id}`, { method: "DELETE" });
+  const afterDelete = (await jsonRequest(baseUrl, "/api/state")).state;
+  assert.equal(afterDelete.agents.length, 0);
+  assert.equal(afterDelete.adSets[0].agentId, "");
+
   await jsonRequest(baseUrl, "/api/reset-data", { method: "POST", body: { confirm: true } });
   const reset = (await jsonRequest(baseUrl, "/api/state")).state;
   assert.equal(reset.agents.length, 0);
@@ -215,8 +224,24 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(html, /Add outcome/);
   assert.match(html, /Reset CRM data/);
   assert.match(html, /scoringNotice/);
+  assert.match(html, /overviewChart/);
+  assert.match(html, /periodPreset/);
+  assert.match(html, /Last 7 days/);
+  assert.match(html, /Lifetime/);
   assert.match(html, /<label>/);
   assert.match(app, /cmcg-visible-columns/);
+  assert.match(app, /cmcg-overview-metrics/);
+  assert.match(app, /cmcg-report-period/);
+  assert.match(app, /applyPeriodPreset/);
+  assert.match(app, /periodRange/);
+  assert.match(app, /data-kpi-metric/);
+  assert.match(app, /costRegisteredEfficiency/);
+  assert.match(app, /outcomeHierarchy/);
+  assert.match(app, /outcomeCampaign/);
+  assert.match(app, /agentEditForm/);
+  assert.match(app, /data-edit-agent/);
+  assert.match(app, /data-delete-agent/);
+  assert.match(app, /\/api\/agents\/\$\{editingAgentId\}/);
   assert.match(app, /Business quality - highest/);
   assert.match(app, /Automatic scoring is learning/);
   assert.match(app, /reset-data/);

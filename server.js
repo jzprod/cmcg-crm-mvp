@@ -634,6 +634,45 @@ async function handleApi(req, res) {
       return json(res, 201, item);
     }
 
+    const agentMatch = url.pathname.match(/^\/api\/agents\/([^/]+)$/);
+    if ((method === "PATCH" || method === "DELETE") && agentMatch) {
+      const agent = state.agents.find((item) => item.id === agentMatch[1]);
+      if (!agent) return json(res, 404, { error: "Agent not found" });
+      if (method === "PATCH") {
+        const body = await parseBody(req);
+        const nextName = cleanText(body.name);
+        if (!nextName) return json(res, 400, { error: "Agent name is required" });
+        if (duplicateName(state.agents.filter((item) => item.id !== agent.id), nextName)) {
+          return json(res, 409, { error: "This sales agent already exists" });
+        }
+        agent.name = nextName;
+        agent.whatsapp = cleanText(body.whatsapp);
+        agent.active = body.active !== false;
+        agent.updatedAt = now();
+        rematchImportedAdSets(state);
+        await storage.write(state);
+        return json(res, 200, agent);
+      }
+
+      state.agents = state.agents.filter((item) => item.id !== agent.id);
+      state.adSets.forEach((adSet) => {
+        if (adSet.agentId === agent.id) {
+          adSet.agentId = "";
+          adSet.agentMatchStatus = "unassigned";
+          adSet.agentMatchCandidates = [];
+        }
+      });
+      state.outcomes.forEach((outcome) => {
+        if (outcome.agentId === agent.id) {
+          outcome.agentId = "";
+          if (outcome.assignmentLevel === "agent") outcome.targetId = "";
+        }
+      });
+      rematchImportedAdSets(state);
+      await storage.write(state);
+      return json(res, 200, { deleted: true, id: agent.id });
+    }
+
     if (method === "POST" && url.pathname === "/api/campaigns") {
       const body = await parseBody(req);
       const item = {

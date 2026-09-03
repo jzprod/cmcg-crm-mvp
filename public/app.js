@@ -4,6 +4,7 @@ let storageInfo = null;
 let pendingRestore = null;
 let pendingMetaFile = null;
 let toastTimer = null;
+let editingAgentId = "";
 
 const pageMeta = {
   dashboard: ["Overview", "Your advertising and enrollment results at a glance."],
@@ -18,9 +19,32 @@ const outcomeMeta = {
   registered: { label: "Registered student", short: "Registered", className: "registered" },
 };
 const groupLabels = { ad: "Ad", adSet: "Ad set", campaign: "Campaign", agent: "Agent" };
+const periodLabels = { today: "Today", yesterday: "Yesterday", last7: "Last 7 days", thisWeek: "This week", thisMonth: "This month", thisYear: "This year", lifetime: "Lifetime", custom: "Custom" };
+const overviewMetricDefinitions = {
+  spend: { label: "Spend", color: "#0f172a", format: (row) => money(row.spend) },
+  messages: { label: "Messages", color: "#2563eb", format: (row) => number(row.messages) },
+  booked: { label: "Booked", color: "#d97706", format: (row) => number(row.booked) },
+  visited: { label: "Visited", color: "#7c3aed", format: (row) => number(row.visited) },
+  registered: { label: "Registered", color: "#16a34a", format: (row) => number(row.registered) },
+  costRegisteredEfficiency: { label: "Cost/register improves", color: "#dc2626", inverted: true, format: (row) => row.registered ? cost(row.spend, row.registered) : "-" },
+};
 const filters = { from: "", to: "", agentId: "", objective: "", campaignId: "", search: "" };
 let groupBy = "ad";
 let sortBy = "quality";
+let selectedPeriod = localStorage.getItem("cmcg-report-period") || "last7";
+
+function readOverviewMetrics() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("cmcg-overview-metrics") || "[]");
+    if (Array.isArray(stored)) {
+      const valid = stored.filter((key) => overviewMetricDefinitions[key]);
+      if (valid.length) return new Set(valid);
+    }
+  } catch {}
+  return new Set(["messages", "registered", "costRegisteredEfficiency"]);
+}
+
+let selectedOverviewMetrics = readOverviewMetrics();
 
 const columnDefinitions = [
   { key: "entity", label: "Name", required: true },
@@ -102,6 +126,79 @@ const cost = (spend, count) => (count ? money(spend / count) : "—");
 const legacyWelcomeMessage = "مرحباً، أريد معرفة تفاصيل التكوين في مركز CMCG. كود الإعلان:";
 
 const percent = (value) => Number.isFinite(Number(value)) ? `${number(Number(value) * 100)}%` : "-";
+
+function dateInputValue(date) {
+  const copy = new Date(date);
+  copy.setMinutes(copy.getMinutes() - copy.getTimezoneOffset());
+  return copy.toISOString().slice(0, 10);
+}
+
+function addDays(date, days) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
+function periodRange(preset = selectedPeriod, now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (preset === "lifetime") return { from: "", to: "" };
+  if (preset === "today") return { from: dateInputValue(today), to: dateInputValue(today) };
+  if (preset === "yesterday") {
+    const yesterday = addDays(today, -1);
+    return { from: dateInputValue(yesterday), to: dateInputValue(yesterday) };
+  }
+  if (preset === "thisWeek") {
+    const day = today.getDay() || 7;
+    return { from: dateInputValue(addDays(today, 1 - day)), to: dateInputValue(today) };
+  }
+  if (preset === "thisMonth") return { from: dateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)), to: dateInputValue(today) };
+  if (preset === "thisYear") return { from: dateInputValue(new Date(today.getFullYear(), 0, 1)), to: dateInputValue(today) };
+  return { from: dateInputValue(addDays(today, -6)), to: dateInputValue(today) };
+}
+
+function savePeriod() {
+  localStorage.setItem("cmcg-report-period", selectedPeriod);
+  localStorage.setItem("cmcg-report-from", filters.from || "");
+  localStorage.setItem("cmcg-report-to", filters.to || "");
+}
+
+function updatePeriodControls() {
+  const preset = document.getElementById("periodPreset");
+  if (!preset) return;
+  preset.value = selectedPeriod;
+  document.getElementById("periodFrom").value = filters.from || "";
+  document.getElementById("periodTo").value = filters.to || "";
+  document.getElementById("periodSummary").textContent = selectedPeriod === "lifetime" ? "All dates" : `${filters.from || "Start"} to ${filters.to || "Today"}`;
+}
+
+function applyPeriodPreset(preset = "last7", shouldRender = true) {
+  selectedPeriod = periodLabels[preset] ? preset : "last7";
+  if (selectedPeriod === "custom") {
+    filters.from = localStorage.getItem("cmcg-report-from") || filters.from;
+    filters.to = localStorage.getItem("cmcg-report-to") || filters.to;
+  } else {
+    const range = periodRange(selectedPeriod);
+    filters.from = range.from;
+    filters.to = range.to;
+  }
+  savePeriod();
+  updatePeriodControls();
+  if (shouldRender && state) render();
+}
+
+function initializePeriod() {
+  selectedPeriod = periodLabels[selectedPeriod] ? selectedPeriod : "last7";
+  if (selectedPeriod === "custom") {
+    filters.from = localStorage.getItem("cmcg-report-from") || "";
+    filters.to = localStorage.getItem("cmcg-report-to") || "";
+  } else {
+    const range = periodRange(selectedPeriod);
+    filters.from = range.from;
+    filters.to = range.to;
+  }
+}
+
+initializePeriod();
 
 function normalizeState() {
   ["adAccounts", "programs", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs"].forEach((key) => {
@@ -297,23 +394,112 @@ function overallMetrics(useFilters = true) {
   return values;
 }
 
+function overviewDailyRows() {
+  const rows = new Map();
+  const ensure = (date) => {
+    const key = dateOnly(date);
+    if (!key) return null;
+    if (!rows.has(key)) rows.set(key, { date: key, ...emptyMetrics(), visited: 0 });
+    return rows.get(key);
+  };
+  filteredLogs().forEach((log) => {
+    const row = ensure(log.reportingEnd || log.date || log.reportingStart);
+    if (!row) return;
+    addLogMetrics(row, log);
+  });
+  filteredOutcomes().forEach((outcome) => {
+    const row = ensure(outcome.sourceDate || outcome.date);
+    if (!row) return;
+    row[outcome.type] += 1;
+    if (outcome.type === "registered" || outcome.type === "showed") row.visits += 1;
+    row.visited = row.visits;
+  });
+  return [...rows.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-30).map((row) => ({ ...row, visited: row.visits }));
+}
+
+function metricRawValue(key, row) {
+  if (key === "visited") return row.visited || row.visits || 0;
+  if (key === "costRegisteredEfficiency") return row.registered ? row.spend / row.registered : null;
+  return Number(row[key] || 0);
+}
+
+function metricDisplayValue(key, row) {
+  const definition = overviewMetricDefinitions[key];
+  if (!definition) return "";
+  return definition.format(row);
+}
+
+function chartPath(points) {
+  return points.map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+}
+
+function renderOverviewChart() {
+  const container = document.getElementById("overviewChart");
+  if (!container) return;
+  const rows = overviewDailyRows();
+  const metrics = [...selectedOverviewMetrics].filter((key) => overviewMetricDefinitions[key]);
+  if (!rows.length || !metrics.length) {
+    container.innerHTML = '<div class="empty chart-empty">Click one or more cards above after importing reports to build the trend graph.</div>';
+    return;
+  }
+  const width = 920;
+  const height = 320;
+  const pad = { left: 38, right: 24, top: 24, bottom: 44 };
+  const innerWidth = width - pad.left - pad.right;
+  const innerHeight = height - pad.top - pad.bottom;
+  const xFor = (index) => pad.left + (rows.length === 1 ? innerWidth / 2 : (index / (rows.length - 1)) * innerWidth);
+  const yFor = (score) => pad.top + innerHeight - (Math.max(0, Math.min(100, score)) / 100) * innerHeight;
+
+  const series = metrics.map((key) => {
+    const raw = rows.map((row) => metricRawValue(key, row));
+    const usable = raw.filter((value) => value !== null && Number.isFinite(value));
+    const max = Math.max(...usable, 0);
+    const min = Math.min(...usable);
+    const points = raw.map((value, index) => {
+      if (value === null || !Number.isFinite(value)) return null;
+      let score = 0;
+      if (key === "costRegisteredEfficiency") {
+        score = usable.length <= 1 || max === min ? 100 : ((max - value) / (max - min)) * 100;
+      } else {
+        score = max ? (value / max) * 100 : 0;
+      }
+      return { x: xFor(index), y: yFor(score), raw: value, row: rows[index] };
+    }).filter(Boolean);
+    return { key, points, definition: overviewMetricDefinitions[key], latest: rows.at(-1) };
+  });
+
+  const grid = [0, 25, 50, 75, 100].map((value) => {
+    const y = yFor(value);
+    return `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" /><text x="10" y="${y + 4}">${value}</text>`;
+  }).join("");
+  const xLabels = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % Math.ceil(rows.length / 6) === 0).map((row, index, labels) => {
+    const rowIndex = rows.indexOf(row);
+    return `<text x="${xFor(rowIndex)}" y="${height - 14}" text-anchor="${index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"}">${escapeHtml(row.date.slice(5))}</text>`;
+  }).join("");
+  const lines = series.map(({ key, points, definition }) => points.length ? `<path d="${chartPath(points)}" stroke="${definition.color}" /><g>${points.map((point) => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" stroke="${definition.color}"><title>${escapeHtml(definition.label)} - ${escapeHtml(point.row.date)} - ${escapeHtml(metricDisplayValue(key, point.row))}</title></circle>`).join("")}</g>` : "").join("");
+  const legend = series.map(({ key, definition, latest }) => `<span class="chart-legend-item" style="--legend-color:${definition.color}"><i></i><strong>${escapeHtml(definition.label)}</strong><small>${escapeHtml(metricDisplayValue(key, latest))}${definition.inverted ? " · up means cheaper" : ""}</small></span>`).join("");
+  container.innerHTML = `<div class="chart-legend">${legend}</div><svg class="trend-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Overview trend graph">${grid}<g class="trend-lines">${lines}</g><g class="trend-axis">${xLabels}</g></svg><p class="chart-note">Lines are scaled 0-100 so different metrics can sit on one graph. For cost per registered, the line is reversed: higher means the cost is lower.</p>`;
+}
+
 function renderKpis() {
-  const values = overallMetrics(false);
+  const values = overallMetrics(true);
   const items = [
-    ["Spend", money(values.spend), "from Meta reports", "neutral"],
-    ["Messages", number(values.messages), cost(values.spend, values.messages) + " each", "blue"],
-    ["Booked", number(values.booked), cost(values.spend, values.booked) + " each", "amber"],
-    ["Visited", number(values.visited), `${values.showed} without registration`, "violet"],
-    ["Registered", number(values.registered), cost(values.spend, values.registered) + " each", "green"],
+    ["Spend", money(values.spend), "from Meta reports", "neutral", "spend"],
+    ["Messages", number(values.messages), cost(values.spend, values.messages) + " each", "blue", "messages"],
+    ["Booked", number(values.booked), cost(values.spend, values.booked) + " each", "amber", "booked"],
+    ["Visited", number(values.visited), `${values.showed} without registration`, "violet", "visited"],
+    ["Registered", number(values.registered), cost(values.spend, values.registered) + " each", "green", "registered"],
+    ["Cost / registered", cost(values.spend, values.registered), "graph rises when cost falls", "red", "costRegisteredEfficiency"],
   ];
-  document.getElementById("kpis").innerHTML = items.map(([label, value, detail, style]) => `<article class="kpi ${style}"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
+  document.getElementById("kpis").innerHTML = items.map(([label, value, detail, style, metric]) => `<button class="kpi ${style} ${selectedOverviewMetrics.has(metric) ? "selected" : ""}" type="button" data-kpi-metric="${metric}" aria-pressed="${selectedOverviewMetrics.has(metric)}"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></button>`).join("");
+  renderOverviewChart();
   const welcome = document.getElementById("welcomeState");
   welcome.classList.toggle("hidden", state.imports.length > 0);
   if (!state.imports.length) welcome.innerHTML = `<div><strong>Start with your Meta Ads report</strong><p>Import the saved CSV once. Campaigns, ad sets, ads, spend, and messages will appear automatically.</p></div><button class="button primary" type="button" data-open-import>Import first report</button>`;
 }
 
 function renderFunnel() {
-  const values = overallMetrics(false);
+  const values = overallMetrics(true);
   const data = [["Messages", values.messages], ["Booked", values.booked], ["Visits", values.visited], ["Registered", values.registered]];
   const maximum = Math.max(1, ...data.map(([, value]) => value));
   document.getElementById("funnel").innerHTML = data.map(([label, value]) => {
@@ -364,9 +550,9 @@ function qualityRowClass(row) {
 }
 
 function renderOverviewTables() {
-  const ads = performanceRows("ad", false, "quality").slice(0, 7);
+  const ads = performanceRows("ad", true, "quality").slice(0, 7);
   document.getElementById("overviewRows").innerHTML = ads.length ? ads.map((row) => `<tr class="${qualityRowClass(row)}"><td>${entityCell(row, "ad")}</td><td>${qualityBadge(row)}</td><td>${escapeHtml(row.relation.agent?.name || "Unassigned")}</td><td class="number-cell">${money(row.spend)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.visits}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td><td>${addOutcomeButton("ad", row.targetId, row.name)}</td></tr>`).join("") : '<tr><td colspan="10" class="empty">Import a Meta Ads report to see performance.</td></tr>';
-  const agents = performanceRows("agent", false, "quality").filter((row) => row.key !== "__unassigned");
+  const agents = performanceRows("agent", true, "quality").filter((row) => row.key !== "__unassigned");
   document.getElementById("agentRows").innerHTML = agents.length ? agents.map((row) => `<tr class="${qualityRowClass(row)}"><td><strong>${escapeHtml(row.name)}</strong></td><td>${qualityBadge(row)}</td><td>${agentClosingBadge(row)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.visits}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td></tr>`).join("") : '<tr><td colspan="8" class="empty">Add agents to compare their results.</td></tr>';
 }
 
@@ -444,7 +630,7 @@ function visibleOutcomes() {
     const source = outcomeSource(outcome);
     const relation = relationForOutcome(outcome);
     const haystack = [outcome.personName, outcome.phone, outcome.notes, source.name, relation.agent?.name].join(" ").toLocaleLowerCase();
-    return (!type || outcome.type === type) && (!query || haystack.includes(query));
+    return overlapsRange(outcome.sourceDate || outcome.date, outcome.date) && (!type || outcome.type === type) && (!query || haystack.includes(query));
   }).sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
@@ -460,12 +646,12 @@ function renderOutcomes() {
 }
 
 function renderAgents() {
-  const rows = performanceRows("agent", false);
+  const rows = performanceRows("agent", true);
   document.getElementById("agentDirectorySummary").textContent = `${state.agents.length} agent${state.agents.length === 1 ? "" : "s"} · names match case-insensitively`;
   document.getElementById("agentCards").innerHTML = state.agents.length ? state.agents.map((agent) => {
     const adSets = state.adSets.filter((adSet) => adSet.agentId === agent.id);
     const metrics = rows.find((row) => row.key === agent.id) || emptyMetrics();
-    return `<article class="card agent-card"><div class="agent-avatar" aria-hidden="true">${escapeHtml(agent.name.slice(0, 1).toUpperCase())}</div><div class="agent-main"><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.whatsapp || "No WhatsApp number")}</small></div><div class="agent-stat"><strong>${adSets.length}</strong><span>matched ad sets</span></div><div class="agent-stat"><strong>${metrics.registered || 0}</strong><span>registrations</span></div><div class="agent-stat closing-stat">${agentClosingBadge(metrics)}</div><button class="row-add" type="button" data-add-outcome data-level="agent" data-target="${escapeHtml(agent.id)}" aria-label="Add outcome for ${escapeHtml(agent.name)}">+</button></article>`;
+    return `<article class="card agent-card"><div class="agent-avatar" aria-hidden="true">${escapeHtml(agent.name.slice(0, 1).toUpperCase())}</div><div class="agent-main"><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.whatsapp || "No WhatsApp number")}</small></div><div class="agent-stat"><strong>${adSets.length}</strong><span>matched ad sets</span></div><div class="agent-stat"><strong>${metrics.registered || 0}</strong><span>registrations</span></div><div class="agent-stat closing-stat">${agentClosingBadge(metrics)}</div><div class="agent-actions"><button class="row-add" type="button" data-add-outcome data-level="agent" data-target="${escapeHtml(agent.id)}" aria-label="Add outcome for ${escapeHtml(agent.name)}">+</button><button class="icon-button small" type="button" data-edit-agent="${escapeHtml(agent.id)}" aria-label="Edit ${escapeHtml(agent.name)}" title="Edit agent"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 16.6 10.9-10.9 2.4 2.4L7.4 19H5v-2.4ZM17.1 4.5l1.1-1.1c.6-.6 1.6-.6 2.2 0l.2.2c.6.6.6 1.6 0 2.2l-1.1 1.1-2.4-2.4Z"/></svg></button><button class="delete-button small" type="button" data-delete-agent="${escapeHtml(agent.id)}" aria-label="Delete ${escapeHtml(agent.name)}" title="Delete agent"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 21a2 2 0 0 1-2-2V6h14v13a2 2 0 0 1-2 2H7ZM9 9v8h2V9H9Zm4 0v8h2V9h-2ZM8 3h8l1 1h4v2H3V4h4l1-1Z"/></svg></button></div></article>`;
   }).join("") : '<div class="empty card">Add your first sales agent. Existing imported ad sets will be matched immediately.</div>';
   const unassigned = state.adSets.filter((adSet) => adSet.metaAdSetId && !adSet.agentId);
   document.getElementById("unassignedAdSets").innerHTML = unassigned.length ? unassigned.map((adSet) => `<div class="simple-list-row"><div><strong>${escapeHtml(adSet.name)}</strong><small>${escapeHtml(byId(state.campaigns, adSet.campaignId)?.name || "Unknown campaign")}</small></div><span class="status-pill ${adSet.agentMatchStatus === "ambiguous" ? "warning" : ""}">${adSet.agentMatchStatus === "ambiguous" ? "Multiple names found" : "No matching agent"}</span></div>`).join("") : '<div class="empty success-empty">All imported ad sets are assigned.</div>';
@@ -547,6 +733,7 @@ function hydrateFilters() {
 }
 
 function render() {
+  updatePeriodControls();
   hydrateFilters();
   hydrateSortOptions();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
@@ -570,16 +757,106 @@ function targetOptions(level) {
   return state.agents.filter((agent) => agent.active !== false).sort((a, b) => a.name.localeCompare(b.name)).map((agent) => ({ id: agent.id, label: agent.name }));
 }
 
+function fillSelect(select, rows, emptyLabel, labelForRow) {
+  const current = select.value;
+  select.replaceChildren(option(emptyLabel, ""));
+  rows.forEach((row) => select.append(option(labelForRow(row), row.id)));
+  if (rows.some((row) => row.id === current)) select.value = current;
+}
+
+function ensureOutcomeTargetId() {
+  const visibleTarget = document.getElementById("outcomeTarget");
+  let hiddenTarget = document.getElementById("outcomeTargetId");
+  visibleTarget.removeAttribute("name");
+  visibleTarget.required = false;
+  if (!hiddenTarget) {
+    hiddenTarget = document.createElement("input");
+    hiddenTarget.type = "hidden";
+    hiddenTarget.id = "outcomeTargetId";
+    hiddenTarget.name = "targetId";
+    visibleTarget.after(hiddenTarget);
+  }
+  return hiddenTarget;
+}
+
+function ensureOutcomeHierarchy() {
+  let hierarchy = document.getElementById("outcomeHierarchy");
+  if (hierarchy) return hierarchy;
+  hierarchy = document.createElement("div");
+  hierarchy.id = "outcomeHierarchy";
+  hierarchy.className = "form-grid outcome-hierarchy hidden";
+  hierarchy.innerHTML = `<label><span>Campaign</span><select id="outcomeCampaign"></select></label><label><span>Ad set</span><select id="outcomeAdSet"></select></label><label><span>Ad</span><select id="outcomeAd"></select></label>`;
+  document.getElementById("assignmentHint").before(hierarchy);
+  ["outcomeCampaign", "outcomeAdSet", "outcomeAd"].forEach((idName) => {
+    document.getElementById(idName).addEventListener("change", () => syncOutcomeHierarchy());
+  });
+  return hierarchy;
+}
+
+function preferredOutcomePath(level, targetId) {
+  if (!targetId) return {};
+  if (level === "ad") {
+    const ad = byId(state.creatives, targetId);
+    const relation = relationForAd(ad);
+    return { campaignId: relation.campaign?.id || "", adSetId: relation.adSet?.id || "", adId: ad?.id || "" };
+  }
+  if (level === "adSet") {
+    const adSet = byId(state.adSets, targetId);
+    return { campaignId: byId(state.campaigns, adSet?.campaignId)?.id || "", adSetId: adSet?.id || "", adId: "" };
+  }
+  if (level === "campaign") return { campaignId: byId(state.campaigns, targetId)?.id || "", adSetId: "", adId: "" };
+  return {};
+}
+
+function syncOutcomeHierarchy(preferred = {}) {
+  const level = document.getElementById("assignmentLevel").value;
+  const campaignSelect = document.getElementById("outcomeCampaign");
+  const adSetSelect = document.getElementById("outcomeAdSet");
+  const adSelect = document.getElementById("outcomeAd");
+  const hiddenTarget = ensureOutcomeTargetId();
+  const campaigns = state.campaigns.filter((campaign) => campaign.metaCampaignId).sort((a, b) => a.name.localeCompare(b.name));
+  fillSelect(campaignSelect, campaigns, campaigns.length ? "Choose campaign" : "No campaign available", (campaign) => `${campaign.name} - ${campaign.objective || "No objective"}`);
+  if (preferred.campaignId && campaigns.some((campaign) => campaign.id === preferred.campaignId)) campaignSelect.value = preferred.campaignId;
+
+  const adSets = state.adSets.filter((adSet) => adSet.metaAdSetId && adSet.campaignId === campaignSelect.value).sort((a, b) => a.name.localeCompare(b.name));
+  fillSelect(adSetSelect, adSets, campaignSelect.value ? (adSets.length ? "Choose ad set" : "No ad sets in this campaign") : "Choose campaign first", (adSet) => `${adSet.name} - ${byId(state.agents, adSet.agentId)?.name || "Unassigned"}`);
+  adSetSelect.disabled = !campaignSelect.value;
+  if (preferred.adSetId && adSets.some((adSet) => adSet.id === preferred.adSetId)) adSetSelect.value = preferred.adSetId;
+
+  const ads = state.creatives.filter((ad) => ad.metaAdId && ad.adSetId === adSetSelect.value).sort((a, b) => a.name.localeCompare(b.name));
+  fillSelect(adSelect, ads, adSetSelect.value ? (ads.length ? "Choose exact ad" : "No ads in this ad set") : "Choose ad set first", (ad) => `${ad.name} - ${ad.code || "no code"}`);
+  adSelect.disabled = !adSetSelect.value;
+  if (preferred.adId && ads.some((ad) => ad.id === preferred.adId)) adSelect.value = preferred.adId;
+
+  hiddenTarget.value = level === "campaign" ? campaignSelect.value : level === "adSet" ? adSetSelect.value : adSelect.value;
+}
+
 function fillOutcomeTargets(preferred = "") {
   const level = document.getElementById("assignmentLevel").value;
   const target = document.getElementById("outcomeTarget");
   const label = groupLabels[level];
+  const hiddenTarget = ensureOutcomeTargetId();
+  const hierarchy = ensureOutcomeHierarchy();
+  const targetWrapper = target.closest("label");
   document.getElementById("targetLabel").textContent = label;
+  if (level !== "agent") {
+    targetWrapper.classList.add("hidden");
+    hierarchy.classList.remove("hidden");
+    document.getElementById("outcomeAdSet").closest("label").classList.toggle("hidden", level === "campaign");
+    document.getElementById("outcomeAd").closest("label").classList.toggle("hidden", level !== "ad");
+    syncOutcomeHierarchy(preferredOutcomePath(level, preferred));
+    document.getElementById("assignmentHint").textContent = level === "ad" ? "Choose campaign, then ad set, then exact ad so duplicate ad names stay separate." : level === "adSet" ? "Choose campaign first, then the ad set that produced the outcome." : "Choose the campaign that produced the outcome.";
+    return;
+  }
+
+  targetWrapper.classList.remove("hidden");
+  hierarchy.classList.add("hidden");
   const options = targetOptions(level);
   target.replaceChildren(option(options.length ? `Select ${label.toLocaleLowerCase()}` : `No ${label.toLocaleLowerCase()} available`, ""));
   options.forEach((item) => target.append(option(item.label, item.id)));
   if (options.some((item) => item.id === preferred)) target.value = preferred;
-  document.getElementById("assignmentHint").textContent = level === "ad" ? "Best choice when you know the exact creative." : level === "adSet" ? "Use when you know the ad set but not the exact ad." : level === "campaign" ? "Use when only the campaign is known." : "Use when you only know the sales agent.";
+  hiddenTarget.value = target.value;
+  document.getElementById("assignmentHint").textContent = "Use when you only know the sales agent.";
 }
 
 function openOutcome({ level = "ad", targetId = "", type = "" } = {}) {
@@ -591,6 +868,30 @@ function openOutcome({ level = "ad", targetId = "", type = "" } = {}) {
   if (type && form.elements.type) form.querySelector(`input[name="type"][value="${CSS.escape(type)}"]`).checked = true;
   fillOutcomeTargets(targetId);
   document.getElementById("outcomeDialog").showModal();
+}
+
+function ensureAgentDialog() {
+  let dialog = document.getElementById("agentDialog");
+  if (dialog) return dialog;
+  dialog = document.createElement("dialog");
+  dialog.id = "agentDialog";
+  dialog.className = "modal";
+  dialog.innerHTML = `<form id="agentEditForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Sales agent</p><h2>Edit agent</h2><p>Renaming an agent rematches imported ad sets by name, ignoring uppercase/lowercase.</p></div><button class="icon-button" type="button" data-close-agent aria-label="Close agent form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Agent name</span><input name="name" required placeholder="Souad" autocomplete="off" /></label><label><span>WhatsApp <em>optional</em></span><input name="whatsapp" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label></div><p class="form-hint">If this exact name appears in campaign, ad set, or ad names, those rows will be assigned to the agent automatically.</p><div class="modal-actions"><button class="button secondary" type="button" data-close-agent>Cancel</button><button class="button primary" type="submit">Save agent</button></div></form>`;
+  document.body.append(dialog);
+  return dialog;
+}
+
+function openAgentEditor(agentId) {
+  const agent = byId(state.agents, agentId);
+  if (!agent) return toast("Agent not found", "error");
+  const dialog = ensureAgentDialog();
+  const form = dialog.querySelector("form");
+  editingAgentId = agent.id;
+  form.reset();
+  form.elements.name.value = agent.name || "";
+  form.elements.whatsapp.value = agent.whatsapp || "";
+  dialog.showModal();
+  form.elements.name.focus();
 }
 
 function selectMetaFile(file) {
@@ -614,9 +915,17 @@ document.addEventListener("submit", async (event) => {
   if (button) { button.disabled = true; button.textContent = "Saving…"; }
   try {
     if (form.id === "outcomeForm") {
-      await api("/api/outcomes", { method: "POST", body: JSON.stringify(formPayload(form)) });
+      const payload = formPayload(form);
+      if (!payload.targetId) throw new Error("Choose where this outcome came from");
+      await api("/api/outcomes", { method: "POST", body: JSON.stringify(payload) });
       document.getElementById("outcomeDialog").close();
       await load(); toast("Outcome saved");
+    } else if (form.id === "agentEditForm") {
+      if (!editingAgentId) throw new Error("Choose an agent to edit");
+      await api(`/api/agents/${editingAgentId}`, { method: "PATCH", body: JSON.stringify(formPayload(form)) });
+      editingAgentId = "";
+      document.getElementById("agentDialog").close();
+      await load(); toast("Agent updated and ad sets rematched");
     } else if (form.dataset.create === "agents") {
       await api("/api/agents", { method: "POST", body: JSON.stringify(formPayload(form)) });
       form.reset(); await load(); toast("Agent added and ad sets rematched");
@@ -633,9 +942,28 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-open-import]")) { showPanel("data"); setTimeout(() => document.getElementById("metaCsvFile").focus(), 250); }
   if (event.target.closest("[data-go-performance]")) showPanel("performance");
   if (event.target.closest("#openResetData")) document.getElementById("resetDataDialog").showModal();
+  const kpiMetric = event.target.closest("[data-kpi-metric]");
+  if (kpiMetric) {
+    const metric = kpiMetric.dataset.kpiMetric;
+    if (selectedOverviewMetrics.has(metric)) selectedOverviewMetrics.delete(metric); else selectedOverviewMetrics.add(metric);
+    if (!selectedOverviewMetrics.size) selectedOverviewMetrics.add(metric);
+    localStorage.setItem("cmcg-overview-metrics", JSON.stringify([...selectedOverviewMetrics]));
+    renderKpis();
+  }
   const add = event.target.closest("[data-add-outcome]");
   if (add) openOutcome({ level: add.dataset.level || "ad", targetId: add.dataset.target || "" });
   if (event.target.closest("[data-close-outcome]")) document.getElementById("outcomeDialog").close();
+  if (event.target.closest("[data-close-agent]")) document.getElementById("agentDialog")?.close();
+  const editAgent = event.target.closest("[data-edit-agent]");
+  if (editAgent) openAgentEditor(editAgent.dataset.editAgent);
+  const deleteAgent = event.target.closest("[data-delete-agent]");
+  if (deleteAgent) {
+    const agent = byId(state.agents, deleteAgent.dataset.deleteAgent);
+    if (agent && confirm(`Delete ${agent.name}? This removes the agent and clears old links, but keeps your imported ad data and outcomes.`)) {
+      try { await api(`/api/agents/${agent.id}`, { method: "DELETE" }); await load(); toast("Agent deleted and ad sets rematched"); }
+      catch (error) { toast(error.message, "error"); }
+    }
+  }
   const grouping = event.target.closest("[data-group]");
   if (grouping) {
     groupBy = grouping.dataset.group;
@@ -650,8 +978,26 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.id === "periodPreset") { applyPeriodPreset(event.target.value); return; }
+  if (event.target.id === "periodFrom" || event.target.id === "periodTo") {
+    selectedPeriod = "custom";
+    filters.from = document.getElementById("periodFrom").value;
+    filters.to = document.getElementById("periodTo").value;
+    savePeriod();
+    updatePeriodControls();
+    render();
+    return;
+  }
   const filter = event.target.closest("[data-filter]");
-  if (filter) { filters[filter.dataset.filter] = filter.value; renderPerformance(); renderKpis(); renderFunnel(); renderOverviewTables(); }
+  if (filter) {
+    filters[filter.dataset.filter] = filter.value;
+    if (filter.dataset.filter === "from" || filter.dataset.filter === "to") {
+      selectedPeriod = "custom";
+      savePeriod();
+      updatePeriodControls();
+    }
+    renderPerformance(); renderKpis(); renderFunnel(); renderOverviewTables(); renderOutcomes();
+  }
   if (event.target.id === "performanceSort") { sortBy = event.target.value; renderPerformance(); }
   const column = event.target.closest("[data-column]");
   if (column) {
@@ -668,9 +1014,11 @@ document.addEventListener("input", (event) => {
 
 document.getElementById("clearFilters").addEventListener("click", () => {
   Object.keys(filters).forEach((key) => { filters[key] = ""; });
+  applyPeriodPreset("last7", false);
   hydrateFilters(); render();
 });
 document.getElementById("assignmentLevel").addEventListener("change", () => fillOutcomeTargets());
+document.getElementById("outcomeTarget").addEventListener("change", (event) => { ensureOutcomeTargetId().value = event.target.value; });
 document.getElementById("outcomeSearch").addEventListener("input", renderOutcomes);
 document.getElementById("outcomeTypeFilter").addEventListener("change", renderOutcomes);
 document.getElementById("refreshBtn").addEventListener("click", async (event) => {

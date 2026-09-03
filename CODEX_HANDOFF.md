@@ -27,8 +27,11 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - Imported spend uses Meta `Reporting starts`/`Reporting ends`; if those columns are missing, import falls back to report dates parsed from the filename.
 - All source CSV columns are retained in `dailyLogs[].raw`, while secondary fields and identifiers remain hidden by default in the UI.
 - Imported ad sets match active agents only when the complete agent name appears in the ad-set name, case-insensitively. Zero matches remain unassigned and multiple matches remain ambiguous.
+- Agent names can be edited or deleted from the UI. Editing reruns ad-set matching. Deleting an agent clears the old links from ad sets and outcomes but does not delete imported ad data.
 - Outcomes are limited to `booked`, `showed`, and `registered`, and can target an ad, ad set, campaign, or agent.
+- Ad-level outcome entry must use the hierarchy Campaign -> Ad set -> Ad so duplicate ad names under different campaigns/ad sets remain separated.
 - `showed` means visited without registering. Total visits equal `showed + registered`.
+- Reporting defaults to Last 7 days. Date presets include Today, Yesterday, This week, This month, This year, Lifetime, and Custom; changing From/To manually switches to Custom.
 - Business quality is automatic and learns benchmarks from gathered Meta spend plus manual outcomes. It rewards low cost per registration, low cost per visit, low cost per booked appointment, strong outcome volume, and healthy close rate.
 - Rows inside the closing window are Awaiting. Mature low-spend rows are Not enough. Weak is reserved for mature rows with enough spend/evidence.
 - Agent closing quality is separate from business quality and uses show rate plus visit-to-registration close rate.
@@ -49,6 +52,8 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - `POST /api/meta-import` - validates and synchronizes an ad-level Meta Ads CSV.
 - `POST /api/settings/scoring` - saves optional timing/rate assumptions used by the automatic score.
 - `POST /api/reset-data` - resets CRM records to a clean empty state while preserving centre/currency settings.
+- `PATCH /api/agents/:id` - renames or updates an agent and reruns automatic imported ad-set matching.
+- `DELETE /api/agents/:id` - deletes an agent and clears related agent links without deleting imported advertising data.
 - `POST /api/outcomes` - records a manually attributed appointment, non-registering visit, or registration.
 - `DELETE /api/outcomes/:id` - removes an incorrectly entered outcome.
 
@@ -64,10 +69,10 @@ node --check public/quality.js
 
 ## Current UI Workflow
 
-- **Overview** - all-time spend, messages, booked appointments, visits, registrations, quality-ranked ads, and agent results.
+- **Overview** - date-windowed spend, messages, booked appointments, visits, registrations, quality-ranked ads, agent results, and a large multi-metric trend graph controlled by the KPI cards. Cost per registration is inverted visually so upward movement means lower cost.
 - **Performance** - group by ad, ad set, campaign, or agent; filter, sort by business quality/spend/outcomes/costs/rates, and reveal optional Meta columns.
-- **Outcomes** - add and audit the three manual outcome types.
-- **Agents** - create independent agents, review automatic ad-set matching, and see agent closing quality.
+- **Outcomes** - add and audit the three manual outcome types; ad attribution is chosen by Campaign -> Ad set -> Ad.
+- **Agents** - create, rename, or delete independent agents, review automatic ad-set matching, and see agent closing quality.
 - **Import & data** - upload reports, audit import history, download backups, restore, and reset old data before a clean start.
 
 ## Next Expansion Candidates
