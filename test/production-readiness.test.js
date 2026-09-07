@@ -588,6 +588,9 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /quickUpdateStudent/);
   assert.match(app, /renderStudentsPage/);
   assert.match(app, /studentsMatchingFilters/);
+  assert.match(app, /agentRevenue/);
+  assert.match(app, /potentialRoi/);
+  assert.match(app, /roiCell/);
   assert.match(app, /data-students-training/);
   assert.match(app, /data-students-filter/);
   assert.match(html, /data-tab="students"/);

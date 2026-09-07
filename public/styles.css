@@ -453,6 +453,12 @@ td { font-size: .8rem; }
 .student-quick-grid label span { font-size: .76rem; color: var(--slate-600); font-weight: 600; }
 .is-arabic .student-progress-remaining { text-align: left; }
 @media (max-width: 640px) { .student-quick-grid { grid-template-columns: 1fr; } }
+.roi-cell { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.roi-cell strong { font-size: .85rem; }
+.roi-cell small { font-size: .68rem; font-weight: 600; }
+.roi-cell.roi-pos strong, .roi-cell.roi-pos small { color: var(--green-700, #15803d); }
+.roi-cell.roi-neg strong, .roi-cell.roi-neg small { color: #b91c1c; }
+.is-arabic .roi-cell { align-items: flex-start; }
 .training-filter-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .training-filter-card { text-align: left; display: grid; gap: 3px; padding: 13px; border: 1px solid var(--slate-200); border-radius: 13px; background: #fff; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
 .training-filter-card:hover { border-color: var(--green-600); transform: translateY(-1px); box-shadow: var(--shadow-sm); }

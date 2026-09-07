@@ -516,6 +516,10 @@ Object.assign(ar, {
   "Inscrit le": "مسجل بتاريخ",
   "Étudiant transféré": "تم نقل الطالب",
   "Statut mis à jour": "تم تحديث الحالة",
+  "Encaissé (élèves)": "المحصّل (الطلبة)",
+  "ROI (encaissé)": "العائد (المحصّل)",
+  "Potentiel (si tout payé)": "المحتمل (إذا أدى الجميع)",
+  "ROI potentiel": "العائد المحتمل",
   "Gestion des étudiants · تدبير الطلبة": "تدبير الطلبة",
   "Filtrez par formation, groupe, statut ou paiement. Cliquez un étudiant pour tout gérer.": "صفِّ حسب التكوين، الفوج، الحالة أو الأداء. انقر على طالب لتدبير كل شيء.",
   "Configurez CRM_USER et CRM_PASSWORD sur Hostinger avant de saisir des données étudiant.": "اضبط CRM_USER و CRM_PASSWORD على Hostinger قبل إدخال بيانات الطلبة.",
@@ -828,6 +832,10 @@ const columnDefinitions = [
   { key: "showRate", label: "Show rate", default: false, numeric: true },
   { key: "closeRate", label: "Close rate", default: false, numeric: true },
   { key: "agentClosing", label: "Agent closing", default: false },
+  { key: "collected", label: "Encaissé (élèves)", default: false, numeric: true },
+  { key: "roi", label: "ROI (encaissé)", default: false, numeric: true },
+  { key: "potential", label: "Potentiel (si tout payé)", default: false, numeric: true },
+  { key: "potentialRoi", label: "ROI potentiel", default: false, numeric: true },
   { key: "campaign", label: "Campaign", default: false },
   { key: "adSet", label: "Ad set", default: false },
   { key: "code", label: "Short code", default: false },
@@ -886,6 +894,14 @@ const number = (value) => new Intl.NumberFormat("en-MA", { maximumFractionDigits
 const currency = () => state?.settings?.currency || "USD";
 const money = (value) => `${new Intl.NumberFormat("en-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0))} ${currency()}`;
 const cost = (spend, count) => (count ? money(spend / count) : "—");
+// ROI cell: shows revenue/spend as a multiple plus the net (revenue - spend), colored by outcome.
+const roiCell = (spend, revenue, net) => {
+  if (!spend) return revenue ? `<span class="roi-cell roi-pos">∞ · +${money(revenue)}</span>` : "—";
+  const ratio = revenue / spend;
+  const cls = net >= 0 ? "roi-pos" : "roi-neg";
+  const sign = net >= 0 ? "+" : "−";
+  return `<span class="roi-cell ${cls}"><strong>${number(ratio)}×</strong><small>${sign}${money(Math.abs(net))}</small></span>`;
+};
 const legacyWelcomeMessage = "مرحباً، أريد معرفة تفاصيل التكوين في مركز CMCG. كود الإعلان:";
 
 const percent = (value) => Number.isFinite(Number(value)) ? `${number(Number(value) * 100)}%` : "-";
@@ -1147,7 +1163,7 @@ function filteredOutcomes() {
 }
 
 function emptyMetrics() {
-  return { spend: 0, messages: 0, messagesReplied: 0, results: 0, impressions: 0, reach: 0, linkClicks: 0, shopClicks: 0, clicksAll: 0, landingPageViews: 0, booked: 0, showed: 0, registered: 0, visits: 0, firstActivityDate: "", lastActivityDate: "" };
+  return { spend: 0, messages: 0, messagesReplied: 0, results: 0, impressions: 0, reach: 0, linkClicks: 0, shopClicks: 0, clicksAll: 0, landingPageViews: 0, booked: 0, showed: 0, registered: 0, visits: 0, collected: 0, potential: 0, firstActivityDate: "", lastActivityDate: "" };
 }
 
 function recordActivityDate(target, value) {
@@ -1192,6 +1208,20 @@ function groupDescriptor(key, type) {
   return { key, name: agent?.name || "Unknown agent", targetId: agent?.id || "", relation: { agent } };
 }
 
+// Money linked to an agent from the school side, for ROI against ad spend.
+// collected = payments received (optionally within the reporting window);
+// potential = full agreed price of the agent's non-cancelled students (best case if all pay).
+function agentRevenue(agentId, useFilters = true) {
+  if (!agentId) return { collected: 0, potential: 0 };
+  const students = state.students.filter((s) => s.agentId === agentId && s.status !== "cancelled");
+  const studentIds = new Set(students.map((s) => s.id));
+  const potential = students.reduce((sum, s) => sum + Number(s.totalDue || 0), 0);
+  const collected = state.payments
+    .filter((p) => studentIds.has(p.studentId) && (!useFilters || overlapsRange(p.paidAt, p.paidAt)))
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  return { collected, potential };
+}
+
 function performanceRows(type = groupBy, useFilters = true, criterion = sortBy) {
   const rows = new Map();
   function ensure(key) {
@@ -1223,6 +1253,17 @@ function performanceRows(type = groupBy, useFilters = true, criterion = sortBy) 
       recordActivityDate(row, outcome.date);
     }
   });
+  if (type === "agent") {
+    rows.forEach((row) => {
+      const revenue = agentRevenue(row.targetId, useFilters);
+      row.collected = revenue.collected;
+      row.potential = revenue.potential;
+      row.roi = row.spend > 0 ? revenue.collected / row.spend : 0;
+      row.roiNet = revenue.collected - row.spend;
+      row.potentialRoi = row.spend > 0 ? revenue.potential / row.spend : 0;
+      row.potentialRoiNet = revenue.potential - row.spend;
+    });
+  }
   return CmcgQuality.sortRows(CmcgQuality.scoreRows([...rows.values()], state.settings), criterion);
 }
 
@@ -1423,6 +1464,10 @@ function cellValue(column, row) {
     quality: qualityBadge(row),
     status: statusPill(row),
     agentClosing: groupBy === "agent" ? agentClosingBadge(row) : "-",
+    collected: money(row.collected || 0),
+    potential: money(row.potential || 0),
+    roi: roiCell(row.spend, row.collected, row.roiNet),
+    potentialRoi: roiCell(row.spend, row.potential, row.potentialRoiNet),
     agent: escapeHtml(relation.agent?.name || (groupBy === "agent" ? row.name : "Unassigned")),
     objective: escapeHtml(relation.objective || relation.adSet?.objective || relation.campaign?.objective || "—"),
     spend: money(row.spend), messages: number(row.messages), booked: row.booked, visits: row.visits, showed: row.showed, registered: `<strong>${row.registered}</strong>`,
@@ -1454,9 +1499,10 @@ function renderColumnOptions() {
 
 function renderPerformance() {
   const rows = performanceRows();
-  const agentColumns = new Set(["agentClosing", "showRate", "closeRate"]);
+  const agentColumns = new Set(["agentClosing", "showRate", "closeRate", "collected", "roi", "potential", "potentialRoi"]);
+  const agentOnlyColumns = new Set(["agentClosing", "collected", "roi", "potential", "potentialRoi"]);
   const columns = columnDefinitions.filter((column) => {
-    if (groupBy !== "agent" && column.key === "agentClosing") return false;
+    if (groupBy !== "agent" && agentOnlyColumns.has(column.key)) return false;
     return visibleColumns.has(column.key) || (groupBy === "agent" && agentColumns.has(column.key));
   });
   document.getElementById("performanceCount").textContent = `${rows.length} ${groupBy === "ad" ? "ads" : groupBy === "adSet" ? "ad sets" : groupBy === "campaign" ? "campaigns" : "agents"}`;
