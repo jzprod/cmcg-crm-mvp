@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600;700&family=Fira+Sans:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap");
 
 :root {
   --navy-950: #07111f;
@@ -76,6 +76,10 @@ svg { width: 20px; height: 20px; fill: currentColor; }
 .top-actions { display: flex; align-items: center; gap: 9px; }
 .save-status { max-width: 200px; color: var(--slate-600); font-size: .75rem; text-align: right; }
 main { width: min(1560px, 100%); max-width: 100%; margin: 0 auto; overflow-x: hidden; padding: 24px clamp(16px, 3vw, 38px) 56px; }
+.language-switch { min-width: 145px; }
+.language-switch select { min-height: 40px; padding-block: 7px; font-size: .78rem; }
+.user-badge { display: inline-flex; align-items: center; min-height: 36px; padding: 6px 10px; border-radius: 999px; background: var(--green-100); color: var(--green-800); font-size: .72rem; font-weight: 800; white-space: nowrap; }
+.user-badge.sales { background: var(--blue-100); color: var(--blue-700); }
 .panel { display: none; }
 .panel.active { display: block; animation: panel-in 180ms ease-out; }
 @keyframes panel-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
@@ -365,6 +369,38 @@ td { font-size: .8rem; }
 .toast { max-width: min(440px, calc(100% - 28px)); position: fixed; right: 18px; bottom: 18px; z-index: 60; padding: 12px 15px; border-radius: 10px; background: var(--navy-900); color: white; box-shadow: 0 14px 38px rgba(15,23,42,.25); }
 .toast.error { background: #7f1d1d; }
 
+.is-arabic { font-family: "Noto Sans Arabic", "Noto Naskh Arabic", "Fira Sans", system-ui, sans-serif; }
+.is-arabic .topbar,
+.is-arabic .page-heading,
+.is-arabic .section-head,
+.is-arabic .card-head,
+.is-arabic .modal-head,
+.is-arabic .brand,
+.is-arabic .tab,
+.is-arabic .sidebar-import,
+.is-arabic .storage-badge,
+.is-arabic .mini-card,
+.is-arabic .data-card,
+.is-arabic .matching-note { text-align: right; }
+.is-arabic .tab,
+.is-arabic .sidebar-import,
+.is-arabic .brand,
+.is-arabic .storage-badge,
+.is-arabic .top-actions,
+.is-arabic .button,
+.is-arabic .agent-actions,
+.is-arabic .balance-actions { flex-direction: row-reverse; }
+.is-arabic th,
+.is-arabic td { text-align: right; }
+.is-arabic .number-cell,
+.is-arabic .save-status { text-align: left; }
+.is-arabic .kpi,
+.is-arabic .entity-cell,
+.is-arabic .link-button { text-align: right; }
+.is-arabic .kpi::before { inset: 0 0 0 auto; }
+.role-sales .workspace main { width: min(1240px, 100%); }
+.role-sales #groups { max-width: 1180px; margin-inline: auto; }
+
 @media (max-width: 1220px) {
   .kpis { grid-template-columns: repeat(3, 1fr); }
   .filter-grid { grid-template-columns: repeat(3, 1fr); }
@@ -388,6 +424,7 @@ td { font-size: .8rem; }
   .tab svg { width: 17px; height: 17px; }
   .sidebar-import, .storage-badge { display: none; }
   .topbar { position: static; min-height: auto; padding: 14px 16px; }
+  .language-switch { min-width: 0; }
   main { padding: 19px 13px 42px; }
   .period-card { grid-template-columns: 1fr 1fr; }
   .dashboard-grid, .agents-layout, .data-layout, .group-cards { grid-template-columns: 1fr; }
@@ -398,6 +435,7 @@ td { font-size: .8rem; }
   body { font-size: 16px; }
   .topbar, .page-heading, .section-head, .system-card, .welcome-state { align-items: flex-start; flex-direction: column; }
   .top-actions { width: 100%; flex-wrap: wrap; }
+  .language-switch { flex: 1; }
   .save-status { width: 100%; max-width: none; flex: 0 0 100%; text-align: left; }
   .top-import { flex: 1; padding-inline: 11px; }
   .page-heading .button, .section-head .button { width: 100%; }

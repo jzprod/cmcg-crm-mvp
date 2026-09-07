@@ -33,19 +33,35 @@ function waitForServer(child) {
   });
 }
 
-async function startApp(dataFile, { auth = false } = {}) {
+async function startApp(dataFile, { auth = false, sales = false } = {}) {
   const port = await freePort();
-  const authUser = auth ? "admin" : "";
-  const authPassword = auth ? "secret-pass" : "";
+  const authUser = (auth || sales) ? "admin" : "";
+  const authPassword = (auth || sales) ? "secret-pass" : "";
+  const salesUser = sales ? "souad-login" : "";
+  const salesPassword = sales ? "sales-secret" : "";
   const child = spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
-    env: { ...process.env, PORT: String(port), CRM_DATA_FILE: dataFile, CRM_USER: authUser, CRM_PASSWORD: authPassword, DB_HOST: "", DB_USER: "", DB_PASSWORD: "", DB_NAME: "" },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      CRM_DATA_FILE: dataFile,
+      CRM_USER: authUser,
+      CRM_PASSWORD: authPassword,
+      CRM_SALES_USER: salesUser,
+      CRM_SALES_PASSWORD: salesPassword,
+      CRM_SALES_AGENT: sales ? "Souad" : "",
+      DB_HOST: "",
+      DB_USER: "",
+      DB_PASSWORD: "",
+      DB_NAME: "",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   await waitForServer(child);
   return {
     child,
     baseUrl: `http://127.0.0.1:${port}`,
-    authHeader: auth ? `Basic ${Buffer.from(`${authUser}:${authPassword}`).toString("base64")}` : "",
+    authHeader: (auth || sales) ? `Basic ${Buffer.from(`${authUser}:${authPassword}`).toString("base64")}` : "",
+    salesAuthHeader: sales ? `Basic ${Buffer.from(`${salesUser}:${salesPassword}`).toString("base64")}` : "",
   };
 }
 
@@ -174,6 +190,59 @@ test("student operations route is locked until CRM auth is configured", async (t
   assert.match(locked.error, /Secure login is required/);
 });
 
+test("sales login is restricted to its own student operations", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-sales-role-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl, authHeader, salesAuthHeader } = await startApp(dataFile, { sales: true });
+  const admin = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  const sales = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader: salesAuthHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const souad = await admin("/api/agents", { method: "POST", body: { name: "Souad" }, expectedStatus: 201 });
+  const hasan = await admin("/api/agents", { method: "POST", body: { name: "Hasan" }, expectedStatus: 201 });
+  const training = await admin("/api/programs", { method: "POST", body: { name: "Comptabilité 3 mois" }, expectedStatus: 201 });
+  const group = await admin("/api/groups", { method: "POST", body: { programId: training.id, name: "Mardi matin", days: "Mardi", timeStart: "10:00", timeEnd: "12:00", capacity: 5 }, expectedStatus: 201 });
+  const ownStudent = await admin("/api/students", { method: "POST", body: { groupId: group.id, agentId: souad.id, name: "Student Souad", phone: "+212600000001", totalDue: 2500 }, expectedStatus: 201 });
+  const otherStudent = await admin("/api/students", { method: "POST", body: { groupId: group.id, agentId: hasan.id, name: "Student Hasan", phone: "+212600000002", totalDue: 2500 }, expectedStatus: 201 });
+  await admin("/api/campaigns", { method: "POST", body: { programId: training.id, name: "Hidden campaign" }, expectedStatus: 201 });
+
+  const salesSnapshot = await sales("/api/state");
+  assert.equal(salesSnapshot.currentUser.role, "sales");
+  assert.equal(salesSnapshot.currentUser.agentId, souad.id);
+  assert.equal(salesSnapshot.state.students.length, 1);
+  assert.equal(salesSnapshot.state.students[0].id, ownStudent.id);
+  assert.equal(salesSnapshot.state.groups[0].enrolledCount, 2);
+  assert.equal(salesSnapshot.state.campaigns.length, 0);
+  assert.equal(salesSnapshot.state.dailyLogs.length, 0);
+  assert.equal(salesSnapshot.state.outcomes.length, 0);
+
+  const forcedStudent = await sales("/api/students", { method: "POST", body: { groupId: group.id, agentId: hasan.id, name: "Forced Agent", totalDue: 2000 }, expectedStatus: 201 });
+  assert.equal(forcedStudent.agentId, souad.id);
+  await sales(`/api/students/${otherStudent.id}`, { method: "PATCH", body: { name: "Blocked", status: "active" }, expectedStatus: 403 });
+  await sales("/api/operations/seed-screenshot-schedule", { method: "POST", body: { source: "screenshot" }, expectedStatus: 403 });
+  await sales("/api/meta-import", { method: "POST", body: { csv: "Campaign name\nTest" }, expectedStatus: 403 });
+  const backupResponse = await fetch(`${baseUrl}/api/backup`, { headers: { Authorization: salesAuthHeader } });
+  assert.equal(backupResponse.status, 403);
+});
+
+test("screenshot schedule seed creates editable trainings and groups once", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-screenshot-seed-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl, authHeader } = await startApp(dataFile, { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const first = await request("/api/operations/seed-screenshot-schedule", { method: "POST", body: { source: "screenshot" }, expectedStatus: 200 });
+  assert.equal(first.result.programsAdded, 4);
+  assert.equal(first.result.groupsAdded, 19);
+  assert.ok(first.state.programs.some((program) => program.name === "Comptabilité 3 mois"));
+  assert.ok(first.state.groups.some((group) => group.days.includes("Mardi") && group.timeStart === "10:00"));
+
+  const second = await request("/api/operations/seed-screenshot-schedule", { method: "POST", body: { source: "screenshot" }, expectedStatus: 200 });
+  assert.equal(second.result.programsAdded, 0);
+  assert.equal(second.result.groupsAdded, 0);
+});
+
 test("Meta CSV sync is idempotent, matches agents, and supports hierarchical outcomes", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-meta-test-"));
   const dataFile = path.join(tempDir, "crm.json");
@@ -276,6 +345,9 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   const app = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   assert.doesNotMatch(html, /CMCG CRM MVP/);
   assert.match(html, /aria-live="polite"/);
+  assert.match(html, /languageSelect/);
+  assert.match(html, /العربية/);
+  assert.match(html, /userBadge/);
   assert.match(html, /Import &amp; data|Import & data/);
   assert.match(html, /Add outcome/);
   assert.match(html, /Reset CRM data/);
@@ -292,8 +364,14 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(html, /studentSecurityWarning/);
   assert.match(html, /plannerSuggestions/);
   assert.match(html, /Nidam shift/);
+  assert.match(html, /data-seed-screenshot/);
   assert.match(html, /href="\/groups"/);
   assert.match(html, /<label>/);
+  assert.match(app, /const ar =/);
+  assert.match(app, /applyLanguage/);
+  assert.match(app, /document.documentElement.dir/);
+  assert.match(app, /applyRoleAccess/);
+  assert.match(app, /currentUser/);
   assert.match(app, /cmcg-visible-columns/);
   assert.match(app, /cmcg-overview-metrics/);
   assert.match(app, /cmcg-report-period/);
@@ -316,6 +394,7 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /buildPlannerSuggestions/);
   assert.match(app, /data-create-plan/);
   assert.match(app, /attendanceMode/);
+  assert.match(app, /seed-screenshot-schedule/);
   assert.match(app, /\/api\/agents\/\$\{editingAgentId\}/);
   assert.match(app, /Business quality - highest/);
   assert.match(app, /Automatic scoring is learning/);

@@ -23,6 +23,35 @@ const DEFAULT_SCORING = {
   targetCloseRate: 40,
 };
 
+const SCREENSHOT_PROGRAMS = [
+  { name: "Comptabilité 3 mois", durationLabel: "3 mois" },
+  { name: "Comptabilité 5 mois", durationLabel: "5 mois" },
+  { name: "Comptabilité complet", durationLabel: "Complet" },
+  { name: "RH", durationLabel: "" },
+];
+
+const SCREENSHOT_GROUPS = [
+  { programName: "Comptabilité 3 mois", day: "Mardi", timeStart: "10:00", timeEnd: "12:00" },
+  { programName: "Comptabilité complet", day: "Mardi", timeStart: "10:00", timeEnd: "12:00" },
+  { programName: "Comptabilité 3 mois", day: "Mardi", timeStart: "16:00", timeEnd: "18:00" },
+  { programName: "Comptabilité 3 mois", day: "Mardi", timeStart: "18:00", timeEnd: "20:00", namePrefix: "Groupe déjà avancé" },
+  { programName: "Comptabilité 5 mois", day: "Mercredi", timeStart: "16:00", timeEnd: "18:00" },
+  { programName: "Comptabilité complet", day: "Mercredi", timeStart: "18:00", timeEnd: "20:00" },
+  { programName: "Comptabilité 3 mois", day: "Jeudi", timeStart: "10:00", timeEnd: "12:00" },
+  { programName: "Comptabilité 3 mois", day: "Jeudi", timeStart: "16:00", timeEnd: "18:00" },
+  { programName: "Comptabilité 3 mois", day: "Jeudi", timeStart: "18:00", timeEnd: "20:00", namePrefix: "Groupe déjà avancé" },
+  { programName: "Comptabilité complet", day: "Vendredi", timeStart: "10:00", timeEnd: "12:00" },
+  { programName: "Comptabilité 5 mois", day: "Vendredi", timeStart: "16:00", timeEnd: "18:00" },
+  { programName: "Comptabilité complet", day: "Vendredi", timeStart: "18:00", timeEnd: "20:00" },
+  { programName: "Comptabilité 3 mois", day: "Samedi", timeStart: "12:00", timeEnd: "14:00" },
+  { programName: "Comptabilité 5 mois", day: "Samedi", timeStart: "14:00", timeEnd: "16:00" },
+  { programName: "Comptabilité 3 mois", day: "Samedi", timeStart: "18:00", timeEnd: "20:00", namePrefix: "Groupe déjà avancé" },
+  { programName: "Comptabilité 5 mois", day: "Dimanche", timeStart: "10:00", timeEnd: "12:00" },
+  { programName: "RH", day: "Dimanche", timeStart: "10:00", timeEnd: "12:00" },
+  { programName: "Comptabilité 5 mois", day: "Dimanche", timeStart: "12:00", timeEnd: "14:00" },
+  { programName: "RH", day: "Dimanche", timeStart: "12:00", timeEnd: "14:00" },
+];
+
 function finiteNumber(value) {
   const result = Number(value);
   return Number.isFinite(result) ? result : 0;
@@ -189,19 +218,59 @@ function downloadJson(res, state) {
 }
 
 function hasAuth() {
-  return Boolean(process.env.CRM_USER && process.env.CRM_PASSWORD);
+  return Boolean((process.env.CRM_USER && process.env.CRM_PASSWORD) || (process.env.CRM_SALES_USER && process.env.CRM_SALES_PASSWORD));
 }
 
-function authorized(req) {
-  if (!hasAuth()) return true;
+function basicCredentials(req) {
   const header = req.headers.authorization || "";
   const encoded = header.startsWith("Basic ") ? header.slice(6) : "";
   const decoded = Buffer.from(encoded, "base64").toString("utf8");
-  return decoded === `${process.env.CRM_USER}:${process.env.CRM_PASSWORD}`;
+  const separator = decoded.indexOf(":");
+  if (separator === -1) return { username: "", password: "" };
+  return { username: decoded.slice(0, separator), password: decoded.slice(separator + 1) };
+}
+
+function configuredAuthUsers() {
+  const users = [];
+  if (process.env.CRM_USER && process.env.CRM_PASSWORD) {
+    users.push({ role: "admin", username: process.env.CRM_USER, password: process.env.CRM_PASSWORD, label: "Admin" });
+  }
+  if (process.env.CRM_SALES_USER && process.env.CRM_SALES_PASSWORD) {
+    users.push({
+      role: "sales",
+      username: process.env.CRM_SALES_USER,
+      password: process.env.CRM_SALES_PASSWORD,
+      label: cleanText(process.env.CRM_SALES_AGENT || process.env.CRM_SALES_USER),
+      agentName: cleanText(process.env.CRM_SALES_AGENT || process.env.CRM_SALES_USER),
+    });
+  }
+  return users;
+}
+
+function resolveAgentForUser(state, context) {
+  if (context.role !== "sales") return context;
+  const wanted = cleanText(context.agentName || context.username).toLocaleLowerCase();
+  const agent = state?.agents?.find((item) => item.id === context.agentName || cleanText(item.name).toLocaleLowerCase() === wanted);
+  return { ...context, agentId: agent?.id || "", agentName: agent?.name || context.agentName || context.username };
+}
+
+function authContext(req, state = null) {
+  if (!hasAuth()) {
+    return { authenticated: true, authConfigured: false, role: "admin", username: "local", label: "Local admin", agentId: "", agentName: "" };
+  }
+  const credentials = basicCredentials(req);
+  const user = configuredAuthUsers().find((item) => item.username === credentials.username && item.password === credentials.password);
+  if (!user) return { authenticated: false, authConfigured: true, role: "guest", username: "", label: "Guest", agentId: "", agentName: "" };
+  return resolveAgentForUser(state, { authenticated: true, authConfigured: true, role: user.role, username: user.username, label: user.label, agentName: user.agentName || "", agentId: "" });
+}
+
+function authorized(req) {
+  return authContext(req).authenticated;
 }
 
 function requireAuth(req, res) {
-  if (authorized(req)) return true;
+  const context = authContext(req);
+  if (context.authenticated) return context;
   res.writeHead(401, securityHeaders({
     "WWW-Authenticate": 'Basic realm="CMCG CRM"',
     "Content-Type": "text/plain; charset=utf-8",
@@ -231,14 +300,59 @@ function publicStateWithoutStudentData(state) {
 }
 
 function isSensitiveStudentApiPath(pathname) {
-  return /^\/api\/(?:groups|students)(?:\/|$)/.test(pathname);
+  return /^\/api\/(?:groups|students|operations)(?:\/|$)/.test(pathname);
 }
 
 function requireConfiguredAuthForStudentData(res, pathname) {
   if (hasAuth() || !isSensitiveStudentApiPath(pathname)) return true;
   return json(res, 403, {
-    error: "Secure login is required before saving student, group, or payment data. Add CRM_USER and CRM_PASSWORD in Hostinger environment variables, then restart the app.",
+    error: "Secure login is required before saving student, group, or payment data. Add CRM_USER/CRM_PASSWORD for admin, or CRM_SALES_USER/CRM_SALES_PASSWORD/CRM_SALES_AGENT for a sales login, then restart the app.",
   });
+}
+
+function salesCanAccessApi(method, pathname) {
+  if (method === "GET" && pathname === "/api/state") return true;
+  if ((method === "POST" || method === "PATCH") && /^\/api\/programs(?:\/|$)/.test(pathname)) return true;
+  if ((method === "POST" || method === "PATCH") && /^\/api\/groups(?:\/|$)/.test(pathname)) return true;
+  if ((method === "POST" || method === "PATCH") && /^\/api\/students(?:\/|$)/.test(pathname)) return true;
+  return false;
+}
+
+function publicUser(context) {
+  return {
+    role: context.role,
+    username: context.username,
+    label: context.label || (context.role === "admin" ? "Admin" : context.agentName || "Sales agent"),
+    agentId: context.agentId || "",
+    agentName: context.agentName || "",
+    canSeeAdvertising: context.role === "admin",
+    canManageStudentData: context.role === "admin" || Boolean(context.agentId),
+  };
+}
+
+function stateForUser(state, context) {
+  if (context.role !== "sales") return state;
+  const safe = JSON.parse(JSON.stringify(state));
+  const studentIds = new Set(
+    context.agentId
+      ? state.students.filter((student) => student.agentId === context.agentId).map((student) => student.id)
+      : [],
+  );
+  safe.adAccounts = [];
+  safe.campaigns = [];
+  safe.adSets = [];
+  safe.creatives = [];
+  safe.usedCreativeCodes = [];
+  safe.imports = [];
+  safe.outcomes = [];
+  safe.leads = [];
+  safe.dailyLogs = [];
+  safe.agents = context.agentId ? state.agents.filter((agent) => agent.id === context.agentId) : [];
+  safe.groups = state.groups.map((group) => ({ ...group, enrolledCount: activeStudentsInGroup(state, group.id).length }));
+  safe.students = state.students.filter((student) => studentIds.has(student.id));
+  safe.payments = state.payments.filter((payment) => studentIds.has(payment.studentId));
+  safe.events = state.events.filter((event) => event.studentId && studentIds.has(event.studentId));
+  return safe;
 }
 
 function sendOperationsLockedPage(res) {
@@ -246,7 +360,7 @@ function sendOperationsLockedPage(res) {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
   }));
-  res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG CRM locked</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0f172a;color:#fff;display:grid;min-height:100vh;place-items:center"><main style="max-width:640px;padding:28px"><p style="color:#86efac;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Secure area locked</p><h1>Student operations need CRM login first.</h1><p style="color:#cbd5e1;line-height:1.6">Add <strong>CRM_USER</strong> and <strong>CRM_PASSWORD</strong> in Hostinger environment variables, restart the app, then open this page again.</p></main></body></html>`);
+  res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG CRM locked</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0f172a;color:#fff;display:grid;min-height:100vh;place-items:center"><main style="max-width:640px;padding:28px"><p style="color:#86efac;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Secure area locked</p><h1>Student operations need CRM login first.</h1><p style="color:#cbd5e1;line-height:1.6">Add <strong>CRM_USER</strong>/<strong>CRM_PASSWORD</strong> for admin, or <strong>CRM_SALES_USER</strong>/<strong>CRM_SALES_PASSWORD</strong>/<strong>CRM_SALES_AGENT</strong> for a restricted sales login. Restart the app, then open this page again.</p></main></body></html>`);
 }
 
 function serveStatic(req, res) {
@@ -319,6 +433,80 @@ async function acquireMutationLock() {
 function duplicateName(items, name) {
   const normalized = cleanText(name).toLocaleLowerCase();
   return items.some((item) => cleanText(item.name).toLocaleLowerCase() === normalized);
+}
+
+function findProgramByName(state, name) {
+  const normalized = cleanText(name).toLocaleLowerCase();
+  return state.programs.find((program) => cleanText(program.name).toLocaleLowerCase() === normalized);
+}
+
+function sameDays(a = [], b = []) {
+  return a.map(cleanText).join("|").toLocaleLowerCase() === b.map(cleanText).join("|").toLocaleLowerCase();
+}
+
+function seedScreenshotSchedule(state) {
+  const createdPrograms = [];
+  const createdGroups = [];
+  const programMap = new Map();
+
+  SCREENSHOT_PROGRAMS.forEach((source) => {
+    let program = findProgramByName(state, source.name);
+    if (!program) {
+      program = {
+        id: id("prg"),
+        name: source.name,
+        durationLabel: source.durationLabel,
+        durationMonths: 0,
+        basePrice: 0,
+        discountedPrice: 0,
+        notes: "Créé depuis le planning Excel en photo.",
+        createdAt: now(),
+      };
+      state.programs.push(program);
+      createdPrograms.push(program);
+    }
+    programMap.set(source.name, program);
+  });
+
+  SCREENSHOT_GROUPS.forEach((source) => {
+    const program = programMap.get(source.programName) || findProgramByName(state, source.programName);
+    if (!program) return;
+    const days = [source.day];
+    const alreadyExists = state.groups.some((group) => (
+      group.programId === program.id
+      && sameDays(group.days || [], days)
+      && group.timeStart === source.timeStart
+      && group.timeEnd === source.timeEnd
+      && cleanText(group.notes).toLocaleLowerCase().includes("planning excel")
+    ));
+    if (alreadyExists) return;
+    const groupName = `${source.namePrefix ? `${source.namePrefix} - ` : ""}${program.name} ${source.day} ${source.timeStart}`;
+    const group = {
+      id: id("grp"),
+      programId: program.id,
+      name: groupName,
+      durationLabel: program.durationLabel,
+      days,
+      timeStart: source.timeStart,
+      timeEnd: source.timeEnd,
+      attendanceMode: "fixed",
+      alternateDays: [],
+      alternateTimeStart: "",
+      alternateTimeEnd: "",
+      startDate: "",
+      endDate: "",
+      capacity: 20,
+      price: 0,
+      discountedPrice: 0,
+      status: "active",
+      notes: "Importé depuis le planning Excel en photo. À vérifier si la photo était floue.",
+      createdAt: now(),
+    };
+    state.groups.push(group);
+    createdGroups.push(group);
+  });
+
+  return { programsAdded: createdPrograms.length, groupsAdded: createdGroups.length, programs: createdPrograms, groups: createdGroups };
 }
 
 function numeric(value) {
@@ -586,7 +774,8 @@ function resolveOutcomeTarget(state, level, targetId) {
 }
 
 async function handleApi(req, res) {
-  if (!requireAuth(req, res)) return;
+  const initialAuth = requireAuth(req, res);
+  if (!initialAuth) return;
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
 
@@ -603,12 +792,17 @@ async function handleApi(req, res) {
 
   try {
     let state = await storage.read();
+    const context = authContext(req, state);
+    if (context.role === "sales" && !salesCanAccessApi(method, url.pathname)) {
+      return json(res, 403, { error: "This login can only access student operations." });
+    }
     if (method === "GET" && url.pathname === "/api/state") {
       const sensitiveLocked = !hasAuth() && hasSensitiveStudentData(state);
       return json(res, 200, {
-        state: sensitiveLocked ? publicStateWithoutStudentData(state) : state,
+        state: sensitiveLocked ? publicStateWithoutStudentData(state) : stateForUser(state, context),
         authEnabled: hasAuth(),
         sensitiveLocked,
+        currentUser: publicUser(context),
         security: { operationsPath: "/groups", studentDataRequiresAuth: true },
         storage: storage.info(),
       });
@@ -645,6 +839,12 @@ async function handleApi(req, res) {
     }
 
     if (method !== "GET" && !requireConfiguredAuthForStudentData(res, url.pathname)) return;
+
+    if (method === "POST" && url.pathname === "/api/operations/seed-screenshot-schedule") {
+      const result = seedScreenshotSchedule(state);
+      await storage.write(state);
+      return json(res, 200, { seeded: true, result, state: stateForUser(state, context) });
+    }
 
     if (method === "POST" && url.pathname === "/api/restore") {
       const body = await parseBody(req);
@@ -847,9 +1047,10 @@ async function handleApi(req, res) {
     if (method === "POST" && url.pathname === "/api/students") {
       const body = await parseBody(req);
       const group = state.groups.find((item) => item.id === cleanText(body.groupId));
-      const agentId = cleanText(body.agentId);
+      const agentId = context.role === "sales" ? context.agentId : cleanText(body.agentId);
       const agent = agentId ? state.agents.find((item) => item.id === agentId) : null;
       if (!group) return json(res, 400, { error: "Choose a valid group" });
+      if (context.role === "sales" && !context.agentId) return json(res, 403, { error: "This sales login is not linked to an agent. Create an agent with the same name as CRM_SALES_AGENT first." });
       if (agentId && !agent) return json(res, 400, { error: "Choose a valid sales agent" });
       if (activeStudentsInGroup(state, group.id).length >= group.capacity) return json(res, 400, { error: "This group is already full" });
       const program = state.programs.find((item) => item.id === group.programId);
@@ -891,6 +1092,7 @@ async function handleApi(req, res) {
       const body = await parseBody(req);
       const student = state.students.find((item) => item.id === studentPaymentMatch[1]);
       if (!student) return json(res, 404, { error: "Student not found" });
+      if (context.role === "sales" && student.agentId !== context.agentId) return json(res, 403, { error: "This student belongs to another sales agent." });
       const amount = nonNegativeMoney(body.amount);
       if (amount <= 0) return json(res, 400, { error: "Payment amount must be greater than zero" });
       const item = {
@@ -914,6 +1116,7 @@ async function handleApi(req, res) {
       const body = await parseBody(req);
       const student = state.students.find((item) => item.id === studentMatch[1]);
       if (!student) return json(res, 404, { error: "Student not found" });
+      if (context.role === "sales" && student.agentId !== context.agentId) return json(res, 403, { error: "This student belongs to another sales agent." });
       const previous = { ...student };
       if (body.groupId !== undefined && cleanText(body.groupId) !== student.groupId) {
         const nextGroup = state.groups.find((item) => item.id === cleanText(body.groupId));
@@ -923,7 +1126,7 @@ async function handleApi(req, res) {
         student.programId = nextGroup.programId;
       }
       if (body.agentId !== undefined) {
-        const agentId = cleanText(body.agentId);
+        const agentId = context.role === "sales" ? context.agentId : cleanText(body.agentId);
         if (agentId && !state.agents.some((agent) => agent.id === agentId)) return json(res, 400, { error: "Choose a valid sales agent" });
         student.agentId = agentId;
       }

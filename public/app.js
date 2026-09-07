@@ -1,6 +1,7 @@
 let state = null;
 let authEnabled = false;
 let sensitiveLocked = false;
+let currentUser = { role: "admin", canSeeAdvertising: true, canManageStudentData: true };
 let storageInfo = null;
 let pendingRestore = null;
 let pendingMetaFile = null;
@@ -26,6 +27,217 @@ const outcomeMeta = {
 };
 const groupLabels = { ad: "Ad", adSet: "Ad set", campaign: "Campaign", agent: "Agent" };
 const periodLabels = { today: "Today", yesterday: "Yesterday", last7: "Last 7 days", thisWeek: "This week", thisMonth: "This month", thisYear: "This year", lifetime: "Lifetime", custom: "Custom" };
+const ar = {
+  "CMCG CRM": "نظام CMCG",
+  "Ads to enrollment": "من الإعلان إلى التسجيل",
+  "Admin": "مدير",
+  "Sales agent": "مستشار تجاري",
+  "Overview": "نظرة عامة",
+  "Performance": "الأداء",
+  "Outcomes": "النتائج",
+  "Agents": "المستشارون",
+  "Import & data": "الاستيراد والبيانات",
+  "Groupes & paiements": "الأفواج والأداءات",
+  "Your advertising and enrollment results at a glance.": "ملخص نتائج الإعلانات والتسجيلات في لمحة واحدة.",
+  "Compare ads, ad sets, campaigns, objectives, and agents.": "قارن الإعلانات، المجموعات الإعلانية، الحملات، الأهداف، والمستشارين.",
+  "Appointments, visits, and registered students.": "المواعيد، الزيارات، والطلبة المسجلون.",
+  "Planning, capacité, inscriptions, avances et historique étudiant.": "تخطيط الأفواج، الطاقة الاستيعابية، التسجيلات، التسبيقات، وتتبع الطالب.",
+  "Synchronize Meta Ads and protect your CRM data.": "زامن تقارير Meta Ads واحمِ بيانات النظام.",
+  "Import daily report": "استيراد التقرير اليومي",
+  "Import report": "استيراد التقرير",
+  "Refresh CRM data": "تحديث بيانات النظام",
+  "Refresh": "تحديث",
+  "Loading data…": "جاري تحميل البيانات…",
+  "Checking…": "جاري التحقق…",
+  "Storage": "التخزين",
+  "CMCG · Tangier": "CMCG · طنجة",
+  "Public access is not protected.": "الدخول العام غير محمي.",
+  "Add CRM_USER and CRM_PASSWORD in Hostinger environment variables.": "أضف CRM_USER و CRM_PASSWORD في متغيرات Hostinger.",
+  "Deployment-safe storage is not configured.": "التخزين المناسب للإنتاج غير مفعّل.",
+  "Connect MySQL before entering production data.": "اربط MySQL قبل إدخال بيانات حقيقية.",
+  "Reporting period": "الفترة الزمنية",
+  "Last 7 days": "آخر 7 أيام",
+  "Today": "اليوم",
+  "Yesterday": "أمس",
+  "This week": "هذا الأسبوع",
+  "This month": "هذا الشهر",
+  "This year": "هذه السنة",
+  "Lifetime": "كل الفترة",
+  "Custom": "فترة مخصصة",
+  "Preset": "اختيار سريع",
+  "From": "من",
+  "To": "إلى",
+  "Today’s picture": "صورة اليوم",
+  "From messages to students": "من الرسائل إلى الطلبة",
+  "See what is working, then record a result in seconds.": "اعرف ما يعمل جيداً، ثم سجّل النتيجة في ثوانٍ.",
+  "Add outcome": "إضافة نتيجة",
+  "Visible trend graph": "رسم بياني واضح",
+  "Performance direction": "اتجاه الأداء",
+  "Click the cards below to add or remove lines. Cost / registered is reversed so up means better.": "اضغط على البطاقات لإضافة أو حذف الخطوط. تكلفة التسجيل معكوسة: الصعود يعني تحسناً.",
+  "Spend": "الصرف",
+  "Messages": "الرسائل",
+  "Booked": "المواعيد",
+  "Visited": "الزيارات",
+  "Registered": "المسجلون",
+  "Cost / registered": "تكلفة التسجيل",
+  "Conversion": "التحويل",
+  "Outcome flow": "مسار النتائج",
+  "Registered students are included in total visits.": "الطلبة المسجلون محسوبون ضمن إجمالي الزيارات.",
+  "Needs attention": "يحتاج انتباهاً",
+  "Assignment health": "سلامة التعيين",
+  "Best-performing ads": "أفضل الإعلانات أداءً",
+  "Ranked by quality across appointments, visits, and registrations.": "مرتبة حسب الجودة عبر المواعيد والزيارات والتسجيلات.",
+  "View all performance": "عرض كل الأداء",
+  "Agent results": "نتائج المستشارين",
+  "Outcomes credited to each agent and their matched ad sets.": "النتائج المنسوبة لكل مستشار ومجموعاته الإعلانية المطابقة.",
+  "Split testing": "اختبار المقارنات",
+  "Advertising performance": "أداء الإعلانات",
+  "Compare the same creative across agents, ad sets, campaigns, and objectives.": "قارن نفس الإبداع عبر المستشارين والمجموعات والحملات والأهداف.",
+  "Ads": "الإعلانات",
+  "Ad sets": "المجموعات الإعلانية",
+  "Campaigns": "الحملات",
+  "All agents": "كل المستشارين",
+  "All objectives": "كل الأهداف",
+  "All campaigns": "كل الحملات",
+  "Agent": "المستشار",
+  "Objective": "الهدف",
+  "Campaign": "الحملة",
+  "Search": "بحث",
+  "Clear all filters": "مسح كل الفلاتر",
+  "Sort by": "الترتيب حسب",
+  "Columns": "الأعمدة",
+  "Business quality": "جودة العمل",
+  "Status": "الحالة",
+  "Cost / booked": "تكلفة الموعد",
+  "Cost / visit": "تكلفة الزيارة",
+  "Cost / registration": "تكلفة التسجيل",
+  "Manual results": "النتائج اليدوية",
+  "Outcome log": "سجل النتائج",
+  "Record only the three results Facebook cannot know.": "سجّل فقط النتائج الثلاث التي لا يعرفها فيسبوك.",
+  "Booked appointment": "موعد محجوز",
+  "They said they will visit the center.": "قال إنه سيزور المركز.",
+  "Showed, no registration": "زار ولم يسجل",
+  "They visited but did not register.": "زار المركز لكنه لم يسجل.",
+  "Registered student": "طالب مسجل",
+  "Registration also counts as a visit.": "التسجيل يُحسب أيضاً كزيارة.",
+  "Gestion école · تدبير المركز": "تدبير المركز",
+  "Groupes, étudiants et paiements": "الأفواج، الطلبة، والأداءات",
+  "Planning des formations, capacité, inscriptions, avances et historique étudiant.": "تخطيط التكوينات، الطاقة الاستيعابية، التسجيلات، التسبيقات، وتتبع الطالب.",
+  "Lien direct sécurisé": "رابط آمن مباشر",
+  "+ Formation": "+ تكوين",
+  "+ Groupe": "+ فوج",
+  "+ Inscrire étudiant": "+ تسجيل طالب",
+  "Zone étudiants verrouillée.": "منطقة الطلبة مقفلة.",
+  "Configurez CRM_USER et CRM_PASSWORD sur Hostinger avant de saisir des noms, téléphones ou paiements.": "قم بإعداد بيانات الدخول على Hostinger قبل إدخال الأسماء أو الهواتف أو الأداءات.",
+  "Assistant planning · مساعد التخطيط": "مساعد التخطيط",
+  "Ajouter une formation sans casser le planning": "إضافة تكوين دون إرباك البرمجة",
+  "Choisissez une formation ou tapez une nouvelle. Le CRM suggère les créneaux les moins chargés, avec option nidam shift matin/soir.": "اختر تكويناً موجوداً أو اكتب تكويناً جديداً. يقترح النظام أقل الأوقات ازدحاماً مع خيار نظام الشيفت صباحاً/مساءً.",
+  "Proposer un planning": "اقتراح برمجة",
+  "Charger planning image": "تحميل برمجة الصورة",
+  "Formation existante": "تكوين موجود",
+  "Nouvelle formation": "تكوين جديد",
+  "si besoin": "عند الحاجة",
+  "Durée": "المدة",
+  "Capacité cible": "الطاقة المستهدفة",
+  "Mode": "النظام",
+  "Groupe fixe": "فوج ثابت",
+  "Nidam shift matin/soir": "نظام شيفت صباح/مساء",
+  "Formation": "التكوين",
+  "Horaire": "التوقيت",
+  "Paiement": "الأداء",
+  "Tous les paiements": "كل الأداءات",
+  "Payé totalement": "مدفوع بالكامل",
+  "Reste à payer": "الباقي للدفع",
+  "Aucun paiement": "لا يوجد أداء",
+  "Recherche": "بحث",
+  "Aperçu capacité des groupes": "نظرة على طاقة الأفواج",
+  "Voyez les groupes pleins, les places restantes, et les shifts disponibles.": "اطّلع على الأفواج الممتلئة، المقاعد المتبقية، والشيفتات المتاحة.",
+  "Paiements": "الأداءات",
+  "Restes à payer": "المبالغ المتبقية",
+  "Les étudiants avec solde restant apparaissent en premier.": "الطلبة الذين لديهم مبلغ متبقٍ يظهرون أولاً.",
+  "Étudiants": "الطلبة",
+  "Registre étudiant": "سجل الطلبة",
+  "Cliquez sur un étudiant pour voir inscription, paiements et historique.": "اضغط على الطالب لرؤية التسجيل، الأداءات، والتاريخ.",
+  "Étudiant": "الطالب",
+  "Groupe": "الفوج",
+  "Inscrit le": "تاريخ التسجيل",
+  "Payé": "مدفوع",
+  "Reste": "الباقي",
+  "Automatic assignment": "التعيين التلقائي",
+  "Sales agents": "المستشارون التجاريون",
+  "If an ad set contains an agent’s full name, results are assigned automatically—case does not matter.": "إذا ظهر اسم المستشار كاملاً في اسم المجموعة الإعلانية، يتم التعيين تلقائياً دون حساسية لحجم الحروف.",
+  "New agent": "مستشار جديد",
+  "Add a sales agent": "إضافة مستشار تجاري",
+  "Use the name that appears inside your Meta ad set names.": "استعمل الاسم الذي يظهر داخل أسماء مجموعات Meta الإعلانية.",
+  "Agent name": "اسم المستشار",
+  "WhatsApp number": "رقم واتساب",
+  "optional": "اختياري",
+  "Add agent": "إضافة المستشار",
+  "How matching works": "طريقة المطابقة",
+  "Agent directory": "دليل المستشارين",
+  "Unassigned ad sets": "مجموعات إعلانية غير معينة",
+  "Daily synchronization": "المزامنة اليومية",
+  "Import Meta Ads report": "استيراد تقرير Meta Ads",
+  "Upload the saved CSV template. Existing rows update; new campaigns, ad sets, and ads are created automatically.": "ارفع قالب CSV المحفوظ. الصفوف الموجودة تُحدّث، والحملات والمجموعات والإعلانات الجديدة تُنشأ تلقائياً.",
+  "Meta Ads CSV": "ملف Meta Ads CSV",
+  "Drop today’s report here": "ضع تقرير اليوم هنا",
+  "All raw columns and IDs are stored safely but hidden from the normal view.": "كل الأعمدة والمعرّفات الأصلية تُحفظ بأمان لكنها مخفية من العرض العادي.",
+  "Choose CSV file": "اختيار ملف CSV",
+  "Import and sync": "استيراد ومزامنة",
+  "Safe to repeat": "آمن عند التكرار",
+  "What every import does": "ماذا يفعل كل استيراد",
+  "Updates spend and messages instead of duplicating them.": "يحدّث الصرف والرسائل بدل تكرارها.",
+  "Adds newly launched campaigns, ad sets, and ads.": "يضيف الحملات والمجموعات والإعلانات الجديدة.",
+  "Keeps manual outcomes and agent assignments.": "يحافظ على النتائج اليدوية وتعيينات المستشارين.",
+  "Uses Meta IDs even when names change.": "يعتمد معرّفات Meta حتى عند تغيير الأسماء.",
+  "Import history": "تاريخ الاستيراد",
+  "Storage and backup": "التخزين والنسخ الاحتياطي",
+  "Current storage": "التخزين الحالي",
+  "Backup": "نسخة احتياطية",
+  "Download all CRM data": "تحميل كل بيانات النظام",
+  "Download backup": "تحميل نسخة احتياطية",
+  "Recovery": "استرجاع",
+  "Restore a backup": "استرجاع نسخة احتياطية",
+  "Reset CRM data": "تصفير بيانات النظام",
+  "System status": "حالة النظام",
+  "Record inventory": "جرد السجلات",
+  "Add training": "إضافة تكوين",
+  "Add group": "إضافة فوج",
+  "Register student": "تسجيل طالب",
+  "Edit student": "تعديل الطالب",
+  "Add payment": "إضافة أداء",
+  "Student history": "تاريخ الطالب",
+  "Close": "إغلاق",
+  "Cancel": "إلغاء",
+  "Save": "حفظ",
+  "Save training": "حفظ التكوين",
+  "Save group": "حفظ الفوج",
+  "Save student": "حفظ الطالب",
+  "Save payment": "حفظ الأداء",
+  "Language": "اللغة",
+};
+
+const arDynamic = [
+  [/^(\d+) ads$/, "$1 إعلان"],
+  [/^(\d+) ad sets$/, "$1 مجموعة إعلانية"],
+  [/^(\d+) campaigns$/, "$1 حملة"],
+  [/^(\d+) agents$/, "$1 مستشار"],
+  [/^(\d+) groups$/, "$1 فوج"],
+  [/^(\d+) students$/, "$1 طالب"],
+  [/^(\d+) payments$/, "$1 أداء"],
+  [/^(\d+) imports$/, "$1 استيراد"],
+  [/^(\d+) outcome(?:s)?$/, "$1 نتيجة"],
+  [/^(\d+) places libres$/, "$1 مقاعد شاغرة"],
+  [/^(\d+) spots left$/, "$1 مقاعد شاغرة"],
+  [/^Capacité proposée: (.+) étudiants$/, "الطاقة المقترحة: $1 طالب"],
+  [/^(.+) rows synced · (.+) new ads · (.+) updated$/, "تمت مزامنة $1 صف · $2 إعلانات جديدة · $3 تحديث"],
+  [/^Sales · (.+)$/, "حساب المستشار · $1"],
+  [/^Saved (.+)$/, "تم الحفظ $1"],
+  [/^(.+) remaining$/, "الباقي $1"],
+  [/^(.+) reste$/, "الباقي $1"],
+  [/^(.+) paid$/, "مدفوع $1"],
+  [/^(.+) payé$/, "مدفوع $1"],
+];
 const overviewMetricDefinitions = {
   spend: { label: "Spend", color: "#0f172a", format: (row) => money(row.spend) },
   messages: { label: "Messages", color: "#2563eb", format: (row) => number(row.messages) },
@@ -39,6 +251,9 @@ const operationsFilters = { trainingId: "", timing: "", payment: "", search: "" 
 let groupBy = "ad";
 let sortBy = "quality";
 let selectedPeriod = localStorage.getItem("cmcg-report-period") || "last7";
+let currentLanguage = localStorage.getItem("cmcg-language") || "base";
+const i18nTextNodes = new WeakMap();
+const i18nAttrNodes = new WeakMap();
 
 function readOverviewMetrics() {
   try {
@@ -207,6 +422,62 @@ function initializePeriod() {
 
 initializePeriod();
 
+function translatePhrase(value) {
+  const text = String(value ?? "");
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return text;
+  const direct = ar[normalized];
+  if (direct) return text.replace(normalized, direct);
+  for (const [pattern, replacement] of arDynamic) {
+    if (pattern.test(normalized)) return text.replace(normalized, normalized.replace(pattern, replacement));
+  }
+  return text;
+}
+
+function applyLanguage() {
+  const useArabic = currentLanguage === "ar";
+  document.documentElement.lang = useArabic ? "ar" : "en";
+  document.documentElement.dir = useArabic ? "rtl" : "ltr";
+  document.body.classList.toggle("is-arabic", useArabic);
+  const select = document.getElementById("languageSelect");
+  if (select) select.value = currentLanguage;
+
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || ["SCRIPT", "STYLE", "TEXTAREA"].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  let node = walker.nextNode();
+  while (node) {
+    if (!i18nTextNodes.has(node)) i18nTextNodes.set(node, node.nodeValue);
+    const base = i18nTextNodes.get(node);
+    node.nodeValue = useArabic ? translatePhrase(base) : base;
+    node = walker.nextNode();
+  }
+
+  document.querySelectorAll("[placeholder], [title], [aria-label]").forEach((element) => {
+    const stored = i18nAttrNodes.get(element) || {};
+    ["placeholder", "title", "aria-label"].forEach((attribute) => {
+      if (!element.hasAttribute(attribute)) return;
+      if (!stored[attribute]) stored[attribute] = element.getAttribute(attribute);
+      element.setAttribute(attribute, useArabic ? translatePhrase(stored[attribute]) : stored[attribute]);
+    });
+    i18nAttrNodes.set(element, stored);
+  });
+}
+
+function applyRoleAccess() {
+  const salesOnly = currentUser?.role === "sales";
+  document.body.classList.toggle("role-sales", salesOnly);
+  document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("hidden", salesOnly && tab.dataset.tab !== "groups"));
+  document.querySelectorAll("[data-open-import], [data-add-outcome], [data-go-performance], [data-seed-screenshot]").forEach((item) => item.classList.toggle("hidden", salesOnly));
+  document.querySelector(".period-card")?.classList.toggle("hidden", salesOnly);
+  if (salesOnly && !document.getElementById("groups")?.classList.contains("active")) showPanel("groups", false);
+}
+
 function normalizeState() {
   ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
@@ -255,6 +526,7 @@ async function load() {
   normalizeState();
   authEnabled = data.authEnabled;
   sensitiveLocked = Boolean(data.sensitiveLocked);
+  currentUser = data.currentUser || { role: "admin", canSeeAdvertising: true, canManageStudentData: true };
   storageInfo = data.storage;
   render();
   const requestedPanel = panelFromLocation();
@@ -848,7 +1120,8 @@ function groupStats(group) {
   const paid = students.reduce((sum, student) => sum + studentPaid(student), 0);
   const due = students.reduce((sum, student) => sum + Number(student.totalDue || 0), 0);
   const capacity = Math.max(1, Number(group.capacity || 1));
-  return { students, enrolled: students.length, capacity, spots: Math.max(0, capacity - students.length), fullness: Math.min(100, Math.round((students.length / capacity) * 100)), paid, remaining: Math.max(0, due - paid) };
+  const enrolled = Number.isFinite(Number(group.enrolledCount)) ? Number(group.enrolledCount) : students.length;
+  return { students, enrolled, ownStudents: students.length, capacity, spots: Math.max(0, capacity - enrolled), fullness: Math.min(100, Math.round((enrolled / capacity) * 100)), paid, remaining: Math.max(0, due - paid) };
 }
 function paymentState(student) {
   const paid = studentPaid(student);
@@ -946,7 +1219,16 @@ function renderPaymentAlerts() {
 }
 function renderOperations() {
   if (!document.getElementById("operationsKpis")) return;
-  document.getElementById("studentSecurityWarning")?.classList.toggle("hidden", authEnabled && !sensitiveLocked);
+  const warning = document.getElementById("studentSecurityWarning");
+  const missingSalesAgent = currentUser?.role === "sales" && !currentUser.agentId;
+  if (warning) {
+    warning.classList.toggle("hidden", authEnabled && !sensitiveLocked && !missingSalesAgent);
+    if (missingSalesAgent) {
+      warning.innerHTML = `<strong>Compte commercial non lié.</strong> Créez d'abord un agent nommé ${escapeHtml(currentUser.agentName || currentUser.username || "comme CRM_SALES_AGENT")} avec le compte admin.`;
+    } else {
+      warning.innerHTML = "<strong>Zone étudiants verrouillée.</strong> Configurez CRM_USER et CRM_PASSWORD sur Hostinger avant de saisir des noms, téléphones ou paiements.";
+    }
+  }
   hydrateOperationsControls();
   renderOperationsKpis();
   renderPlannerSuggestions();
@@ -956,6 +1238,11 @@ function renderOperations() {
 }
 
 function studentDataUnlocked() {
+  if (currentUser?.role === "sales" && !currentUser.agentId) {
+    toast("Ce compte commercial n'est pas lié à un agent. Créez l'agent correspondant avec le compte admin.", "error");
+    document.getElementById("studentSecurityWarning")?.classList.remove("hidden");
+    return false;
+  }
   if (authEnabled && !sensitiveLocked) return true;
   toast("Configurez CRM_USER et CRM_PASSWORD sur Hostinger avant de saisir les données étudiants.", "error");
   document.getElementById("studentSecurityWarning")?.classList.remove("hidden");
@@ -971,6 +1258,11 @@ function renderStorage() {
   const badge = document.getElementById("storageBadge");
   badge.classList.toggle("persistent", persistent);
   badge.querySelector("strong").textContent = storageInfo?.label || "Unknown";
+  const userBadge = document.getElementById("userBadge");
+  if (userBadge) {
+    userBadge.textContent = currentUser?.role === "sales" ? `Sales · ${currentUser.agentName || currentUser.label || "Agent"}` : "Admin";
+    userBadge.classList.toggle("sales", currentUser?.role === "sales");
+  }
   document.getElementById("storageWarning").classList.toggle("hidden", persistent);
   document.getElementById("storageTitle").textContent = storageInfo?.label || "Unknown storage";
   document.getElementById("storageDescription").textContent = persistent ? "MySQL storage is active. Automatic snapshots are kept before every change." : "Local JSON is for development only. Configure MySQL before entering production data.";
@@ -1038,14 +1330,18 @@ function hydrateFilters() {
 }
 
 function render() {
+  applyRoleAccess();
   updatePeriodControls();
   hydrateFilters();
   hydrateSortOptions();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
   renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderAgents(); renderImports(); renderStorage(); renderScoringSettings();
+  applyRoleAccess();
+  applyLanguage();
 }
 
 function showPanel(name, updateHash = true) {
+  if (currentUser?.role === "sales" && name !== "groups") name = "groups";
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
   document.querySelectorAll(".panel").forEach((item) => item.classList.toggle("active", item.id === name));
   const meta = pageMeta[name] || ["CMCG CRM", ""];
@@ -1238,6 +1534,14 @@ function hydrateStudentSelects(preferredGroupId = "") {
     groupSelect.append(option(`${group.name} - ${groupTraining(group)?.name || "Formation"} - ${stats.spots} places libres`, group.id));
   });
   if (preferredGroupId && state.groups.some((group) => group.id === preferredGroupId)) groupSelect.value = preferredGroupId;
+  const agentLabel = agentSelect.closest("label");
+  if (currentUser?.role === "sales") {
+    agentSelect.replaceChildren(option(currentUser.agentName || currentUser.label || "Agent connecté", currentUser.agentId || ""));
+    agentSelect.value = currentUser.agentId || "";
+    agentLabel?.classList.add("hidden");
+    return;
+  }
+  agentLabel?.classList.remove("hidden");
   agentSelect.replaceChildren(option("Non assigné", ""));
   state.agents.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((agent) => agentSelect.append(option(agent.name, agent.id)));
 }
@@ -1421,6 +1725,24 @@ document.addEventListener("click", async (event) => {
     renderPlannerSuggestions();
     document.getElementById("plannerSuggestions")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
+  const seedScreenshot = event.target.closest("[data-seed-screenshot]");
+  if (seedScreenshot) {
+    if (!studentDataUnlocked()) return;
+    const button = seedScreenshot;
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "Chargement...";
+    try {
+      const result = await api("/api/operations/seed-screenshot-schedule", { method: "POST", body: JSON.stringify({ source: "screenshot" }) });
+      await load();
+      toast(`${result.result.programsAdded} formations et ${result.result.groupsAdded} groupes chargés depuis l'image.`);
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
   const createPlan = event.target.closest("[data-create-plan]");
   if (createPlan) {
     const button = createPlan;
@@ -1495,6 +1817,12 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.id === "languageSelect") {
+    currentLanguage = event.target.value === "ar" ? "ar" : "base";
+    localStorage.setItem("cmcg-language", currentLanguage);
+    applyLanguage();
+    return;
+  }
   if (event.target.id === "periodPreset") { applyPeriodPreset(event.target.value); return; }
   if (event.target.id === "periodFrom" || event.target.id === "periodTo") {
     selectedPeriod = "custom";

@@ -12,7 +12,8 @@ Track CMCG click-to-WhatsApp advertising from Meta-reported spend and conversati
 - Storage adapter in `storage.js`.
 - Hostinger MySQL/MariaDB via the official `mariadb` connector when `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` are configured.
 - Local JSON fallback through `CRM_DATA_FILE` or `data/crm.json`.
-- Basic HTTP authentication through `CRM_USER` and `CRM_PASSWORD`. The student operations route `/groups` and student/group/payment write APIs are locked until those variables are configured.
+- Basic HTTP authentication supports two roles: admin through `CRM_USER`/`CRM_PASSWORD`, and one restricted sales login through `CRM_SALES_USER`/`CRM_SALES_PASSWORD`/`CRM_SALES_AGENT`.
+- Admin sees the full CRM. Sales sees only `/groups`, all programs/groups for planning, anonymized group occupancy, and students/payments assigned to the matching agent.
 - Node built-in integration tests under `test/`.
 
 The HTTP server calls `listen()` immediately for Hostinger compatibility, while storage initializes in the background. API requests receive a safe 503 JSON response until storage is ready; database errors are logged without exposing credentials to the browser.
@@ -29,9 +30,11 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - Programs are also used as trainings in the school operations section. Groups reference programs, students reference groups, and payments reference students.
 - Groups support `attendanceMode: "fixed"` or `attendanceMode: "flexible_shift"`. Flexible shift groups store `alternateDays`, `alternateTimeStart`, and `alternateTimeEnd` so one group can support morning/night attendance.
 - The operations UI includes a planning assistant that scores candidate day/time slots by overlap with existing groups and can create a suggested formation/group.
+- The operations UI includes a `Charger planning image` action backed by `POST /api/operations/seed-screenshot-schedule`. It seeds the clearly readable Excel-photo records once: Comptabilité 3 mois, Comptabilité 5 mois, Comptabilité complet, RH, and the visible Tue-Sun 10:00-20:00 groups.
 - Group capacity is derived from non-cancelled students in each group. Remaining student balance is derived from `student.totalDue - sum(payments.amount)`.
 - Student history is traceable through `events[]` entries keyed by `studentId` for registration, edits, and payments.
 - If Basic Auth is not configured and sensitive student data exists, `/api/state` redacts groups, students, payments, and student events instead of exposing them.
+- Arabic mode is client-side through the language selector. It sets `html dir="rtl"`, applies Arabic fonts, and translates static/dynamic UI copy using the local dictionary in `public/app.js`.
 - Imported ad sets match active agents only when the complete agent name appears in the ad-set name, case-insensitively. Zero matches remain unassigned and multiple matches remain ambiguous.
 - Agent names can be edited or deleted from the UI. Editing reruns ad-set matching. Deleting an agent clears the old links from ad sets and outcomes but does not delete imported ad data.
 - Outcomes are limited to `booked`, `showed`, and `registered`, and can target an ad, ad set, campaign, or agent.
@@ -65,6 +68,7 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - `POST /api/students` - registers a student into a group and can record an initial payment.
 - `PATCH /api/students/:id` - edits student/group/payment agreement/status fields and records a timeline event.
 - `POST /api/students/:id/payments` - records an installment/payment and timeline event.
+- `POST /api/operations/seed-screenshot-schedule` - creates readable trainings/groups extracted from the provided Excel screenshot without duplicating on repeat clicks.
 - `PATCH /api/agents/:id` - renames or updates an agent and reruns automatic imported ad-set matching.
 - `DELETE /api/agents/:id` - deletes an agent and clears related agent links without deleting imported advertising data.
 - `POST /api/outcomes` - records a manually attributed appointment, non-registering visit, or registration.
@@ -85,7 +89,7 @@ node --check public/quality.js
 - **Overview** - date-windowed spend, messages, booked appointments, visits, registrations, quality-ranked ads, agent results, and a large multi-metric trend graph controlled by the KPI cards. Cost per registration is inverted visually so upward movement means lower cost.
 - **Performance** - group by ad, ad set, campaign, or agent; filter, sort by business quality/spend/outcomes/costs/rates, and reveal optional Meta columns.
 - **Outcomes** - add and audit the three manual outcome types; ad attribution is chosen by Campaign -> Ad set -> Ad.
-- **Groupes & paiements** - secure `/groups` area for French/Arabic school operations, planning suggestions, fixed or nidam-shift groups, capacity preview, training/timing/payment/search filters, student registration, payment recording, and student timelines.
+- **Groupes & paiements** - secure `/groups` area for French/Arabic school operations, planning suggestions, screenshot schedule seeding, fixed or nidam-shift groups, capacity preview, training/timing/payment/search filters, student registration, payment recording, and student timelines.
 - **Agents** - create, rename, or delete independent agents, review automatic ad-set matching, and see agent closing quality.
 - **Import & data** - upload reports, audit import history, download backups, restore, and reset old data before a clean start.
 
