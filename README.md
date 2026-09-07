@@ -17,6 +17,8 @@ Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It syn
 - Counts registered students as visits while keeping "showed" exclusive to visitors who did not register.
 - Defaults reporting to the last 7 days, with Today, Yesterday, This week, This month, This year, Lifetime, and Custom date ranges.
 - Adds a large Overview trend graph controlled by the KPI cards, including an inverted cost-per-registration line where up means cheaper.
+- Adds a **Groups & payments** operations section for trainings, scheduled class groups, capacity, student registrations, installments, and remaining balances.
+- Keeps every student traceable with registration, edits, and payment timeline events.
 - Compares ads, ad sets, campaigns, and agents using spend, messages, outcomes, cost per visit, cost per registration, lag-aware business quality, and confidence.
 - Learns scoring benchmarks automatically from gathered Meta spend and manual outcomes, so no manual Performance scoring setup is required.
 - Separates business quality from agent closing quality so ads and sales follow-up can be judged fairly.
@@ -66,10 +68,11 @@ See [HOSTINGER_DEPLOYMENT.md](HOSTINGER_DEPLOYMENT.md) for deployment, verificat
 5. Add only the outcomes Meta cannot know: booked, showed without registration, or registered.
 6. When assigning an outcome to an ad, choose **Campaign -> Ad set -> Ad** so duplicate ad names stay separated.
 7. Use **Performance** to group and compare Ads, Ad sets, Campaigns, or Agents.
+8. Use **Groups & payments** to create trainings, schedule class groups, register students, record installment payments, and watch group capacity.
 
 Business quality learns from gathered data. It rewards low cost per registered student, low cost per total visit, low cost per booked appointment, strong outcome volume, and healthy visit-to-registration close rate. Rows stay **Awaiting** inside the closing window, tiny mature spends stay **Not enough**, and a row only turns **Weak** after enough time and spend have passed to judge it fairly.
 
-To start over with real production data, open **Import & data**, download a backup if needed, then use **Reset CRM data**.
+To start over with real production data, open **Import & data**, download a backup if needed, then use **Reset CRM data**. This clears advertising data plus trainings, groups, students, and payments.
 
 Repeated imports update the same ad/reporting-date rows instead of duplicating spend. Keep the Meta ID columns in the export even though they are hidden in the normal CRM view.
 

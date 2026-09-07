@@ -40,11 +40,14 @@ function normalizeScoringSettings(input = {}) {
 
 function emptyState() {
   return {
-    meta: { schemaVersion: 3, updatedAt: null },
+    meta: { schemaVersion: 4, updatedAt: null },
     centre: { name: "CMCG", city: "Tanger" },
     settings: { currency: "MAD", scoring: { ...DEFAULT_SCORING } },
     adAccounts: [],
     programs: [],
+    groups: [],
+    students: [],
+    payments: [],
     agents: [],
     campaigns: [],
     adSets: [],
@@ -70,10 +73,10 @@ function normalizeState(input) {
     targetCloseRate: state.settings.targetCloseRate,
     ...(state.settings.scoring || {}),
   });
-  ["adAccounts", "programs", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
+  ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
-  state.meta.schemaVersion = 3;
+  state.meta.schemaVersion = 4;
   const usedCodes = new Set(
     (Array.isArray(state.usedCreativeCodes) ? state.usedCreativeCodes : [])
       .map(normalizeCode)
@@ -205,6 +208,37 @@ function serveStatic(req, res) {
 
 function addEvent(state, leadId, type, details = {}) {
   state.events.push({ id: id("evt"), leadId, type, details, createdAt: now() });
+}
+
+function addStudentEvent(state, studentId, type, details = {}) {
+  state.events.push({ id: id("evt"), studentId, type, details, createdAt: now() });
+}
+
+function validDateInput(value) {
+  const text = cleanText(value);
+  return text && /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function wholeNumber(value, fallback = 0) {
+  const number = Math.round(finiteNumber(value));
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function nonNegativeMoney(value) {
+  return Math.max(0, finiteNumber(value));
+}
+
+function splitDays(value) {
+  if (Array.isArray(value)) return value.map(cleanText).filter(Boolean);
+  return cleanText(value).split(",").map((item) => cleanText(item)).filter(Boolean);
+}
+
+function paidForStudent(state, studentId) {
+  return state.payments.filter((payment) => payment.studentId === studentId).reduce((sum, payment) => sum + finiteNumber(payment.amount), 0);
+}
+
+function activeStudentsInGroup(state, groupId, exceptStudentId = "") {
+  return state.students.filter((student) => student.groupId === groupId && student.id !== exceptStudentId && student.status !== "cancelled");
 }
 
 let mutationTail = Promise.resolve();
@@ -516,6 +550,9 @@ async function handleApi(req, res) {
         counts: {
           accounts: state.adAccounts.length,
           programs: state.programs.length,
+          groups: state.groups.length,
+          students: state.students.length,
+          payments: state.payments.length,
           agents: state.agents.length,
           campaigns: state.campaigns.length,
           adSets: state.adSets.length,
@@ -536,6 +573,7 @@ async function handleApi(req, res) {
       const body = await parseBody(req);
       const restored = normalizeState(body.state || body);
       const entityCount = restored.programs.length + restored.agents.length + restored.campaigns.length
+        + restored.groups.length + restored.students.length + restored.payments.length
         + restored.adSets.length + restored.creatives.length + restored.leads.length + restored.dailyLogs.length;
       if (!entityCount) return json(res, 400, { error: "This backup does not contain CRM records" });
       restored.meta.restoredAt = now();
@@ -609,12 +647,204 @@ async function handleApi(req, res) {
 
     if (method === "POST" && url.pathname === "/api/programs") {
       const body = await parseBody(req);
-      const item = { id: id("prg"), name: cleanText(body.name), createdAt: now() };
+      const item = {
+        id: id("prg"),
+        name: cleanText(body.name),
+        durationLabel: cleanText(body.durationLabel),
+        durationMonths: wholeNumber(body.durationMonths),
+        basePrice: nonNegativeMoney(body.basePrice),
+        discountedPrice: nonNegativeMoney(body.discountedPrice),
+        notes: cleanText(body.notes),
+        createdAt: now(),
+      };
       if (!item.name) return json(res, 400, { error: "Program name is required" });
       if (duplicateName(state.programs, item.name)) return json(res, 409, { error: "This training already exists" });
       state.programs.push(item);
       await storage.write(state);
       return json(res, 201, item);
+    }
+
+    const programMatch = url.pathname.match(/^\/api\/programs\/([^/]+)$/);
+    if (method === "PATCH" && programMatch) {
+      const body = await parseBody(req);
+      const program = state.programs.find((item) => item.id === programMatch[1]);
+      if (!program) return json(res, 404, { error: "Training not found" });
+      const nextName = cleanText(body.name);
+      if (!nextName) return json(res, 400, { error: "Training name is required" });
+      if (duplicateName(state.programs.filter((item) => item.id !== program.id), nextName)) {
+        return json(res, 409, { error: "This training already exists" });
+      }
+      program.name = nextName;
+      program.durationLabel = cleanText(body.durationLabel);
+      program.durationMonths = wholeNumber(body.durationMonths);
+      program.basePrice = nonNegativeMoney(body.basePrice);
+      program.discountedPrice = nonNegativeMoney(body.discountedPrice);
+      program.notes = cleanText(body.notes);
+      program.updatedAt = now();
+      await storage.write(state);
+      return json(res, 200, program);
+    }
+
+    if (method === "POST" && url.pathname === "/api/groups") {
+      const body = await parseBody(req);
+      const programId = cleanText(body.programId || body.trainingId);
+      const program = state.programs.find((item) => item.id === programId);
+      const days = splitDays(body.days);
+      const item = {
+        id: id("grp"),
+        programId,
+        name: cleanText(body.name),
+        durationLabel: cleanText(body.durationLabel || program?.durationLabel),
+        days,
+        timeStart: cleanText(body.timeStart),
+        timeEnd: cleanText(body.timeEnd),
+        startDate: validDateInput(body.startDate),
+        endDate: validDateInput(body.endDate),
+        capacity: Math.max(1, wholeNumber(body.capacity, 20)),
+        price: nonNegativeMoney(body.price || program?.discountedPrice || program?.basePrice),
+        discountedPrice: nonNegativeMoney(body.discountedPrice),
+        status: cleanText(body.status || "active"),
+        notes: cleanText(body.notes),
+        createdAt: now(),
+      };
+      if (!program) return json(res, 400, { error: "Choose a valid training" });
+      if (!item.name) item.name = `${program.name} ${item.timeStart || ""}`.trim();
+      if (!item.days.length || !item.timeStart || !item.timeEnd) return json(res, 400, { error: "Group days, start time, and end time are required" });
+      if (!new Set(["active", "full", "paused", "done"]).has(item.status)) return json(res, 400, { error: "Invalid group status" });
+      state.groups.push(item);
+      await storage.write(state);
+      return json(res, 201, item);
+    }
+
+    const groupMatch = url.pathname.match(/^\/api\/groups\/([^/]+)$/);
+    if (method === "PATCH" && groupMatch) {
+      const body = await parseBody(req);
+      const group = state.groups.find((item) => item.id === groupMatch[1]);
+      if (!group) return json(res, 404, { error: "Group not found" });
+      const programId = cleanText(body.programId || group.programId);
+      const program = state.programs.find((item) => item.id === programId);
+      if (!program) return json(res, 400, { error: "Choose a valid training" });
+      const capacity = Math.max(1, wholeNumber(body.capacity, group.capacity || 20));
+      if (capacity < activeStudentsInGroup(state, group.id).length) return json(res, 400, { error: "Capacity cannot be lower than enrolled students" });
+      group.programId = programId;
+      group.name = cleanText(body.name) || group.name;
+      group.durationLabel = cleanText(body.durationLabel || program.durationLabel);
+      group.days = splitDays(body.days).length ? splitDays(body.days) : group.days;
+      group.timeStart = cleanText(body.timeStart || group.timeStart);
+      group.timeEnd = cleanText(body.timeEnd || group.timeEnd);
+      group.startDate = validDateInput(body.startDate) || "";
+      group.endDate = validDateInput(body.endDate) || "";
+      group.capacity = capacity;
+      group.price = nonNegativeMoney(body.price ?? group.price);
+      group.discountedPrice = nonNegativeMoney(body.discountedPrice ?? group.discountedPrice);
+      group.status = cleanText(body.status || group.status || "active");
+      group.notes = cleanText(body.notes);
+      group.updatedAt = now();
+      if (!new Set(["active", "full", "paused", "done"]).has(group.status)) return json(res, 400, { error: "Invalid group status" });
+      await storage.write(state);
+      return json(res, 200, group);
+    }
+
+    if (method === "POST" && url.pathname === "/api/students") {
+      const body = await parseBody(req);
+      const group = state.groups.find((item) => item.id === cleanText(body.groupId));
+      const agentId = cleanText(body.agentId);
+      const agent = agentId ? state.agents.find((item) => item.id === agentId) : null;
+      if (!group) return json(res, 400, { error: "Choose a valid group" });
+      if (agentId && !agent) return json(res, 400, { error: "Choose a valid sales agent" });
+      if (activeStudentsInGroup(state, group.id).length >= group.capacity) return json(res, 400, { error: "This group is already full" });
+      const program = state.programs.find((item) => item.id === group.programId);
+      const defaultPrice = group.discountedPrice || group.price || program?.discountedPrice || program?.basePrice || 0;
+      const requestedPrice = body.totalDue !== undefined ? body.totalDue : (body.totalPrice !== undefined ? body.totalPrice : defaultPrice);
+      const totalDue = nonNegativeMoney(requestedPrice);
+      const item = {
+        id: id("std"),
+        groupId: group.id,
+        programId: group.programId,
+        agentId,
+        name: cleanText(body.name),
+        phone: cleanText(body.phone),
+        registeredAt: validDateInput(body.registeredAt) || new Date().toISOString().slice(0, 10),
+        totalDue,
+        paymentPlan: cleanText(body.paymentPlan || "full"),
+        status: cleanText(body.status || "registered"),
+        notes: cleanText(body.notes),
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      if (!item.name) return json(res, 400, { error: "Student name is required" });
+      if (!new Set(["registered", "active", "completed", "paused", "cancelled"]).has(item.status)) return json(res, 400, { error: "Invalid student status" });
+      if (!new Set(["full", "installments"]).has(item.paymentPlan)) return json(res, 400, { error: "Invalid payment plan" });
+      state.students.push(item);
+      addStudentEvent(state, item.id, "registered", { groupId: item.groupId, programId: item.programId, agentId: item.agentId, totalDue: item.totalDue });
+      const initialPaid = nonNegativeMoney(body.initialPaid ?? body.amountPaid);
+      if (initialPaid > 0) {
+        const payment = { id: id("pay"), studentId: item.id, amount: initialPaid, paidAt: item.registeredAt, method: cleanText(body.paymentMethod || "cash"), notes: cleanText(body.paymentNotes || "Initial payment"), createdAt: now() };
+        state.payments.push(payment);
+        addStudentEvent(state, item.id, "payment_added", { paymentId: payment.id, amount: payment.amount, paidAt: payment.paidAt, method: payment.method });
+      }
+      await storage.write(state);
+      return json(res, 201, item);
+    }
+
+    const studentPaymentMatch = url.pathname.match(/^\/api\/students\/([^/]+)\/payments$/);
+    if (method === "POST" && studentPaymentMatch) {
+      const body = await parseBody(req);
+      const student = state.students.find((item) => item.id === studentPaymentMatch[1]);
+      if (!student) return json(res, 404, { error: "Student not found" });
+      const amount = nonNegativeMoney(body.amount);
+      if (amount <= 0) return json(res, 400, { error: "Payment amount must be greater than zero" });
+      const item = {
+        id: id("pay"),
+        studentId: student.id,
+        amount,
+        paidAt: validDateInput(body.paidAt) || new Date().toISOString().slice(0, 10),
+        method: cleanText(body.method || "cash"),
+        notes: cleanText(body.notes),
+        createdAt: now(),
+      };
+      state.payments.push(item);
+      student.updatedAt = now();
+      addStudentEvent(state, student.id, "payment_added", { paymentId: item.id, amount: item.amount, paidAt: item.paidAt, method: item.method });
+      await storage.write(state);
+      return json(res, 201, item);
+    }
+
+    const studentMatch = url.pathname.match(/^\/api\/students\/([^/]+)$/);
+    if (method === "PATCH" && studentMatch) {
+      const body = await parseBody(req);
+      const student = state.students.find((item) => item.id === studentMatch[1]);
+      if (!student) return json(res, 404, { error: "Student not found" });
+      const previous = { ...student };
+      if (body.groupId !== undefined && cleanText(body.groupId) !== student.groupId) {
+        const nextGroup = state.groups.find((item) => item.id === cleanText(body.groupId));
+        if (!nextGroup) return json(res, 400, { error: "Choose a valid group" });
+        if (activeStudentsInGroup(state, nextGroup.id, student.id).length >= nextGroup.capacity) return json(res, 400, { error: "Selected group is already full" });
+        student.groupId = nextGroup.id;
+        student.programId = nextGroup.programId;
+      }
+      if (body.agentId !== undefined) {
+        const agentId = cleanText(body.agentId);
+        if (agentId && !state.agents.some((agent) => agent.id === agentId)) return json(res, 400, { error: "Choose a valid sales agent" });
+        student.agentId = agentId;
+      }
+      ["name", "phone", "notes"].forEach((field) => {
+        if (body[field] !== undefined) student[field] = cleanText(body[field]);
+      });
+      if (body.registeredAt !== undefined) student.registeredAt = validDateInput(body.registeredAt) || student.registeredAt;
+      if (body.totalDue !== undefined) student.totalDue = nonNegativeMoney(body.totalDue);
+      if (body.paymentPlan !== undefined) student.paymentPlan = cleanText(body.paymentPlan);
+      if (body.status !== undefined) student.status = cleanText(body.status);
+      if (!student.name) return json(res, 400, { error: "Student name is required" });
+      if (!new Set(["registered", "active", "completed", "paused", "cancelled"]).has(student.status)) return json(res, 400, { error: "Invalid student status" });
+      if (!new Set(["full", "installments"]).has(student.paymentPlan)) return json(res, 400, { error: "Invalid payment plan" });
+      student.updatedAt = now();
+      addStudentEvent(state, student.id, "updated", {
+        from: { groupId: previous.groupId, status: previous.status, totalDue: previous.totalDue },
+        to: { groupId: student.groupId, status: student.status, totalDue: student.totalDue },
+      });
+      await storage.write(state);
+      return json(res, 200, student);
     }
 
     if (method === "POST" && url.pathname === "/api/agents") {

@@ -26,6 +26,9 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - One imported metric row exists per ad/reporting-start/reporting-end combination. Re-importing updates it.
 - Imported spend uses Meta `Reporting starts`/`Reporting ends`; if those columns are missing, import falls back to report dates parsed from the filename.
 - All source CSV columns are retained in `dailyLogs[].raw`, while secondary fields and identifiers remain hidden by default in the UI.
+- Programs are also used as trainings in the school operations section. Groups reference programs, students reference groups, and payments reference students.
+- Group capacity is derived from non-cancelled students in each group. Remaining student balance is derived from `student.totalDue - sum(payments.amount)`.
+- Student history is traceable through `events[]` entries keyed by `studentId` for registration, edits, and payments.
 - Imported ad sets match active agents only when the complete agent name appears in the ad-set name, case-insensitively. Zero matches remain unassigned and multiple matches remain ambiguous.
 - Agent names can be edited or deleted from the UI. Editing reruns ad-set matching. Deleting an agent clears the old links from ad sets and outcomes but does not delete imported ad data.
 - Outcomes are limited to `booked`, `showed`, and `registered`, and can target an ad, ad set, campaign, or agent.
@@ -52,6 +55,13 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - `POST /api/meta-import` - validates and synchronizes an ad-level Meta Ads CSV.
 - `POST /api/settings/scoring` - saves optional timing/rate assumptions used by the automatic score.
 - `POST /api/reset-data` - resets CRM records to a clean empty state while preserving centre/currency settings.
+- `POST /api/programs` - creates a training, including optional duration and default prices.
+- `PATCH /api/programs/:id` - updates a training.
+- `POST /api/groups` - creates a scheduled training group with days, time, capacity, and pricing.
+- `PATCH /api/groups/:id` - updates a group without allowing capacity below current enrollment.
+- `POST /api/students` - registers a student into a group and can record an initial payment.
+- `PATCH /api/students/:id` - edits student/group/payment agreement/status fields and records a timeline event.
+- `POST /api/students/:id/payments` - records an installment/payment and timeline event.
 - `PATCH /api/agents/:id` - renames or updates an agent and reruns automatic imported ad-set matching.
 - `DELETE /api/agents/:id` - deletes an agent and clears related agent links without deleting imported advertising data.
 - `POST /api/outcomes` - records a manually attributed appointment, non-registering visit, or registration.
@@ -72,6 +82,7 @@ node --check public/quality.js
 - **Overview** - date-windowed spend, messages, booked appointments, visits, registrations, quality-ranked ads, agent results, and a large multi-metric trend graph controlled by the KPI cards. Cost per registration is inverted visually so upward movement means lower cost.
 - **Performance** - group by ad, ad set, campaign, or agent; filter, sort by business quality/spend/outcomes/costs/rates, and reveal optional Meta columns.
 - **Outcomes** - add and audit the three manual outcome types; ad attribution is chosen by Campaign -> Ad set -> Ad.
+- **Groups & payments** - create trainings and scheduled groups, preview capacity, filter by training/timing/payment status/search, register students, record payments, and inspect student timelines.
 - **Agents** - create, rename, or delete independent agents, review automatic ad-set matching, and see agent closing quality.
 - **Import & data** - upload reports, audit import history, download backups, restore, and reset old data before a clean start.
 

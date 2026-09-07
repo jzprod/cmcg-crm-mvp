@@ -5,11 +5,15 @@ let pendingRestore = null;
 let pendingMetaFile = null;
 let toastTimer = null;
 let editingAgentId = "";
+let editingStudentId = "";
+let paymentStudentId = "";
+let detailStudentId = "";
 
 const pageMeta = {
   dashboard: ["Overview", "Your advertising and enrollment results at a glance."],
   performance: ["Performance", "Compare ads, ad sets, campaigns, objectives, and agents."],
   outcomes: ["Outcomes", "Appointments, visits, and registered students."],
+  groups: ["Groups & payments", "Track trainings, class capacity, students, and installment payments."],
   agents: ["Agents", "Manage automatic ad-set assignment."],
   data: ["Import & data", "Synchronize Meta Ads and protect your CRM data."],
 };
@@ -29,6 +33,7 @@ const overviewMetricDefinitions = {
   costRegisteredEfficiency: { label: "Cost/register improves", color: "#dc2626", inverted: true, format: (row) => row.registered ? cost(row.spend, row.registered) : "-" },
 };
 const filters = { from: "", to: "", agentId: "", objective: "", campaignId: "", search: "" };
+const operationsFilters = { trainingId: "", timing: "", payment: "", search: "" };
 let groupBy = "ad";
 let sortBy = "quality";
 let selectedPeriod = localStorage.getItem("cmcg-report-period") || "last7";
@@ -201,7 +206,7 @@ function initializePeriod() {
 initializePeriod();
 
 function normalizeState() {
-  ["adAccounts", "programs", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs"].forEach((key) => {
+  ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
   state.settings = state.settings || {};
@@ -476,7 +481,11 @@ function renderOverviewChart() {
     const rowIndex = rows.indexOf(row);
     return `<text x="${xFor(rowIndex)}" y="${height - 14}" text-anchor="${index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"}">${escapeHtml(row.date.slice(5))}</text>`;
   }).join("");
-  const lines = series.map(({ key, points, definition }) => points.length ? `<path d="${chartPath(points)}" stroke="${definition.color}" /><g>${points.map((point) => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" stroke="${definition.color}"><title>${escapeHtml(definition.label)} - ${escapeHtml(point.row.date)} - ${escapeHtml(metricDisplayValue(key, point.row))}</title></circle>`).join("")}</g>` : "").join("");
+  const lines = series.map(({ key, points, definition }) => {
+    if (!points.length) return "";
+    const pathPoints = points.length === 1 ? [{ ...points[0], x: pad.left }, { ...points[0], x: width - pad.right }] : points;
+    return `<path d="${chartPath(pathPoints)}" stroke="${definition.color}" /><g>${points.map((point) => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" stroke="${definition.color}"><title>${escapeHtml(definition.label)} - ${escapeHtml(point.row.date)} - ${escapeHtml(metricDisplayValue(key, point.row))}</title></circle>`).join("")}</g>`;
+  }).join("");
   const legend = series.map(({ key, definition, latest }) => `<span class="chart-legend-item" style="--legend-color:${definition.color}"><i></i><strong>${escapeHtml(definition.label)}</strong><small>${escapeHtml(metricDisplayValue(key, latest))}${definition.inverted ? " · up means cheaper" : ""}</small></span>`).join("");
   container.innerHTML = `<div class="chart-legend">${legend}</div><svg class="trend-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Overview trend graph">${grid}<g class="trend-lines">${lines}</g><g class="trend-axis">${xLabels}</g></svg><p class="chart-note">Lines are scaled 0-100 so different metrics can sit on one graph. For cost per registered, the line is reversed: higher means the cost is lower.</p>`;
 }
@@ -657,6 +666,125 @@ function renderAgents() {
   document.getElementById("unassignedAdSets").innerHTML = unassigned.length ? unassigned.map((adSet) => `<div class="simple-list-row"><div><strong>${escapeHtml(adSet.name)}</strong><small>${escapeHtml(byId(state.campaigns, adSet.campaignId)?.name || "Unknown campaign")}</small></div><span class="status-pill ${adSet.agentMatchStatus === "ambiguous" ? "warning" : ""}">${adSet.agentMatchStatus === "ambiguous" ? "Multiple names found" : "No matching agent"}</span></div>`).join("") : '<div class="empty success-empty">All imported ad sets are assigned.</div>';
 }
 
+function groupTraining(group) { return byId(state.programs, group?.programId); }
+function studentGroup(student) { return byId(state.groups, student?.groupId); }
+function studentTraining(student) { return groupTraining(studentGroup(student)); }
+function studentPaid(student) { return state.payments.filter((payment) => payment.studentId === student?.id).reduce((sum, payment) => sum + Number(payment.amount || 0), 0); }
+function studentRemaining(student) { return Math.max(0, Number(student?.totalDue || 0) - studentPaid(student)); }
+function groupSchedule(group) { return `${(group.days || []).join(", ") || "No days"} - ${group.timeStart || "?"}-${group.timeEnd || "?"}`; }
+function groupPrice(group) {
+  const training = groupTraining(group);
+  return Number(group?.discountedPrice || group?.price || training?.discountedPrice || training?.basePrice || 0);
+}
+function groupStats(group) {
+  const students = state.students.filter((student) => student.groupId === group.id && student.status !== "cancelled");
+  const paid = students.reduce((sum, student) => sum + studentPaid(student), 0);
+  const due = students.reduce((sum, student) => sum + Number(student.totalDue || 0), 0);
+  const capacity = Math.max(1, Number(group.capacity || 1));
+  return { students, enrolled: students.length, capacity, spots: Math.max(0, capacity - students.length), fullness: Math.min(100, Math.round((students.length / capacity) * 100)), paid, remaining: Math.max(0, due - paid) };
+}
+function paymentState(student) {
+  const paid = studentPaid(student);
+  const remaining = studentRemaining(student);
+  if (!paid) return "none";
+  return remaining > 0 ? "balance" : "paid";
+}
+function paymentBadge(student) {
+  const stateName = paymentState(student);
+  const label = stateName === "paid" ? "Paid" : stateName === "balance" ? "Balance due" : "No payment";
+  const className = stateName === "paid" ? "quality-strong" : stateName === "balance" ? "quality-watch" : "quality-weak";
+  return `<span class="status-pill ${className}">${label}</span>`;
+}
+function filteredGroups() {
+  return state.groups.filter((group) => {
+    const training = groupTraining(group);
+    const text = [group.name, training?.name, group.days?.join(" "), group.timeStart, group.timeEnd, group.notes].join(" ").toLocaleLowerCase();
+    if (operationsFilters.trainingId && group.programId !== operationsFilters.trainingId) return false;
+    if (operationsFilters.timing && `${group.timeStart}-${group.timeEnd}` !== operationsFilters.timing) return false;
+    if (operationsFilters.search && !text.includes(operationsFilters.search.toLocaleLowerCase())) return false;
+    return true;
+  });
+}
+function filteredStudents() {
+  return state.students.filter((student) => {
+    const group = studentGroup(student);
+    const training = studentTraining(student);
+    const agent = byId(state.agents, student.agentId);
+    const text = [student.name, student.phone, student.notes, group?.name, training?.name, agent?.name].join(" ").toLocaleLowerCase();
+    if (operationsFilters.trainingId && group?.programId !== operationsFilters.trainingId) return false;
+    if (operationsFilters.timing && `${group?.timeStart}-${group?.timeEnd}` !== operationsFilters.timing) return false;
+    if (operationsFilters.payment && paymentState(student) !== operationsFilters.payment) return false;
+    if (operationsFilters.search && !text.includes(operationsFilters.search.toLocaleLowerCase())) return false;
+    return true;
+  });
+}
+function hydrateOperationsControls() {
+  document.querySelectorAll('[data-ops-filter="trainingId"]').forEach((select) => {
+    const current = operationsFilters.trainingId;
+    select.replaceChildren(option("All trainings", ""));
+    state.programs.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((program) => select.append(option(program.name, program.id)));
+    select.value = current;
+  });
+  document.querySelectorAll('[data-ops-filter="timing"]').forEach((select) => {
+    const current = operationsFilters.timing;
+    const timings = [...new Set(state.groups.map((group) => `${group.timeStart}-${group.timeEnd}`).filter((value) => value !== "-"))].sort();
+    select.replaceChildren(option("All timings", ""));
+    timings.forEach((timing) => select.append(option(timing, timing)));
+    select.value = current;
+  });
+  document.querySelectorAll("[data-ops-filter]").forEach((control) => { control.value = operationsFilters[control.dataset.opsFilter] || ""; });
+}
+function renderOperationsKpis() {
+  const groups = filteredGroups();
+  const students = filteredStudents();
+  const capacity = groups.reduce((sum, group) => sum + Math.max(0, Number(group.capacity || 0)), 0);
+  const occupied = groups.reduce((sum, group) => sum + groupStats(group).enrolled, 0);
+  const remainingSpots = Math.max(0, capacity - occupied);
+  const totalPaid = students.reduce((sum, student) => sum + studentPaid(student), 0);
+  const totalRemaining = students.reduce((sum, student) => sum + studentRemaining(student), 0);
+  const items = [
+    ["Groups", number(groups.length), "active filtered groups", "neutral"],
+    ["Seats used", `${number(occupied)} / ${number(capacity)}`, `${number(remainingSpots)} spots left`, "blue"],
+    ["Students", number(students.length), "filtered student ledger", "green"],
+    ["Collected", money(totalPaid), "recorded payments", "violet"],
+    ["Remaining", money(totalRemaining), "needs follow-up", totalRemaining ? "amber" : "green"],
+  ];
+  document.getElementById("operationsKpis").innerHTML = items.map(([label, value, detail, style]) => `<article class="kpi ${style}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
+}
+function renderGroupCards() {
+  const groups = filteredGroups();
+  document.getElementById("groupCards").innerHTML = groups.length ? groups.map((group) => {
+    const training = groupTraining(group);
+    const stats = groupStats(group);
+    const full = stats.spots === 0;
+    return `<article class="card group-card ${full ? "is-full" : ""}"><div class="group-card-head"><div><span class="status-pill ${full ? "quality-watch" : "quality-strong"}">${full ? "Full" : `${stats.spots} spots left`}</span><h3>${escapeHtml(group.name)}</h3><p>${escapeHtml(training?.name || "Unknown training")} ${group.durationLabel ? `- ${escapeHtml(group.durationLabel)}` : ""}</p></div><strong>${stats.fullness}%</strong></div><div class="capacity-bar" role="img" aria-label="${stats.enrolled} of ${stats.capacity} seats used"><span style="width:${stats.fullness}%"></span></div><div class="group-meta"><span>${escapeHtml(groupSchedule(group))}</span><span>${escapeHtml(group.startDate || "No start date")} ${group.endDate ? `to ${escapeHtml(group.endDate)}` : ""}</span><span>${money(groupPrice(group))} default price</span></div><div class="group-numbers"><span><strong>${stats.enrolled}</strong> students</span><span><strong>${money(stats.paid)}</strong> paid</span><span><strong>${money(stats.remaining)}</strong> remaining</span></div><div class="agent-actions"><button class="button secondary" type="button" data-view-group="${escapeHtml(group.id)}">View students</button><button class="button primary" type="button" data-open-student data-group="${escapeHtml(group.id)}">Register</button></div></article>`;
+  }).join("") : '<div class="empty card">No groups yet. Add a training, then create the first scheduled group.</div>';
+}
+function renderStudentRows() {
+  const students = filteredStudents().sort((a, b) => String(b.registeredAt).localeCompare(String(a.registeredAt)) || a.name.localeCompare(b.name));
+  document.getElementById("studentRows").innerHTML = students.length ? students.map((student) => {
+    const group = studentGroup(student);
+    const training = studentTraining(student);
+    const agent = byId(state.agents, student.agentId);
+    return `<tr><td><button class="link-button" type="button" data-student-detail="${escapeHtml(student.id)}"><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(student.phone || "No phone")}</small></button></td><td><div class="entity-cell"><strong>${escapeHtml(group?.name || "No group")}</strong><small>${escapeHtml(training?.name || "Unknown training")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></div></td><td>${escapeHtml(agent?.name || "Unassigned")}</td><td>${escapeHtml(student.registeredAt || "-")}</td><td class="number-cell">${money(studentPaid(student))}</td><td class="number-cell"><strong>${money(studentRemaining(student))}</strong></td><td>${paymentBadge(student)}</td><td><div class="agent-actions"><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Add payment for ${escapeHtml(student.name)}">+</button><button class="icon-button small" type="button" data-edit-student="${escapeHtml(student.id)}" aria-label="Edit ${escapeHtml(student.name)}"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 16.6 10.9-10.9 2.4 2.4L7.4 19H5v-2.4ZM17.1 4.5l1.1-1.1c.6-.6 1.6-.6 2.2 0l.2.2c.6.6.6 1.6 0 2.2l-1.1 1.1-2.4-2.4Z"/></svg></button></div></td></tr>`;
+  }).join("") : '<tr><td colspan="8" class="empty">No students match these filters.</td></tr>';
+}
+function renderPaymentAlerts() {
+  const rows = filteredStudents().filter((student) => studentRemaining(student) > 0).sort((a, b) => studentRemaining(b) - studentRemaining(a)).slice(0, 12);
+  document.getElementById("paymentAlerts").innerHTML = rows.length ? rows.map((student) => {
+    const group = studentGroup(student);
+    return `<div class="simple-list-row"><div><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(group?.name || "No group")} - paid ${money(studentPaid(student))}</small></div><div class="balance-actions"><strong>${money(studentRemaining(student))}</strong><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Add payment for ${escapeHtml(student.name)}">+</button></div></div>`;
+  }).join("") : '<div class="empty success-empty">No remaining balances in this view.</div>';
+}
+function renderOperations() {
+  if (!document.getElementById("operationsKpis")) return;
+  hydrateOperationsControls();
+  renderOperationsKpis();
+  renderGroupCards();
+  renderPaymentAlerts();
+  renderStudentRows();
+}
+
 function renderImports() {
   document.getElementById("importRows").innerHTML = state.imports.length ? state.imports.slice(0, 20).map((item) => `<tr><td>${escapeHtml(new Date(item.importedAt).toLocaleString())}</td><td><strong>${escapeHtml(item.filename)}</strong></td><td class="number-cell">${item.rows}</td><td class="number-cell">${item.campaignsAdded}</td><td class="number-cell">${item.adSetsAdded}</td><td class="number-cell">${item.adsAdded}</td><td class="number-cell">${item.metricsUpdated}</td></tr>`).join("") : '<tr><td colspan="7" class="empty">No Meta Ads reports imported yet.</td></tr>';
 }
@@ -670,7 +798,7 @@ function renderStorage() {
   document.getElementById("storageTitle").textContent = storageInfo?.label || "Unknown storage";
   document.getElementById("storageDescription").textContent = persistent ? "MySQL storage is active. Automatic snapshots are kept before every change." : "Local JSON is for development only. Configure MySQL before entering production data.";
   document.getElementById("lastSaved").textContent = formatSavedAt(state.meta?.updatedAt);
-  const counts = [[state.adAccounts.length, "accounts"], [state.campaigns.length, "campaigns"], [state.adSets.length, "ad sets"], [state.creatives.length, "ads"], [state.outcomes.length, "outcomes"], [state.imports.length, "imports"]];
+  const counts = [[state.adAccounts.length, "accounts"], [state.campaigns.length, "campaigns"], [state.adSets.length, "ad sets"], [state.creatives.length, "ads"], [state.groups.length, "groups"], [state.students.length, "students"], [state.payments.length, "payments"], [state.outcomes.length, "outcomes"], [state.imports.length, "imports"]];
   document.getElementById("systemCounts").innerHTML = counts.map(([value, label]) => `<span class="system-count"><strong>${value}</strong> ${label}</span>`).join("");
 }
 
@@ -737,7 +865,7 @@ function render() {
   hydrateFilters();
   hydrateSortOptions();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
-  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderAgents(); renderImports(); renderStorage(); renderScoringSettings();
+  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderAgents(); renderImports(); renderStorage(); renderScoringSettings();
 }
 
 function showPanel(name, updateHash = true) {
@@ -894,6 +1022,125 @@ function openAgentEditor(agentId) {
   form.elements.name.focus();
 }
 
+function ensureOperationsDialogs() {
+  if (document.getElementById("trainingDialog")) return;
+  document.body.insertAdjacentHTML("beforeend", `
+    <dialog id="trainingDialog" class="modal"><form id="trainingForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Training setup</p><h2>Add training</h2><p>Course name, duration, and default pricing.</p></div><button class="icon-button" type="button" data-close-training aria-label="Close training form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Training name</span><input name="name" required placeholder="Comptabilite 3 mois" autocomplete="off" /></label><label><span>Duration</span><input name="durationLabel" placeholder="3 months, 5 months, full year" /></label><label><span>Normal price</span><input name="basePrice" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Discount price</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="0" /></label></div><label><span>Notes <em>optional</em></span><textarea name="notes" rows="2" placeholder="What this training includes"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-training>Cancel</button><button class="button primary" type="submit">Save training</button></div></form></dialog>
+    <dialog id="groupDialog" class="modal"><form id="groupForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Class group</p><h2>Add group</h2><p>Create a scheduled class with capacity and pricing.</p></div><button class="icon-button" type="button" data-close-group aria-label="Close group form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Training</span><select id="groupProgram" name="programId" required></select></label><label><span>Group name</span><input name="name" placeholder="Evening group A" autocomplete="off" /></label><label><span>Days</span><input name="days" required placeholder="Monday, Wednesday" /></label><label><span>Start time</span><input name="timeStart" type="time" required /></label><label><span>End time</span><input name="timeEnd" type="time" required /></label><label><span>Capacity</span><input name="capacity" type="number" min="1" step="1" value="20" required /></label><label><span>Group price</span><input name="price" type="number" min="0" step="0.01" placeholder="Uses training price" /></label><label><span>Discount price</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="Optional" /></label><label><span>Start date</span><input name="startDate" type="date" /></label><label><span>End date</span><input name="endDate" type="date" /></label><label><span>Status</span><select name="status"><option value="active">Active</option><option value="full">Full</option><option value="paused">Paused</option><option value="done">Done</option></select></label></div><label><span>Notes <em>optional</em></span><textarea name="notes" rows="2" placeholder="Room, teacher, special timing"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-group>Cancel</button><button class="button primary" type="submit">Save group</button></div></form></dialog>
+    <dialog id="studentDialog" class="modal outcome-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Student registration</p><h2 id="studentDialogTitle">Register student</h2><p>Assign the student to a group and record the agreed price.</p></div><button class="icon-button" type="button" data-close-student aria-label="Close student form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Student name</span><input name="name" required autocomplete="name" placeholder="Student full name" /></label><label><span>Phone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label><span>Group</span><select id="studentGroup" name="groupId" required></select></label><label><span>Sales agent</span><select id="studentAgent" name="agentId"></select></label><label><span>Registered date</span><input name="registeredAt" type="date" required /></label><label><span>Payment plan</span><select name="paymentPlan"><option value="full">Full payment</option><option value="installments">Installments</option></select></label><label><span>Final price</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Paid now</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Status</span><select name="status"><option value="registered">Registered</option><option value="active">Active</option><option value="completed">Completed</option><option value="paused">Paused</option><option value="cancelled">Cancelled</option></select></label></div><label><span>Notes <em>optional</em></span><textarea name="notes" rows="2" placeholder="Installment agreement, documents, remarks"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Cancel</button><button class="button primary" type="submit">Save student</button></div></form></dialog>
+    <dialog id="paymentDialog" class="modal"><form id="paymentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Installment payment</p><h2>Add payment</h2><p id="paymentStudentName">Record a student payment.</p></div><button class="icon-button" type="button" data-close-payment aria-label="Close payment form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Amount</span><input name="amount" type="number" min="0.01" step="0.01" required /></label><label><span>Paid date</span><input name="paidAt" type="date" required /></label><label><span>Method</span><select name="method"><option value="cash">Cash</option><option value="transfer">Transfer</option><option value="card">Card</option><option value="other">Other</option></select></label></div><label><span>Note <em>optional</em></span><textarea name="notes" rows="2" placeholder="Receipt, installment number, reminder"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-payment>Cancel</button><button class="button primary" type="submit">Save payment</button></div></form></dialog>
+    <dialog id="studentDetailDialog" class="modal outcome-modal"><div class="modal-content"><div class="modal-head"><div><p class="section-kicker">Student trace</p><h2 id="studentDetailTitle">Student history</h2><p>Registration, edits, and payments in one place.</p></div><button class="icon-button" type="button" data-close-student-detail aria-label="Close student history"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div id="studentDetailBody"></div><div class="modal-actions"><button class="button secondary" type="button" data-close-student-detail>Close</button><button class="button primary" type="button" data-edit-current-student>Edit student</button></div></div></dialog>
+  `);
+}
+
+function hydrateGroupProgramSelect() {
+  const select = document.getElementById("groupProgram");
+  select.replaceChildren(option("Choose training", ""));
+  state.programs.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((program) => select.append(option(`${program.name}${program.durationLabel ? ` - ${program.durationLabel}` : ""}`, program.id)));
+}
+
+function hydrateStudentSelects(preferredGroupId = "") {
+  const groupSelect = document.getElementById("studentGroup");
+  const agentSelect = document.getElementById("studentAgent");
+  groupSelect.replaceChildren(option("Choose group", ""));
+  state.groups.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((group) => {
+    const stats = groupStats(group);
+    groupSelect.append(option(`${group.name} - ${groupTraining(group)?.name || "Training"} - ${stats.spots} spots left`, group.id));
+  });
+  if (preferredGroupId && state.groups.some((group) => group.id === preferredGroupId)) groupSelect.value = preferredGroupId;
+  agentSelect.replaceChildren(option("Unassigned", ""));
+  state.agents.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((agent) => agentSelect.append(option(agent.name, agent.id)));
+}
+
+function setStudentDefaultPrice() {
+  if (editingStudentId) return;
+  const form = document.getElementById("studentForm");
+  const group = byId(state.groups, form.elements.groupId.value);
+  form.elements.totalDue.value = group ? groupPrice(group).toFixed(2) : "";
+}
+
+function openTrainingForm() {
+  ensureOperationsDialogs();
+  const form = document.getElementById("trainingForm");
+  form.reset();
+  document.getElementById("trainingDialog").showModal();
+  form.elements.name.focus();
+}
+
+function openGroupForm() {
+  ensureOperationsDialogs();
+  if (!state.programs.length) return toast("Add a training first, then create a group", "error");
+  const form = document.getElementById("groupForm");
+  hydrateGroupProgramSelect();
+  form.reset();
+  form.elements.capacity.value = 20;
+  document.getElementById("groupDialog").showModal();
+  form.elements.programId.focus();
+}
+
+function openStudentForm({ studentId = "", groupId = "" } = {}) {
+  ensureOperationsDialogs();
+  if (!state.groups.length) return toast("Add a group before registering students", "error");
+  const form = document.getElementById("studentForm");
+  const student = byId(state.students, studentId);
+  editingStudentId = student?.id || "";
+  form.reset();
+  hydrateStudentSelects(groupId || student?.groupId || "");
+  document.getElementById("studentDialogTitle").textContent = student ? "Edit student" : "Register student";
+  document.getElementById("initialPaymentField").classList.toggle("hidden", Boolean(student));
+  form.elements.registeredAt.value = student?.registeredAt || new Date().toISOString().slice(0, 10);
+  form.elements.status.value = student?.status || "registered";
+  form.elements.paymentPlan.value = student?.paymentPlan || "full";
+  if (student) {
+    form.elements.name.value = student.name || "";
+    form.elements.phone.value = student.phone || "";
+    form.elements.groupId.value = student.groupId || "";
+    form.elements.agentId.value = student.agentId || "";
+    form.elements.totalDue.value = Number(student.totalDue || 0).toFixed(2);
+    form.elements.notes.value = student.notes || "";
+  } else {
+    setStudentDefaultPrice();
+  }
+  document.getElementById("studentDialog").showModal();
+  form.elements.name.focus();
+}
+
+function openPaymentForm(studentId) {
+  ensureOperationsDialogs();
+  const student = byId(state.students, studentId);
+  if (!student) return toast("Student not found", "error");
+  paymentStudentId = student.id;
+  const form = document.getElementById("paymentForm");
+  form.reset();
+  form.elements.paidAt.value = new Date().toISOString().slice(0, 10);
+  form.elements.amount.value = studentRemaining(student) ? studentRemaining(student).toFixed(2) : "";
+  document.getElementById("paymentStudentName").textContent = `${student.name} - remaining ${money(studentRemaining(student))}`;
+  document.getElementById("paymentDialog").showModal();
+  form.elements.amount.focus();
+}
+
+function eventDescription(event) {
+  if (event.type === "registered") return `Registered with agreed price ${money(event.details?.totalDue || 0)}`;
+  if (event.type === "payment_added") return `Payment recorded: ${money(event.details?.amount || 0)} on ${escapeHtml(event.details?.paidAt || "")}`;
+  if (event.type === "updated") return "Student details updated";
+  return event.type.replaceAll("_", " ");
+}
+
+function openStudentDetail(studentId) {
+  ensureOperationsDialogs();
+  const student = byId(state.students, studentId);
+  if (!student) return toast("Student not found", "error");
+  detailStudentId = student.id;
+  const group = studentGroup(student);
+  const training = studentTraining(student);
+  const agent = byId(state.agents, student.agentId);
+  const payments = state.payments.filter((payment) => payment.studentId === student.id).sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)));
+  const events = state.events.filter((event) => event.studentId === student.id).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  document.getElementById("studentDetailTitle").textContent = student.name;
+  document.getElementById("studentDetailBody").innerHTML = `<div class="student-detail-grid"><article class="mini-ledger"><span>Training</span><strong>${escapeHtml(training?.name || "Unknown")}</strong><small>${escapeHtml(group?.name || "No group")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></article><article class="mini-ledger"><span>Sales agent</span><strong>${escapeHtml(agent?.name || "Unassigned")}</strong><small>${escapeHtml(student.phone || "No phone")}</small></article><article class="mini-ledger"><span>Payment</span><strong>${money(studentPaid(student))} / ${money(student.totalDue)}</strong><small>${money(studentRemaining(student))} remaining</small></article></div><h3>Payment history</h3><div class="simple-list">${payments.length ? payments.map((payment) => `<div class="simple-list-row"><div><strong>${money(payment.amount)}</strong><small>${escapeHtml(payment.paidAt)} - ${escapeHtml(payment.method || "cash")}</small></div><span>${escapeHtml(payment.notes || "")}</span></div>`).join("") : '<div class="empty">No payments recorded yet.</div>'}</div><h3>Trace timeline</h3><ol class="timeline">${events.length ? events.map((event) => `<li><strong>${escapeHtml(eventDescription(event))}</strong><small>${escapeHtml(new Date(event.createdAt).toLocaleString())}</small></li>`).join("") : '<li><strong>Imported old student record</strong><small>No timeline events yet.</small></li>'}</ol>`;
+  document.getElementById("studentDetailDialog").showModal();
+}
+
 function selectMetaFile(file) {
   if (!file) return;
   if (!file.name.toLocaleLowerCase().endsWith(".csv")) return toast("Choose the CSV version of your Meta report", "error");
@@ -920,6 +1167,27 @@ document.addEventListener("submit", async (event) => {
       await api("/api/outcomes", { method: "POST", body: JSON.stringify(payload) });
       document.getElementById("outcomeDialog").close();
       await load(); toast("Outcome saved");
+    } else if (form.id === "trainingForm") {
+      await api("/api/programs", { method: "POST", body: JSON.stringify(formPayload(form)) });
+      document.getElementById("trainingDialog").close();
+      await load(); toast("Training saved");
+    } else if (form.id === "groupForm") {
+      await api("/api/groups", { method: "POST", body: JSON.stringify(formPayload(form)) });
+      document.getElementById("groupDialog").close();
+      await load(); toast("Group saved");
+    } else if (form.id === "studentForm") {
+      const payload = formPayload(form);
+      const route = editingStudentId ? `/api/students/${editingStudentId}` : "/api/students";
+      await api(route, { method: editingStudentId ? "PATCH" : "POST", body: JSON.stringify(payload) });
+      editingStudentId = "";
+      document.getElementById("studentDialog").close();
+      await load(); toast("Student saved");
+    } else if (form.id === "paymentForm") {
+      if (!paymentStudentId) throw new Error("Choose a student first");
+      await api(`/api/students/${paymentStudentId}/payments`, { method: "POST", body: JSON.stringify(formPayload(form)) });
+      paymentStudentId = "";
+      document.getElementById("paymentDialog").close();
+      await load(); toast("Payment saved");
     } else if (form.id === "agentEditForm") {
       if (!editingAgentId) throw new Error("Choose an agent to edit");
       await api(`/api/agents/${editingAgentId}`, { method: "PATCH", body: JSON.stringify(formPayload(form)) });
@@ -942,6 +1210,36 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-open-import]")) { showPanel("data"); setTimeout(() => document.getElementById("metaCsvFile").focus(), 250); }
   if (event.target.closest("[data-go-performance]")) showPanel("performance");
   if (event.target.closest("#openResetData")) document.getElementById("resetDataDialog").showModal();
+  if (event.target.closest("[data-open-training]")) openTrainingForm();
+  if (event.target.closest("[data-open-group]")) openGroupForm();
+  const openStudent = event.target.closest("[data-open-student]");
+  if (openStudent) openStudentForm({ groupId: openStudent.dataset.group || "" });
+  if (event.target.closest("[data-close-training]")) document.getElementById("trainingDialog")?.close();
+  if (event.target.closest("[data-close-group]")) document.getElementById("groupDialog")?.close();
+  if (event.target.closest("[data-close-student]")) { editingStudentId = ""; document.getElementById("studentDialog")?.close(); }
+  if (event.target.closest("[data-close-payment]")) { paymentStudentId = ""; document.getElementById("paymentDialog")?.close(); }
+  if (event.target.closest("[data-close-student-detail]")) document.getElementById("studentDetailDialog")?.close();
+  const viewGroup = event.target.closest("[data-view-group]");
+  if (viewGroup) {
+    const group = byId(state.groups, viewGroup.dataset.viewGroup);
+    if (group) {
+      operationsFilters.trainingId = group.programId || "";
+      operationsFilters.timing = `${group.timeStart}-${group.timeEnd}`;
+      operationsFilters.search = group.name || "";
+      renderOperations();
+      document.getElementById("studentRows")?.closest(".card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+  const addPayment = event.target.closest("[data-add-payment]");
+  if (addPayment) openPaymentForm(addPayment.dataset.addPayment);
+  const editStudent = event.target.closest("[data-edit-student]");
+  if (editStudent) openStudentForm({ studentId: editStudent.dataset.editStudent });
+  const studentDetail = event.target.closest("[data-student-detail]");
+  if (studentDetail) openStudentDetail(studentDetail.dataset.studentDetail);
+  if (event.target.closest("[data-edit-current-student]")) {
+    document.getElementById("studentDetailDialog")?.close();
+    openStudentForm({ studentId: detailStudentId });
+  }
   const kpiMetric = event.target.closest("[data-kpi-metric]");
   if (kpiMetric) {
     const metric = kpiMetric.dataset.kpiMetric;
@@ -988,6 +1286,9 @@ document.addEventListener("change", (event) => {
     render();
     return;
   }
+  if (event.target.id === "studentGroup") setStudentDefaultPrice();
+  const opsFilter = event.target.closest("[data-ops-filter]");
+  if (opsFilter) { operationsFilters[opsFilter.dataset.opsFilter] = opsFilter.value; renderOperations(); }
   const filter = event.target.closest("[data-filter]");
   if (filter) {
     filters[filter.dataset.filter] = filter.value;
@@ -1008,6 +1309,8 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  const opsFilter = event.target.closest('[data-ops-filter="search"]');
+  if (opsFilter) { operationsFilters.search = opsFilter.value; renderOperations(); }
   const filter = event.target.closest('[data-filter="search"]');
   if (filter) { filters.search = filter.value; renderPerformance(); }
 });

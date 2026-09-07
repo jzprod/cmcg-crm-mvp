@@ -107,6 +107,9 @@ test("production safeguards validate records and backup restore is loss-resistan
   const reset = (await jsonRequest(baseUrl, "/api/state")).state;
   assert.equal(reset.agents.length, 0);
   assert.equal(reset.campaigns.length, 0);
+  assert.equal(reset.groups.length, 0);
+  assert.equal(reset.students.length, 0);
+  assert.equal(reset.payments.length, 0);
   assert.equal(reset.creatives.length, 0);
   assert.equal(reset.dailyLogs.length, 0);
   assert.equal(reset.outcomes.length, 0);
@@ -116,6 +119,36 @@ test("production safeguards validate records and backup restore is loss-resistan
   const backupDir = path.join(tempDir, "backups");
   assert.equal(fs.existsSync(backupDir), true);
   assert.ok(fs.readdirSync(backupDir).some((name) => name.endsWith(".json")));
+});
+
+test("training groups track capacity, installments, and student timeline events", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-groups-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl } = await startApp(dataFile);
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const training = await jsonRequest(baseUrl, "/api/programs", { method: "POST", body: { name: "Comptabilite 3 mois", durationLabel: "3 months", basePrice: 3000, discountedPrice: 2500 }, expectedStatus: 201 });
+  const agent = await jsonRequest(baseUrl, "/api/agents", { method: "POST", body: { name: "Souad" }, expectedStatus: 201 });
+  const group = await jsonRequest(baseUrl, "/api/groups", { method: "POST", body: { programId: training.id, name: "Monday morning", days: "Monday, Wednesday", timeStart: "10:00", timeEnd: "12:00", capacity: 2, price: 2500, startDate: "2026-09-07" }, expectedStatus: 201 });
+  assert.equal(group.programId, training.id);
+  assert.deepEqual(group.days, ["Monday", "Wednesday"]);
+  assert.equal(group.capacity, 2);
+
+  const student = await jsonRequest(baseUrl, "/api/students", { method: "POST", body: { groupId: group.id, agentId: agent.id, name: "Ali Student", phone: "+212600000001", registeredAt: "2026-09-07", totalDue: 2500, paymentPlan: "installments", initialPaid: 500 }, expectedStatus: 201 });
+  assert.equal(student.totalDue, 2500);
+  await jsonRequest(baseUrl, `/api/students/${student.id}/payments`, { method: "POST", body: { amount: 1000, paidAt: "2026-09-10", method: "cash", notes: "Second installment" }, expectedStatus: 201 });
+  const updated = await jsonRequest(baseUrl, `/api/students/${student.id}`, { method: "PATCH", body: { name: "Ali Student", status: "active", groupId: group.id, agentId: agent.id, totalDue: 2400, paymentPlan: "installments" }, expectedStatus: 200 });
+  assert.equal(updated.status, "active");
+  assert.equal(updated.totalDue, 2400);
+
+  await jsonRequest(baseUrl, "/api/students", { method: "POST", body: { groupId: group.id, name: "Second Student", totalDue: 2500 }, expectedStatus: 201 });
+  await jsonRequest(baseUrl, "/api/students", { method: "POST", body: { groupId: group.id, name: "Third Student", totalDue: 2500 }, expectedStatus: 400 });
+
+  const snapshot = (await jsonRequest(baseUrl, "/api/state")).state;
+  assert.equal(snapshot.groups.length, 1);
+  assert.equal(snapshot.students.length, 2);
+  assert.equal(snapshot.payments.filter((payment) => payment.studentId === student.id).reduce((sum, payment) => sum + payment.amount, 0), 1500);
+  assert.equal(snapshot.events.filter((event) => event.studentId === student.id).length, 4);
 });
 
 test("Meta CSV sync is idempotent, matches agents, and supports hierarchical outcomes", async (t) => {
@@ -228,6 +261,11 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(html, /periodPreset/);
   assert.match(html, /Last 7 days/);
   assert.match(html, /Lifetime/);
+  assert.match(html, /Groups &amp; payments/);
+  assert.match(html, /operationsKpis/);
+  assert.match(html, /groupCards/);
+  assert.match(html, /studentRows/);
+  assert.match(html, /paymentAlerts/);
   assert.match(html, /<label>/);
   assert.match(app, /cmcg-visible-columns/);
   assert.match(app, /cmcg-overview-metrics/);
@@ -241,6 +279,11 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /agentEditForm/);
   assert.match(app, /data-edit-agent/);
   assert.match(app, /data-delete-agent/);
+  assert.match(app, /trainingForm/);
+  assert.match(app, /groupForm/);
+  assert.match(app, /studentForm/);
+  assert.match(app, /paymentForm/);
+  assert.match(app, /studentDetailDialog/);
   assert.match(app, /\/api\/agents\/\$\{editingAgentId\}/);
   assert.match(app, /Business quality - highest/);
   assert.match(app, /Automatic scoring is learning/);
