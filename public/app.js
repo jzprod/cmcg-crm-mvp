@@ -20,6 +20,7 @@ const pageMeta = {
   performance: ["Performance", "Compare ads, ad sets, campaigns, objectives, and agents."],
   outcomes: ["Outcomes", "Appointments, visits, and registered students."],
   groups: ["Groupes & paiements", "Planning, capacité, inscriptions, avances et historique étudiant."],
+  students: ["Étudiants", "Filtrez par formation, groupe, statut ou paiement, puis gérez chaque étudiant."],
   agents: ["Agents", "Manage automatic ad-set assignment."],
   data: ["Import & data", "Synchronize Meta Ads and protect your CRM data."],
 };
@@ -515,6 +516,22 @@ Object.assign(ar, {
   "Inscrit le": "مسجل بتاريخ",
   "Étudiant transféré": "تم نقل الطالب",
   "Statut mis à jour": "تم تحديث الحالة",
+  "Gestion des étudiants · تدبير الطلبة": "تدبير الطلبة",
+  "Filtrez par formation, groupe, statut ou paiement. Cliquez un étudiant pour tout gérer.": "صفِّ حسب التكوين، الفوج، الحالة أو الأداء. انقر على طالب لتدبير كل شيء.",
+  "Configurez CRM_USER et CRM_PASSWORD sur Hostinger avant de saisir des données étudiant.": "اضبط CRM_USER و CRM_PASSWORD على Hostinger قبل إدخال بيانات الطلبة.",
+  "Filtrer par formation": "التصفية حسب التكوين",
+  "Cliquez une carte pour ne voir que ses étudiants.": "انقر على بطاقة لعرض طلبتها فقط.",
+  "Tous les groupes": "كل الأفواج",
+  "Tous les statuts": "كل الحالات",
+  "Payé totalement": "مؤدى بالكامل",
+  "En retard": "متأخر",
+  "Bientôt dû": "قريب الاستحقاق",
+  "dans ce filtre": "ضمن هذه التصفية",
+  "total payé": "مجموع المؤدى",
+  "solde ouvert": "رصيد مفتوح",
+  "paiements dépassés": "أداءات متجاوزة",
+  "Encaissé": "المحصّل",
+  "Aucun étudiant ne correspond à ces filtres.": "لا يوجد طالب يطابق هذه التصفية.",
   "Formation choisie": "التكوين المختار",
   "Toutes les formations": "كل التكوينات",
   "Places disponibles": "الأماكن المتوفرة",
@@ -731,6 +748,8 @@ Object.assign(ar, {
 });
 
 arDynamic.push(
+  [/^(.+) étudiant\(s\)$/, "$1 طالب/طلبة"],
+  [/^(.+) reste$/, "$1 الباقي"],
   [/^(.+) each month$/, "$1 كل شهر"],
   [/^(.+) payments$/, "$1 دفعات"],
   [/^Next: (.+)$/, "القادم: $1"],
@@ -769,6 +788,7 @@ const overviewMetricDefinitions = {
 };
 const filters = { from: "", to: "", agentId: "", objective: "", campaignId: "", search: "" };
 const operationsFilters = { trainingId: "", timing: "", payment: "", search: "" };
+const studentsFilters = { trainingId: "", groupId: "", status: "", payment: "", search: "" };
 let groupBy = "ad";
 let sortBy = "quality";
 let selectedPeriod = localStorage.getItem("cmcg-report-period") || "last7";
@@ -1005,7 +1025,7 @@ function applyLanguage(root = document.body) {
 function applyRoleAccess() {
   const salesOnly = currentUser?.role === "sales";
   document.body.classList.toggle("role-sales", salesOnly);
-  document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("hidden", salesOnly && tab.dataset.tab !== "groups"));
+  document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("hidden", salesOnly && !["groups", "students"].includes(tab.dataset.tab)));
   document.querySelectorAll("[data-open-import], [data-add-outcome], [data-go-performance], [data-seed-screenshot]").forEach((item) => item.classList.toggle("hidden", salesOnly));
   document.querySelector(".period-card")?.classList.toggle("hidden", salesOnly);
   if (salesOnly && !document.getElementById("groups")?.classList.contains("active")) showPanel("groups", false);
@@ -2064,6 +2084,114 @@ function renderOperations() {
   renderStudentRows();
 }
 
+// ---- Dedicated Students page ----
+function studentsMatchingFilters() {
+  return state.students.filter((student) => {
+    if (studentsFilters.trainingId && student.programId !== studentsFilters.trainingId) return false;
+    if (studentsFilters.groupId && student.groupId !== studentsFilters.groupId) return false;
+    if (studentsFilters.status && student.status !== studentsFilters.status) return false;
+    if (studentsFilters.payment) {
+      const status = paymentDueStatus(student);
+      const paid = studentPaid(student);
+      if (studentsFilters.payment === "paid" && studentRemaining(student) > 0) return false;
+      if (studentsFilters.payment === "balance" && studentRemaining(student) <= 0) return false;
+      if (studentsFilters.payment === "overdue" && status.key !== "overdue") return false;
+      if (studentsFilters.payment === "due_soon" && !["due", "due_soon"].includes(status.key)) return false;
+      if (studentsFilters.payment === "none" && paid > 0) return false;
+    }
+    if (studentsFilters.search) {
+      const group = studentGroup(student);
+      const text = [student.name, student.phone, group?.name, studentTraining(student)?.name].join(" ").toLocaleLowerCase();
+      if (!text.includes(studentsFilters.search.toLocaleLowerCase())) return false;
+    }
+    return true;
+  });
+}
+function renderStudentsKpis() {
+  const container = document.getElementById("studentsKpis");
+  if (!container) return;
+  const list = studentsMatchingFilters();
+  const totalDue = list.reduce((sum, s) => sum + Number(s.totalDue || 0), 0);
+  const paid = list.reduce((sum, s) => sum + studentPaid(s), 0);
+  const remaining = list.reduce((sum, s) => sum + studentRemaining(s), 0);
+  const overdue = list.filter((s) => paymentDueStatus(s).key === "overdue").length;
+  const items = [
+    ["Étudiants", number(list.length), "dans ce filtre", "green"],
+    ["Encaissé", money(paid), "total payé", "violet"],
+    ["Reste à payer", money(remaining), "solde ouvert", remaining > 0 ? "amber" : "green"],
+    ["En retard", number(overdue), "paiements dépassés", overdue > 0 ? "amber" : "green"],
+  ];
+  container.innerHTML = items.map(([label, value, detail, style]) => `<article class="kpi ${style}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
+  applyLanguage(container);
+}
+function renderStudentsTrainingCards() {
+  const container = document.getElementById("studentsTrainingCards");
+  if (!container) return;
+  const cards = [{ id: "", name: "Toutes les formations" }, ...state.programs.slice().sort((a, b) => a.name.localeCompare(b.name))];
+  container.innerHTML = cards.map((training) => {
+    const students = training.id ? state.students.filter((s) => s.programId === training.id) : state.students;
+    const remaining = students.reduce((sum, s) => sum + studentRemaining(s), 0);
+    const active = studentsFilters.trainingId === training.id;
+    return `<button type="button" class="training-filter-card ${active ? "active" : ""}" data-students-training="${escapeHtml(training.id)}"><strong>${escapeHtml(training.name)}</strong><small>${number(students.length)} étudiant(s)</small><small>${money(remaining)} reste</small></button>`;
+  }).join("");
+  applyLanguage(container);
+}
+function hydrateStudentsFilters() {
+  const groupSelect = document.querySelector('[data-students-filter="groupId"]');
+  if (groupSelect) {
+    const current = studentsFilters.groupId;
+    groupSelect.replaceChildren(option("Tous les groupes", ""));
+    state.groups
+      .filter((g) => !studentsFilters.trainingId || g.programId === studentsFilters.trainingId)
+      .slice().sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((g) => groupSelect.append(option(`${g.name} · ${groupTraining(g)?.name || ""}`, g.id)));
+    groupSelect.value = state.groups.some((g) => g.id === current) ? current : "";
+  }
+  document.querySelectorAll("[data-students-filter]").forEach((control) => {
+    if (control.dataset.studentsFilter !== "groupId") control.value = studentsFilters[control.dataset.studentsFilter] || "";
+  });
+}
+function renderStudentsList() {
+  const container = document.getElementById("studentsList");
+  if (!container) return;
+  const students = studentsMatchingFilters().sort((a, b) => {
+    const ra = paymentDueStatus(a).key === "overdue" ? 0 : 1;
+    const rb = paymentDueStatus(b).key === "overdue" ? 0 : 1;
+    return ra - rb || a.name.localeCompare(b.name);
+  });
+  if (!students.length) {
+    container.innerHTML = '<div class="empty card">Aucun étudiant ne correspond à ces filtres.</div>';
+    applyLanguage(container);
+    return;
+  }
+  container.innerHTML = students.map((student) => {
+    const group = studentGroup(student);
+    const training = studentTraining(student);
+    const agent = byId(state.agents, student.agentId);
+    const paid = studentPaid(student);
+    const total = Number(student.totalDue || 0);
+    const remaining = studentRemaining(student);
+    const percent = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : (paid > 0 ? 100 : 0);
+    const due = paymentDueStatus(student);
+    const statusLabel = { registered: "Inscrit", active: "Actif", paused: "Pause", completed: "Terminé", cancelled: "Annulé" }[student.status] || student.status;
+    return `<button type="button" class="student-card" data-student-detail="${escapeHtml(student.id)}">
+      <div class="student-card-head"><div><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></div><span class="status-pill ${due.className}">${escapeHtml(due.label)}</span></div>
+      <div class="student-card-meta"><span>${escapeHtml(training?.name || "Formation")}</span><span>${escapeHtml(group?.name || "Sans groupe")}</span><span class="pill-mini">${escapeHtml(statusLabel)}</span><span>${escapeHtml(agent?.name || "Non assigné")}</span></div>
+      <div class="student-card-pay"><div class="progress-track" role="img" aria-label="${percent}% payé"><i style="width:${percent}%"></i></div><div class="student-card-figures"><span>${money(paid)} / ${money(total)}</span><strong>${money(remaining)} reste</strong></div></div>
+    </button>`;
+  }).join("");
+  applyLanguage(container);
+}
+function renderStudentsPage() {
+  if (!document.getElementById("studentsList")) return;
+  const warning = document.getElementById("studentsSecurityWarning");
+  if (warning) warning.classList.toggle("hidden", authEnabled && !sensitiveLocked);
+  renderStudentsKpis();
+  renderStudentsTrainingCards();
+  hydrateStudentsFilters();
+  renderStudentsList();
+}
+
 function studentDataUnlocked() {
   if (currentUser?.role === "sales" && !currentUser.agentId) {
     toast("Ce compte commercial n'est pas lié à un agent. Créez l'agent correspondant avec le compte admin.", "error");
@@ -2162,13 +2290,13 @@ function render() {
   hydrateFilters();
   hydrateSortOptions();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
-  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderAgents(); renderImports(); renderStorage(); renderScoringSettings();
+  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderStudentsPage(); renderAgents(); renderImports(); renderStorage(); renderScoringSettings();
   applyRoleAccess();
   applyLanguage();
 }
 
 function showPanel(name, updateHash = true) {
-  if (currentUser?.role === "sales" && name !== "groups") name = "groups";
+  if (currentUser?.role === "sales" && !["groups", "students"].includes(name)) name = "groups";
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
   document.querySelectorAll(".panel").forEach((item) => item.classList.toggle("active", item.id === name));
   const meta = pageMeta[name] || ["CMCG CRM", ""];
@@ -2891,6 +3019,13 @@ document.addEventListener("click", async (event) => {
   if (addPayment) openPaymentForm(addPayment.dataset.addPayment);
   const editStudent = event.target.closest("[data-edit-student]");
   if (editStudent) openStudentForm({ studentId: editStudent.dataset.editStudent });
+  const studentsTrainingCard = event.target.closest("[data-students-training]");
+  if (studentsTrainingCard) {
+    studentsFilters.trainingId = studentsTrainingCard.dataset.studentsTraining;
+    studentsFilters.groupId = ""; // reset group when training changes
+    renderStudentsPage();
+    return;
+  }
   const studentDetail = event.target.closest("[data-student-detail]");
   if (studentDetail) openStudentDetail(studentDetail.dataset.studentDetail);
   if (event.target.closest("[data-edit-current-student]")) {
@@ -2974,6 +3109,8 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "sessionsGroupPick") { sessionsGroupId = event.target.value; renderPlannerSuggestions(); }
   const opsFilter = event.target.closest("[data-ops-filter]");
   if (opsFilter) { operationsFilters[opsFilter.dataset.opsFilter] = opsFilter.value; renderOperations(); }
+  const studentsFilter = event.target.closest("[data-students-filter]");
+  if (studentsFilter) { studentsFilters[studentsFilter.dataset.studentsFilter] = studentsFilter.value; renderStudentsPage(); }
   const filter = event.target.closest("[data-filter]");
   if (filter) {
     filters[filter.dataset.filter] = filter.value;
@@ -3004,6 +3141,8 @@ document.addEventListener("input", (event) => {
   if (event.target.closest("#paymentForm") && event.target.name === "amount") syncPaymentFormNextDate();
   const opsFilter = event.target.closest('[data-ops-filter="search"]');
   if (opsFilter) { operationsFilters.search = opsFilter.value; renderOperations(); }
+  const studentsSearch = event.target.closest('[data-students-filter="search"]');
+  if (studentsSearch) { studentsFilters.search = studentsSearch.value; renderStudentsList(); }
   const filter = event.target.closest('[data-filter="search"]');
   if (filter) { filters.search = filter.value; renderPerformance(); }
 });

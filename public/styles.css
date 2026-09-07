@@ -453,6 +453,26 @@ td { font-size: .8rem; }
 .student-quick-grid label span { font-size: .76rem; color: var(--slate-600); font-weight: 600; }
 .is-arabic .student-progress-remaining { text-align: left; }
 @media (max-width: 640px) { .student-quick-grid { grid-template-columns: 1fr; } }
+.training-filter-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.training-filter-card { text-align: left; display: grid; gap: 3px; padding: 13px; border: 1px solid var(--slate-200); border-radius: 13px; background: #fff; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.training-filter-card:hover { border-color: var(--green-600); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.training-filter-card.active { border-color: var(--green-600); background: var(--green-50); box-shadow: 0 0 0 2px rgba(22,163,74,.16); }
+.training-filter-card strong { font-size: .9rem; color: var(--navy-900); }
+.training-filter-card small { color: var(--slate-500); font-size: .72rem; }
+.students-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.student-card { text-align: left; display: grid; gap: 10px; padding: 15px; border: 1px solid var(--slate-200); border-radius: 15px; background: #fff; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.student-card:hover { border-color: var(--green-600); transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+.student-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.student-card-head strong { display: block; font-size: .95rem; color: var(--navy-900); }
+.student-card-head small { color: var(--slate-500); font-size: .74rem; }
+.student-card-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; color: var(--slate-600); font-size: .74rem; }
+.student-card-meta span { display: inline-flex; align-items: center; }
+.pill-mini { padding: 1px 8px; border-radius: 999px; background: var(--slate-100); color: var(--slate-700); font-size: .68rem; font-weight: 600; }
+.student-card-pay { display: grid; gap: 6px; }
+.student-card-figures { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.student-card-figures span { color: var(--slate-500); font-size: .74rem; }
+.student-card-figures strong { color: var(--green-700); font-size: .9rem; }
+.is-arabic .training-filter-card, .is-arabic .student-card, .is-arabic .student-card-head, .is-arabic .student-card-meta { text-align: right; }
 .spots-map { margin: 8px 0 6px; }
 .spots-map-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .spots-map-head small { color: var(--slate-500); font-size: .74rem; }

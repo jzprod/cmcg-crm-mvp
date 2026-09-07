@@ -586,6 +586,12 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /data-transfer-group/);
   assert.match(app, /data-change-status/);
   assert.match(app, /quickUpdateStudent/);
+  assert.match(app, /renderStudentsPage/);
+  assert.match(app, /studentsMatchingFilters/);
+  assert.match(app, /data-students-training/);
+  assert.match(app, /data-students-filter/);
+  assert.match(html, /data-tab="students"/);
+  assert.match(html, /id="students"/);
   assert.match(app, /data-toggle-availability/);
   assert.match(app, /trainingMonthlyPrice/);
   assert.match(app, /monthlyPrice/);
