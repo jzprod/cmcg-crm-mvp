@@ -1,5 +1,6 @@
 let state = null;
 let authEnabled = false;
+let sensitiveLocked = false;
 let storageInfo = null;
 let pendingRestore = null;
 let pendingMetaFile = null;
@@ -8,12 +9,13 @@ let editingAgentId = "";
 let editingStudentId = "";
 let paymentStudentId = "";
 let detailStudentId = "";
+let plannerSuggestions = [];
 
 const pageMeta = {
   dashboard: ["Overview", "Your advertising and enrollment results at a glance."],
   performance: ["Performance", "Compare ads, ad sets, campaigns, objectives, and agents."],
   outcomes: ["Outcomes", "Appointments, visits, and registered students."],
-  groups: ["Groups & payments", "Track trainings, class capacity, students, and installment payments."],
+  groups: ["Groupes & paiements", "Planning, capacité, inscriptions, avances et historique étudiant."],
   agents: ["Agents", "Manage automatic ad-set assignment."],
   data: ["Import & data", "Synchronize Meta Ads and protect your CRM data."],
 };
@@ -211,6 +213,13 @@ function normalizeState() {
   });
   state.settings = state.settings || {};
   state.settings.scoring = CmcgQuality.normalizeSettings(state.settings.scoring || state.settings);
+  state.groups.forEach((group) => {
+    group.days = Array.isArray(group.days) ? group.days : String(group.days || "").split(",").map((item) => item.trim()).filter(Boolean);
+    group.attendanceMode = group.attendanceMode === "flexible_shift" ? "flexible_shift" : "fixed";
+    group.alternateDays = Array.isArray(group.alternateDays) ? group.alternateDays : String(group.alternateDays || "").split(",").map((item) => item.trim()).filter(Boolean);
+    group.alternateTimeStart = group.alternateTimeStart || "";
+    group.alternateTimeEnd = group.alternateTimeEnd || "";
+  });
 }
 
 function scoringTargets() {
@@ -245,10 +254,18 @@ async function load() {
   state = data.state;
   normalizeState();
   authEnabled = data.authEnabled;
+  sensitiveLocked = Boolean(data.sensitiveLocked);
   storageInfo = data.storage;
   render();
-  const requestedPanel = window.location.hash.slice(1).replace(/^view=/, "");
+  const requestedPanel = panelFromLocation();
   if (pageMeta[requestedPanel]) showPanel(requestedPanel, false);
+}
+
+function panelFromLocation() {
+  const hashPanel = window.location.hash.slice(1).replace(/^view=/, "");
+  if (pageMeta[hashPanel]) return hashPanel;
+  if (["/groups", "/students", "/operations", "/planning"].includes(window.location.pathname)) return "groups";
+  return "";
 }
 
 function option(label, value = "") {
@@ -671,7 +688,157 @@ function studentGroup(student) { return byId(state.groups, student?.groupId); }
 function studentTraining(student) { return groupTraining(studentGroup(student)); }
 function studentPaid(student) { return state.payments.filter((payment) => payment.studentId === student?.id).reduce((sum, payment) => sum + Number(payment.amount || 0), 0); }
 function studentRemaining(student) { return Math.max(0, Number(student?.totalDue || 0) - studentPaid(student)); }
-function groupSchedule(group) { return `${(group.days || []).join(", ") || "No days"} - ${group.timeStart || "?"}-${group.timeEnd || "?"}`; }
+function groupSchedule(group) {
+  const main = `${(group.days || []).join(", ") || "No days"} - ${group.timeStart || "?"}-${group.timeEnd || "?"}`;
+  if (group?.attendanceMode !== "flexible_shift") return main;
+  const alternate = `${(group.alternateDays?.length ? group.alternateDays : group.days || []).join(", ")} - ${group.alternateTimeStart || "?"}-${group.alternateTimeEnd || "?"}`;
+  return `${main} · Nidam shift: ${alternate}`;
+}
+function groupTimeKeys(group) {
+  const keys = [];
+  if (group?.timeStart || group?.timeEnd) keys.push(`${group.timeStart || ""}-${group.timeEnd || ""}`);
+  if (group?.attendanceMode === "flexible_shift" && (group.alternateTimeStart || group.alternateTimeEnd)) keys.push(`${group.alternateTimeStart || ""}-${group.alternateTimeEnd || ""}`);
+  return [...new Set(keys.filter((value) => value !== "-"))];
+}
+function minutesForTime(value) {
+  const [hours, minutes] = String(value || "").split(":").map((part) => Number(part));
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return (hours * 60) + minutes;
+}
+function timeRangesOverlap(startA, endA, startB, endB) {
+  const aStart = minutesForTime(startA);
+  const aEnd = minutesForTime(endA);
+  const bStart = minutesForTime(startB);
+  const bEnd = minutesForTime(endB);
+  if ([aStart, aEnd, bStart, bEnd].some((value) => value === null)) return false;
+  return aStart < bEnd && bStart < aEnd;
+}
+function dayNames(value) {
+  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+function dayOverlap(a = [], b = []) {
+  const normalized = new Set(a.map((day) => day.toLocaleLowerCase()));
+  return b.some((day) => normalized.has(day.toLocaleLowerCase()));
+}
+function groupOverlapsSlot(group, days, start, end) {
+  const mainOverlap = dayOverlap(group.days || [], days) && timeRangesOverlap(group.timeStart, group.timeEnd, start, end);
+  const alternateOverlap = group.attendanceMode === "flexible_shift"
+    && dayOverlap(group.alternateDays?.length ? group.alternateDays : group.days || [], days)
+    && timeRangesOverlap(group.alternateTimeStart, group.alternateTimeEnd, start, end);
+  return mainOverlap || alternateOverlap;
+}
+function slotPressure(days, start, end) {
+  const conflicts = state.groups.filter((group) => group.status !== "done" && groupOverlapsSlot(group, days, start, end));
+  const fullness = conflicts.reduce((sum, group) => sum + groupStats(group).fullness, 0);
+  return { conflicts, score: (conflicts.length * 100) + fullness };
+}
+function hydratePlannerControls() {
+  const select = document.getElementById("plannerTraining");
+  if (!select) return;
+  const current = select.value;
+  select.replaceChildren(option("Créer une nouvelle formation", ""));
+  state.programs.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((program) => select.append(option(`${program.name}${program.durationLabel ? ` - ${program.durationLabel}` : ""}`, program.id)));
+  if (state.programs.some((program) => program.id === current)) select.value = current;
+}
+function buildPlannerSuggestions() {
+  const preferredMode = document.getElementById("plannerMode")?.value || "fixed";
+  const targetCapacity = Math.max(1, Number(document.getElementById("plannerCapacity")?.value || 20));
+  const dayOptions = [
+    "Monday, Wednesday",
+    "Tuesday, Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+    ...state.groups.map((group) => (group.days || []).join(", ")).filter(Boolean),
+  ];
+  const timeOptions = [
+    ["09:00", "11:00"],
+    ["10:00", "12:00"],
+    ["12:00", "14:00"],
+    ["14:00", "16:00"],
+    ["16:00", "18:00"],
+    ["18:00", "20:00"],
+    ...state.groups.map((group) => [group.timeStart, group.timeEnd]).filter(([start, end]) => start && end),
+  ];
+  const uniqueDays = [...new Set(dayOptions)];
+  const uniqueTimes = [...new Map(timeOptions.map(([start, end]) => [`${start}-${end}`, [start, end]])).values()];
+  const candidates = [];
+  uniqueDays.forEach((daysText) => {
+    const days = dayNames(daysText);
+    uniqueTimes.forEach(([start, end]) => {
+      const pressure = slotPressure(days, start, end);
+      candidates.push({ daysText, days, start, end, capacity: targetCapacity, attendanceMode: "fixed", pressure });
+      if (preferredMode === "flexible_shift") {
+        const alternate = Number(start.slice(0, 2)) < 14 ? ["18:00", "20:00"] : ["10:00", "12:00"];
+        const alternatePressure = slotPressure(days, alternate[0], alternate[1]);
+        candidates.push({
+          daysText,
+          days,
+          start,
+          end,
+          capacity: targetCapacity,
+          attendanceMode: "flexible_shift",
+          alternateDaysText: daysText,
+          alternateTimeStart: alternate[0],
+          alternateTimeEnd: alternate[1],
+          pressure: { conflicts: [...pressure.conflicts, ...alternatePressure.conflicts], score: pressure.score + alternatePressure.score + 15 },
+        });
+      }
+    });
+  });
+  return candidates
+    .sort((a, b) => a.pressure.score - b.pressure.score || a.daysText.localeCompare(b.daysText) || a.start.localeCompare(b.start))
+    .slice(0, 4);
+}
+function renderPlannerSuggestions() {
+  const container = document.getElementById("plannerSuggestions");
+  if (!container) return;
+  plannerSuggestions = buildPlannerSuggestions();
+  if (!plannerSuggestions.length) {
+    container.innerHTML = '<div class="empty">Ajoutez une formation ou un groupe existant pour recevoir des propositions.</div>';
+    return;
+  }
+  container.innerHTML = plannerSuggestions.map((suggestion, index) => {
+    const conflicts = suggestion.pressure.conflicts.length;
+    const label = conflicts ? `${conflicts} conflit${conflicts === 1 ? "" : "s"} possible${conflicts === 1 ? "" : "s"}` : "Créneau libre";
+    const className = conflicts ? "quality-watch" : "quality-strong";
+    const shift = suggestion.attendanceMode === "flexible_shift" ? `<small>Nidam shift: ${escapeHtml(suggestion.alternateDaysText)} ${escapeHtml(suggestion.alternateTimeStart)}-${escapeHtml(suggestion.alternateTimeEnd)}</small>` : "<small>Groupe fixe</small>";
+    return `<article class="planner-suggestion"><div><span class="status-pill ${className}">${escapeHtml(label)}</span><strong>${escapeHtml(suggestion.daysText)} · ${escapeHtml(suggestion.start)}-${escapeHtml(suggestion.end)}</strong>${shift}<small>Capacité proposée: ${number(suggestion.capacity)} étudiants</small></div><button class="button secondary" type="button" data-create-plan="${index}">Créer ce planning</button></article>`;
+  }).join("");
+}
+async function createSuggestedPlan(index) {
+  if (!studentDataUnlocked()) return;
+  const suggestion = plannerSuggestions[Number(index)];
+  if (!suggestion) return toast("Relancez les propositions avant de créer le groupe", "error");
+  const selectedProgramId = document.getElementById("plannerTraining")?.value || "";
+  const newTrainingName = document.getElementById("plannerTrainingName")?.value.trim() || "";
+  const durationLabel = document.getElementById("plannerDuration")?.value.trim() || "";
+  if (!selectedProgramId && !newTrainingName) return toast("Choisissez une formation ou tapez le nom de la nouvelle formation", "error");
+  let programId = selectedProgramId;
+  if (!programId) {
+    const program = await api("/api/programs", { method: "POST", body: JSON.stringify({ name: newTrainingName, durationLabel }) });
+    programId = program.id;
+  }
+  const program = byId(state.programs, programId);
+  await api("/api/groups", {
+    method: "POST",
+    body: JSON.stringify({
+      programId,
+      name: `${program?.name || newTrainingName} ${suggestion.start}`,
+      durationLabel: durationLabel || program?.durationLabel || "",
+      days: suggestion.daysText,
+      timeStart: suggestion.start,
+      timeEnd: suggestion.end,
+      capacity: suggestion.capacity,
+      attendanceMode: suggestion.attendanceMode,
+      alternateDays: suggestion.alternateDaysText || "",
+      alternateTimeStart: suggestion.alternateTimeStart || "",
+      alternateTimeEnd: suggestion.alternateTimeEnd || "",
+    }),
+  });
+  await load();
+  toast("Planning créé. Vérifiez le groupe puis ajoutez les étudiants.");
+}
 function groupPrice(group) {
   const training = groupTraining(group);
   return Number(group?.discountedPrice || group?.price || training?.discountedPrice || training?.basePrice || 0);
@@ -691,16 +858,16 @@ function paymentState(student) {
 }
 function paymentBadge(student) {
   const stateName = paymentState(student);
-  const label = stateName === "paid" ? "Paid" : stateName === "balance" ? "Balance due" : "No payment";
+  const label = stateName === "paid" ? "Payé" : stateName === "balance" ? "Reste à payer" : "Aucun paiement";
   const className = stateName === "paid" ? "quality-strong" : stateName === "balance" ? "quality-watch" : "quality-weak";
   return `<span class="status-pill ${className}">${label}</span>`;
 }
 function filteredGroups() {
   return state.groups.filter((group) => {
     const training = groupTraining(group);
-    const text = [group.name, training?.name, group.days?.join(" "), group.timeStart, group.timeEnd, group.notes].join(" ").toLocaleLowerCase();
+    const text = [group.name, training?.name, group.days?.join(" "), group.timeStart, group.timeEnd, group.alternateDays?.join(" "), group.alternateTimeStart, group.alternateTimeEnd, group.notes].join(" ").toLocaleLowerCase();
     if (operationsFilters.trainingId && group.programId !== operationsFilters.trainingId) return false;
-    if (operationsFilters.timing && `${group.timeStart}-${group.timeEnd}` !== operationsFilters.timing) return false;
+    if (operationsFilters.timing && !groupTimeKeys(group).includes(operationsFilters.timing)) return false;
     if (operationsFilters.search && !text.includes(operationsFilters.search.toLocaleLowerCase())) return false;
     return true;
   });
@@ -712,7 +879,7 @@ function filteredStudents() {
     const agent = byId(state.agents, student.agentId);
     const text = [student.name, student.phone, student.notes, group?.name, training?.name, agent?.name].join(" ").toLocaleLowerCase();
     if (operationsFilters.trainingId && group?.programId !== operationsFilters.trainingId) return false;
-    if (operationsFilters.timing && `${group?.timeStart}-${group?.timeEnd}` !== operationsFilters.timing) return false;
+    if (operationsFilters.timing && !groupTimeKeys(group).includes(operationsFilters.timing)) return false;
     if (operationsFilters.payment && paymentState(student) !== operationsFilters.payment) return false;
     if (operationsFilters.search && !text.includes(operationsFilters.search.toLocaleLowerCase())) return false;
     return true;
@@ -721,18 +888,19 @@ function filteredStudents() {
 function hydrateOperationsControls() {
   document.querySelectorAll('[data-ops-filter="trainingId"]').forEach((select) => {
     const current = operationsFilters.trainingId;
-    select.replaceChildren(option("All trainings", ""));
+    select.replaceChildren(option("Toutes les formations", ""));
     state.programs.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((program) => select.append(option(program.name, program.id)));
     select.value = current;
   });
   document.querySelectorAll('[data-ops-filter="timing"]').forEach((select) => {
     const current = operationsFilters.timing;
-    const timings = [...new Set(state.groups.map((group) => `${group.timeStart}-${group.timeEnd}`).filter((value) => value !== "-"))].sort();
-    select.replaceChildren(option("All timings", ""));
+    const timings = [...new Set(state.groups.flatMap(groupTimeKeys))].sort();
+    select.replaceChildren(option("Tous les horaires", ""));
     timings.forEach((timing) => select.append(option(timing, timing)));
     select.value = current;
   });
   document.querySelectorAll("[data-ops-filter]").forEach((control) => { control.value = operationsFilters[control.dataset.opsFilter] || ""; });
+  hydratePlannerControls();
 }
 function renderOperationsKpis() {
   const groups = filteredGroups();
@@ -743,11 +911,11 @@ function renderOperationsKpis() {
   const totalPaid = students.reduce((sum, student) => sum + studentPaid(student), 0);
   const totalRemaining = students.reduce((sum, student) => sum + studentRemaining(student), 0);
   const items = [
-    ["Groups", number(groups.length), "active filtered groups", "neutral"],
-    ["Seats used", `${number(occupied)} / ${number(capacity)}`, `${number(remainingSpots)} spots left`, "blue"],
-    ["Students", number(students.length), "filtered student ledger", "green"],
-    ["Collected", money(totalPaid), "recorded payments", "violet"],
-    ["Remaining", money(totalRemaining), "needs follow-up", totalRemaining ? "amber" : "green"],
+    ["Groupes", number(groups.length), "groupes filtrés", "neutral"],
+    ["Places utilisées", `${number(occupied)} / ${number(capacity)}`, `${number(remainingSpots)} places restantes`, "blue"],
+    ["Étudiants", number(students.length), "registre filtré", "green"],
+    ["Encaissé", money(totalPaid), "paiements enregistrés", "violet"],
+    ["Reste à payer", money(totalRemaining), "à relancer", totalRemaining ? "amber" : "green"],
   ];
   document.getElementById("operationsKpis").innerHTML = items.map(([label, value, detail, style]) => `<article class="kpi ${style}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
 }
@@ -757,8 +925,8 @@ function renderGroupCards() {
     const training = groupTraining(group);
     const stats = groupStats(group);
     const full = stats.spots === 0;
-    return `<article class="card group-card ${full ? "is-full" : ""}"><div class="group-card-head"><div><span class="status-pill ${full ? "quality-watch" : "quality-strong"}">${full ? "Full" : `${stats.spots} spots left`}</span><h3>${escapeHtml(group.name)}</h3><p>${escapeHtml(training?.name || "Unknown training")} ${group.durationLabel ? `- ${escapeHtml(group.durationLabel)}` : ""}</p></div><strong>${stats.fullness}%</strong></div><div class="capacity-bar" role="img" aria-label="${stats.enrolled} of ${stats.capacity} seats used"><span style="width:${stats.fullness}%"></span></div><div class="group-meta"><span>${escapeHtml(groupSchedule(group))}</span><span>${escapeHtml(group.startDate || "No start date")} ${group.endDate ? `to ${escapeHtml(group.endDate)}` : ""}</span><span>${money(groupPrice(group))} default price</span></div><div class="group-numbers"><span><strong>${stats.enrolled}</strong> students</span><span><strong>${money(stats.paid)}</strong> paid</span><span><strong>${money(stats.remaining)}</strong> remaining</span></div><div class="agent-actions"><button class="button secondary" type="button" data-view-group="${escapeHtml(group.id)}">View students</button><button class="button primary" type="button" data-open-student data-group="${escapeHtml(group.id)}">Register</button></div></article>`;
-  }).join("") : '<div class="empty card">No groups yet. Add a training, then create the first scheduled group.</div>';
+    return `<article class="card group-card ${full ? "is-full" : ""}"><div class="group-card-head"><div><span class="status-pill ${full ? "quality-watch" : "quality-strong"}">${full ? "Complet" : `${stats.spots} places libres`}</span><h3>${escapeHtml(group.name)}</h3><p>${escapeHtml(training?.name || "Formation inconnue")} ${group.durationLabel ? `- ${escapeHtml(group.durationLabel)}` : ""}</p></div><strong>${stats.fullness}%</strong></div><div class="capacity-bar" role="img" aria-label="${stats.enrolled} of ${stats.capacity} seats used"><span style="width:${stats.fullness}%"></span></div><div class="group-meta"><span>${escapeHtml(groupSchedule(group))}</span><span>${escapeHtml(group.startDate || "Pas de date début")} ${group.endDate ? `à ${escapeHtml(group.endDate)}` : ""}</span><span>${money(groupPrice(group))} prix par défaut</span></div><div class="group-numbers"><span><strong>${stats.enrolled}</strong> étudiants</span><span><strong>${money(stats.paid)}</strong> payé</span><span><strong>${money(stats.remaining)}</strong> reste</span></div><div class="agent-actions"><button class="button secondary" type="button" data-view-group="${escapeHtml(group.id)}">Voir étudiants</button><button class="button primary" type="button" data-open-student data-group="${escapeHtml(group.id)}">Inscrire</button></div></article>`;
+  }).join("") : '<div class="empty card">Aucun groupe pour le moment. Ajoutez une formation, puis créez le premier groupe planifié.</div>';
 }
 function renderStudentRows() {
   const students = filteredStudents().sort((a, b) => String(b.registeredAt).localeCompare(String(a.registeredAt)) || a.name.localeCompare(b.name));
@@ -766,23 +934,32 @@ function renderStudentRows() {
     const group = studentGroup(student);
     const training = studentTraining(student);
     const agent = byId(state.agents, student.agentId);
-    return `<tr><td><button class="link-button" type="button" data-student-detail="${escapeHtml(student.id)}"><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(student.phone || "No phone")}</small></button></td><td><div class="entity-cell"><strong>${escapeHtml(group?.name || "No group")}</strong><small>${escapeHtml(training?.name || "Unknown training")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></div></td><td>${escapeHtml(agent?.name || "Unassigned")}</td><td>${escapeHtml(student.registeredAt || "-")}</td><td class="number-cell">${money(studentPaid(student))}</td><td class="number-cell"><strong>${money(studentRemaining(student))}</strong></td><td>${paymentBadge(student)}</td><td><div class="agent-actions"><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Add payment for ${escapeHtml(student.name)}">+</button><button class="icon-button small" type="button" data-edit-student="${escapeHtml(student.id)}" aria-label="Edit ${escapeHtml(student.name)}"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 16.6 10.9-10.9 2.4 2.4L7.4 19H5v-2.4ZM17.1 4.5l1.1-1.1c.6-.6 1.6-.6 2.2 0l.2.2c.6.6.6 1.6 0 2.2l-1.1 1.1-2.4-2.4Z"/></svg></button></div></td></tr>`;
-  }).join("") : '<tr><td colspan="8" class="empty">No students match these filters.</td></tr>';
+    return `<tr><td><button class="link-button" type="button" data-student-detail="${escapeHtml(student.id)}"><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></button></td><td><div class="entity-cell"><strong>${escapeHtml(group?.name || "Sans groupe")}</strong><small>${escapeHtml(training?.name || "Formation inconnue")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></div></td><td>${escapeHtml(agent?.name || "Non assigné")}</td><td>${escapeHtml(student.registeredAt || "-")}</td><td class="number-cell">${money(studentPaid(student))}</td><td class="number-cell"><strong>${money(studentRemaining(student))}</strong></td><td>${paymentBadge(student)}</td><td><div class="agent-actions"><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Ajouter paiement pour ${escapeHtml(student.name)}">+</button><button class="icon-button small" type="button" data-edit-student="${escapeHtml(student.id)}" aria-label="Modifier ${escapeHtml(student.name)}"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 16.6 10.9-10.9 2.4 2.4L7.4 19H5v-2.4ZM17.1 4.5l1.1-1.1c.6-.6 1.6-.6 2.2 0l.2.2c.6.6.6 1.6 0 2.2l-1.1 1.1-2.4-2.4Z"/></svg></button></div></td></tr>`;
+  }).join("") : '<tr><td colspan="8" class="empty">Aucun étudiant ne correspond à ces filtres.</td></tr>';
 }
 function renderPaymentAlerts() {
   const rows = filteredStudents().filter((student) => studentRemaining(student) > 0).sort((a, b) => studentRemaining(b) - studentRemaining(a)).slice(0, 12);
   document.getElementById("paymentAlerts").innerHTML = rows.length ? rows.map((student) => {
     const group = studentGroup(student);
-    return `<div class="simple-list-row"><div><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(group?.name || "No group")} - paid ${money(studentPaid(student))}</small></div><div class="balance-actions"><strong>${money(studentRemaining(student))}</strong><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Add payment for ${escapeHtml(student.name)}">+</button></div></div>`;
-  }).join("") : '<div class="empty success-empty">No remaining balances in this view.</div>';
+    return `<div class="simple-list-row"><div><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(group?.name || "Sans groupe")} - payé ${money(studentPaid(student))}</small></div><div class="balance-actions"><strong>${money(studentRemaining(student))}</strong><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Ajouter paiement pour ${escapeHtml(student.name)}">+</button></div></div>`;
+  }).join("") : '<div class="empty success-empty">Aucun reste à payer dans cette vue.</div>';
 }
 function renderOperations() {
   if (!document.getElementById("operationsKpis")) return;
+  document.getElementById("studentSecurityWarning")?.classList.toggle("hidden", authEnabled && !sensitiveLocked);
   hydrateOperationsControls();
   renderOperationsKpis();
+  renderPlannerSuggestions();
   renderGroupCards();
   renderPaymentAlerts();
   renderStudentRows();
+}
+
+function studentDataUnlocked() {
+  if (authEnabled && !sensitiveLocked) return true;
+  toast("Configurez CRM_USER et CRM_PASSWORD sur Hostinger avant de saisir les données étudiants.", "error");
+  document.getElementById("studentSecurityWarning")?.classList.remove("hidden");
+  return false;
 }
 
 function renderImports() {
@@ -1025,30 +1202,43 @@ function openAgentEditor(agentId) {
 function ensureOperationsDialogs() {
   if (document.getElementById("trainingDialog")) return;
   document.body.insertAdjacentHTML("beforeend", `
-    <dialog id="trainingDialog" class="modal"><form id="trainingForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Training setup</p><h2>Add training</h2><p>Course name, duration, and default pricing.</p></div><button class="icon-button" type="button" data-close-training aria-label="Close training form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Training name</span><input name="name" required placeholder="Comptabilite 3 mois" autocomplete="off" /></label><label><span>Duration</span><input name="durationLabel" placeholder="3 months, 5 months, full year" /></label><label><span>Normal price</span><input name="basePrice" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Discount price</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="0" /></label></div><label><span>Notes <em>optional</em></span><textarea name="notes" rows="2" placeholder="What this training includes"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-training>Cancel</button><button class="button primary" type="submit">Save training</button></div></form></dialog>
-    <dialog id="groupDialog" class="modal"><form id="groupForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Class group</p><h2>Add group</h2><p>Create a scheduled class with capacity and pricing.</p></div><button class="icon-button" type="button" data-close-group aria-label="Close group form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Training</span><select id="groupProgram" name="programId" required></select></label><label><span>Group name</span><input name="name" placeholder="Evening group A" autocomplete="off" /></label><label><span>Days</span><input name="days" required placeholder="Monday, Wednesday" /></label><label><span>Start time</span><input name="timeStart" type="time" required /></label><label><span>End time</span><input name="timeEnd" type="time" required /></label><label><span>Capacity</span><input name="capacity" type="number" min="1" step="1" value="20" required /></label><label><span>Group price</span><input name="price" type="number" min="0" step="0.01" placeholder="Uses training price" /></label><label><span>Discount price</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="Optional" /></label><label><span>Start date</span><input name="startDate" type="date" /></label><label><span>End date</span><input name="endDate" type="date" /></label><label><span>Status</span><select name="status"><option value="active">Active</option><option value="full">Full</option><option value="paused">Paused</option><option value="done">Done</option></select></label></div><label><span>Notes <em>optional</em></span><textarea name="notes" rows="2" placeholder="Room, teacher, special timing"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-group>Cancel</button><button class="button primary" type="submit">Save group</button></div></form></dialog>
-    <dialog id="studentDialog" class="modal outcome-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Student registration</p><h2 id="studentDialogTitle">Register student</h2><p>Assign the student to a group and record the agreed price.</p></div><button class="icon-button" type="button" data-close-student aria-label="Close student form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Student name</span><input name="name" required autocomplete="name" placeholder="Student full name" /></label><label><span>Phone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label><span>Group</span><select id="studentGroup" name="groupId" required></select></label><label><span>Sales agent</span><select id="studentAgent" name="agentId"></select></label><label><span>Registered date</span><input name="registeredAt" type="date" required /></label><label><span>Payment plan</span><select name="paymentPlan"><option value="full">Full payment</option><option value="installments">Installments</option></select></label><label><span>Final price</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Paid now</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Status</span><select name="status"><option value="registered">Registered</option><option value="active">Active</option><option value="completed">Completed</option><option value="paused">Paused</option><option value="cancelled">Cancelled</option></select></label></div><label><span>Notes <em>optional</em></span><textarea name="notes" rows="2" placeholder="Installment agreement, documents, remarks"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Cancel</button><button class="button primary" type="submit">Save student</button></div></form></dialog>
-    <dialog id="paymentDialog" class="modal"><form id="paymentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Installment payment</p><h2>Add payment</h2><p id="paymentStudentName">Record a student payment.</p></div><button class="icon-button" type="button" data-close-payment aria-label="Close payment form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Amount</span><input name="amount" type="number" min="0.01" step="0.01" required /></label><label><span>Paid date</span><input name="paidAt" type="date" required /></label><label><span>Method</span><select name="method"><option value="cash">Cash</option><option value="transfer">Transfer</option><option value="card">Card</option><option value="other">Other</option></select></label></div><label><span>Note <em>optional</em></span><textarea name="notes" rows="2" placeholder="Receipt, installment number, reminder"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-payment>Cancel</button><button class="button primary" type="submit">Save payment</button></div></form></dialog>
-    <dialog id="studentDetailDialog" class="modal outcome-modal"><div class="modal-content"><div class="modal-head"><div><p class="section-kicker">Student trace</p><h2 id="studentDetailTitle">Student history</h2><p>Registration, edits, and payments in one place.</p></div><button class="icon-button" type="button" data-close-student-detail aria-label="Close student history"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div id="studentDetailBody"></div><div class="modal-actions"><button class="button secondary" type="button" data-close-student-detail>Close</button><button class="button primary" type="button" data-edit-current-student>Edit student</button></div></div></dialog>
+    <dialog id="trainingDialog" class="modal"><form id="trainingForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Formation · تكوين</p><h2>Ajouter formation</h2><p>Nom du cours, durée, prix normal et prix remisé.</p></div><button class="icon-button" type="button" data-close-training aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom formation</span><input name="name" required placeholder="Comptabilité 3 mois" autocomplete="off" /></label><label><span>Durée</span><input name="durationLabel" placeholder="3 mois, 5 mois, année complète" /></label><label><span>Prix normal</span><input name="basePrice" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Prix remisé</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="0" /></label></div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Ce que la formation inclut"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-training>Annuler</button><button class="button primary" type="submit">Enregistrer formation</button></div></form></dialog>
+    <dialog id="groupDialog" class="modal outcome-modal"><form id="groupForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Groupe · فوج</p><h2>Ajouter groupe</h2><p>Créez un créneau avec capacité, prix, et option nidam shift.</p></div><button class="icon-button" type="button" data-close-group aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Formation</span><select id="groupProgram" name="programId" required></select></label><label><span>Nom groupe</span><input name="name" placeholder="Groupe soir A" autocomplete="off" /></label><label><span>Jours</span><input name="days" required placeholder="Monday, Wednesday" /></label><label><span>Début</span><input name="timeStart" type="time" required /></label><label><span>Fin</span><input name="timeEnd" type="time" required /></label><label><span>Mode présence</span><select id="groupAttendanceMode" name="attendanceMode"><option value="fixed">Groupe fixe</option><option value="flexible_shift">Nidam shift matin/soir</option></select></label><label class="shift-field hidden"><span>Jours shift alternatif</span><input name="alternateDays" placeholder="Monday, Wednesday" /></label><label class="shift-field hidden"><span>Début shift alternatif</span><input name="alternateTimeStart" type="time" /></label><label class="shift-field hidden"><span>Fin shift alternatif</span><input name="alternateTimeEnd" type="time" /></label><label><span>Capacité</span><input name="capacity" type="number" min="1" step="1" value="20" required /></label><label><span>Prix groupe</span><input name="price" type="number" min="0" step="0.01" placeholder="Prix formation" /></label><label><span>Prix remisé</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="Optionnel" /></label><label><span>Date début</span><input name="startDate" type="date" /></label><label><span>Date fin</span><input name="endDate" type="date" /></label><label><span>Statut</span><select name="status"><option value="active">Actif</option><option value="full">Complet</option><option value="paused">Pause</option><option value="done">Terminé</option></select></label></div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Salle, formateur, timing spécial"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-group>Annuler</button><button class="button primary" type="submit">Enregistrer groupe</button></div></form></dialog>
+    <dialog id="studentDialog" class="modal outcome-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Inscription étudiant · تسجيل</p><h2 id="studentDialogTitle">Inscrire étudiant</h2><p>Assignez l'étudiant au groupe et enregistrez le prix convenu.</p></div><button class="icon-button" type="button" data-close-student aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom étudiant</span><input name="name" required autocomplete="name" placeholder="Nom complet" /></label><label><span>Téléphone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label><span>Groupe</span><select id="studentGroup" name="groupId" required></select></label><label><span>Agent commercial</span><select id="studentAgent" name="agentId"></select></label><label><span>Date inscription</span><input name="registeredAt" type="date" required /></label><label><span>Mode paiement</span><select name="paymentPlan"><option value="full">Paiement total</option><option value="installments">Paiement par tranches</option></select></label><label><span>Prix final</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Payé maintenant</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Statut</span><select name="status"><option value="registered">Inscrit</option><option value="active">Actif</option><option value="completed">Terminé</option><option value="paused">Pause</option><option value="cancelled">Annulé</option></select></label></div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Accord paiement, documents, remarques"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Annuler</button><button class="button primary" type="submit">Enregistrer étudiant</button></div></form></dialog>
+    <dialog id="paymentDialog" class="modal"><form id="paymentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Paiement · أداء</p><h2>Ajouter paiement</h2><p id="paymentStudentName">Enregistrer un paiement étudiant.</p></div><button class="icon-button" type="button" data-close-payment aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Montant</span><input name="amount" type="number" min="0.01" step="0.01" required /></label><label><span>Date paiement</span><input name="paidAt" type="date" required /></label><label><span>Méthode</span><select name="method"><option value="cash">Espèces</option><option value="transfer">Virement</option><option value="card">Carte</option><option value="other">Autre</option></select></label></div><label><span>Note <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Reçu, tranche, rappel"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-payment>Annuler</button><button class="button primary" type="submit">Enregistrer paiement</button></div></form></dialog>
+    <dialog id="studentDetailDialog" class="modal outcome-modal"><div class="modal-content"><div class="modal-head"><div><p class="section-kicker">Historique étudiant · تتبع</p><h2 id="studentDetailTitle">Historique étudiant</h2><p>Inscription, modifications et paiements dans une seule trace.</p></div><button class="icon-button" type="button" data-close-student-detail aria-label="Fermer">×</button></div><div id="studentDetailBody"></div><div class="modal-actions"><button class="button secondary" type="button" data-close-student-detail>Fermer</button><button class="button primary" type="button" data-edit-current-student>Modifier étudiant</button></div></div></dialog>
   `);
 }
 
 function hydrateGroupProgramSelect() {
   const select = document.getElementById("groupProgram");
-  select.replaceChildren(option("Choose training", ""));
+  select.replaceChildren(option("Choisir formation", ""));
   state.programs.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((program) => select.append(option(`${program.name}${program.durationLabel ? ` - ${program.durationLabel}` : ""}`, program.id)));
+}
+
+function syncGroupShiftFields() {
+  const form = document.getElementById("groupForm");
+  if (!form) return;
+  const flexible = form.elements.attendanceMode?.value === "flexible_shift";
+  form.querySelectorAll(".shift-field").forEach((field) => field.classList.toggle("hidden", !flexible));
+  ["alternateDays", "alternateTimeStart", "alternateTimeEnd"].forEach((name) => {
+    if (form.elements[name]) form.elements[name].required = flexible;
+  });
+  if (flexible && form.elements.days?.value && !form.elements.alternateDays.value) {
+    form.elements.alternateDays.value = form.elements.days.value;
+  }
 }
 
 function hydrateStudentSelects(preferredGroupId = "") {
   const groupSelect = document.getElementById("studentGroup");
   const agentSelect = document.getElementById("studentAgent");
-  groupSelect.replaceChildren(option("Choose group", ""));
+  groupSelect.replaceChildren(option("Choisir groupe", ""));
   state.groups.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((group) => {
     const stats = groupStats(group);
-    groupSelect.append(option(`${group.name} - ${groupTraining(group)?.name || "Training"} - ${stats.spots} spots left`, group.id));
+    groupSelect.append(option(`${group.name} - ${groupTraining(group)?.name || "Formation"} - ${stats.spots} places libres`, group.id));
   });
   if (preferredGroupId && state.groups.some((group) => group.id === preferredGroupId)) groupSelect.value = preferredGroupId;
-  agentSelect.replaceChildren(option("Unassigned", ""));
+  agentSelect.replaceChildren(option("Non assigné", ""));
   state.agents.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((agent) => agentSelect.append(option(agent.name, agent.id)));
 }
 
@@ -1061,32 +1251,46 @@ function setStudentDefaultPrice() {
 
 function openTrainingForm() {
   ensureOperationsDialogs();
+  if (!studentDataUnlocked()) return;
   const form = document.getElementById("trainingForm");
   form.reset();
+  form.elements.name.value = document.getElementById("plannerTrainingName")?.value.trim() || "";
+  form.elements.durationLabel.value = document.getElementById("plannerDuration")?.value.trim() || "";
   document.getElementById("trainingDialog").showModal();
   form.elements.name.focus();
 }
 
-function openGroupForm() {
+function openGroupForm(prefill = {}) {
   ensureOperationsDialogs();
-  if (!state.programs.length) return toast("Add a training first, then create a group", "error");
+  if (!studentDataUnlocked()) return;
+  if (!state.programs.length) return toast("Ajoutez une formation avant de créer un groupe", "error");
   const form = document.getElementById("groupForm");
   hydrateGroupProgramSelect();
   form.reset();
-  form.elements.capacity.value = 20;
+  form.elements.capacity.value = prefill.capacity || 20;
+  form.elements.programId.value = prefill.programId || "";
+  form.elements.days.value = prefill.days || "";
+  form.elements.timeStart.value = prefill.timeStart || "";
+  form.elements.timeEnd.value = prefill.timeEnd || "";
+  form.elements.attendanceMode.value = prefill.attendanceMode || "fixed";
+  form.elements.alternateDays.value = prefill.alternateDays || "";
+  form.elements.alternateTimeStart.value = prefill.alternateTimeStart || "";
+  form.elements.alternateTimeEnd.value = prefill.alternateTimeEnd || "";
+  syncGroupShiftFields();
   document.getElementById("groupDialog").showModal();
-  form.elements.programId.focus();
+  (form.elements.programId.value ? form.elements.name : form.elements.programId).focus();
 }
 
 function openStudentForm({ studentId = "", groupId = "" } = {}) {
   ensureOperationsDialogs();
-  if (!state.groups.length) return toast("Add a group before registering students", "error");
+  if (!studentDataUnlocked()) return;
+  if (!state.groups.length) return toast("Ajoutez un groupe avant d'inscrire des étudiants", "error");
   const form = document.getElementById("studentForm");
   const student = byId(state.students, studentId);
   editingStudentId = student?.id || "";
   form.reset();
   hydrateStudentSelects(groupId || student?.groupId || "");
-  document.getElementById("studentDialogTitle").textContent = student ? "Edit student" : "Register student";
+  document.getElementById("studentDialogTitle").textContent = student ? "Modifier étudiant" : "Inscrire étudiant";
   document.getElementById("initialPaymentField").classList.toggle("hidden", Boolean(student));
   form.elements.registeredAt.value = student?.registeredAt || new Date().toISOString().slice(0, 10);
   form.elements.status.value = student?.status || "registered";
@@ -1107,29 +1311,30 @@ function openStudentForm({ studentId = "", groupId = "" } = {}) {
 
 function openPaymentForm(studentId) {
   ensureOperationsDialogs();
+  if (!studentDataUnlocked()) return;
   const student = byId(state.students, studentId);
-  if (!student) return toast("Student not found", "error");
+  if (!student) return toast("Étudiant introuvable", "error");
   paymentStudentId = student.id;
   const form = document.getElementById("paymentForm");
   form.reset();
   form.elements.paidAt.value = new Date().toISOString().slice(0, 10);
   form.elements.amount.value = studentRemaining(student) ? studentRemaining(student).toFixed(2) : "";
-  document.getElementById("paymentStudentName").textContent = `${student.name} - remaining ${money(studentRemaining(student))}`;
+  document.getElementById("paymentStudentName").textContent = `${student.name} - reste ${money(studentRemaining(student))}`;
   document.getElementById("paymentDialog").showModal();
   form.elements.amount.focus();
 }
 
 function eventDescription(event) {
-  if (event.type === "registered") return `Registered with agreed price ${money(event.details?.totalDue || 0)}`;
-  if (event.type === "payment_added") return `Payment recorded: ${money(event.details?.amount || 0)} on ${escapeHtml(event.details?.paidAt || "")}`;
-  if (event.type === "updated") return "Student details updated";
+  if (event.type === "registered") return `Inscrit avec prix convenu ${money(event.details?.totalDue || 0)}`;
+  if (event.type === "payment_added") return `Paiement enregistré: ${money(event.details?.amount || 0)} le ${escapeHtml(event.details?.paidAt || "")}`;
+  if (event.type === "updated") return "Détails étudiant modifiés";
   return event.type.replaceAll("_", " ");
 }
 
 function openStudentDetail(studentId) {
   ensureOperationsDialogs();
   const student = byId(state.students, studentId);
-  if (!student) return toast("Student not found", "error");
+  if (!student) return toast("Étudiant introuvable", "error");
   detailStudentId = student.id;
   const group = studentGroup(student);
   const training = studentTraining(student);
@@ -1137,7 +1342,7 @@ function openStudentDetail(studentId) {
   const payments = state.payments.filter((payment) => payment.studentId === student.id).sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)));
   const events = state.events.filter((event) => event.studentId === student.id).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   document.getElementById("studentDetailTitle").textContent = student.name;
-  document.getElementById("studentDetailBody").innerHTML = `<div class="student-detail-grid"><article class="mini-ledger"><span>Training</span><strong>${escapeHtml(training?.name || "Unknown")}</strong><small>${escapeHtml(group?.name || "No group")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></article><article class="mini-ledger"><span>Sales agent</span><strong>${escapeHtml(agent?.name || "Unassigned")}</strong><small>${escapeHtml(student.phone || "No phone")}</small></article><article class="mini-ledger"><span>Payment</span><strong>${money(studentPaid(student))} / ${money(student.totalDue)}</strong><small>${money(studentRemaining(student))} remaining</small></article></div><h3>Payment history</h3><div class="simple-list">${payments.length ? payments.map((payment) => `<div class="simple-list-row"><div><strong>${money(payment.amount)}</strong><small>${escapeHtml(payment.paidAt)} - ${escapeHtml(payment.method || "cash")}</small></div><span>${escapeHtml(payment.notes || "")}</span></div>`).join("") : '<div class="empty">No payments recorded yet.</div>'}</div><h3>Trace timeline</h3><ol class="timeline">${events.length ? events.map((event) => `<li><strong>${escapeHtml(eventDescription(event))}</strong><small>${escapeHtml(new Date(event.createdAt).toLocaleString())}</small></li>`).join("") : '<li><strong>Imported old student record</strong><small>No timeline events yet.</small></li>'}</ol>`;
+  document.getElementById("studentDetailBody").innerHTML = `<div class="student-detail-grid"><article class="mini-ledger"><span>Formation</span><strong>${escapeHtml(training?.name || "Inconnue")}</strong><small>${escapeHtml(group?.name || "Sans groupe")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></article><article class="mini-ledger"><span>Agent commercial</span><strong>${escapeHtml(agent?.name || "Non assigné")}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></article><article class="mini-ledger"><span>Paiement</span><strong>${money(studentPaid(student))} / ${money(student.totalDue)}</strong><small>${money(studentRemaining(student))} reste</small></article></div><h3>Historique paiements</h3><div class="simple-list">${payments.length ? payments.map((payment) => `<div class="simple-list-row"><div><strong>${money(payment.amount)}</strong><small>${escapeHtml(payment.paidAt)} - ${escapeHtml(payment.method || "cash")}</small></div><span>${escapeHtml(payment.notes || "")}</span></div>`).join("") : '<div class="empty">Aucun paiement enregistré.</div>'}</div><h3>Trace complète</h3><ol class="timeline">${events.length ? events.map((event) => `<li><strong>${escapeHtml(eventDescription(event))}</strong><small>${escapeHtml(new Date(event.createdAt).toLocaleString())}</small></li>`).join("") : '<li><strong>Ancien dossier étudiant</strong><small>Aucun événement enregistré.</small></li>'}</ol>`;
   document.getElementById("studentDetailDialog").showModal();
 }
 
@@ -1212,6 +1417,20 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("#openResetData")) document.getElementById("resetDataDialog").showModal();
   if (event.target.closest("[data-open-training]")) openTrainingForm();
   if (event.target.closest("[data-open-group]")) openGroupForm();
+  if (event.target.closest("[data-run-planner]")) {
+    renderPlannerSuggestions();
+    document.getElementById("plannerSuggestions")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  const createPlan = event.target.closest("[data-create-plan]");
+  if (createPlan) {
+    const button = createPlan;
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "Création...";
+    try { await createSuggestedPlan(button.dataset.createPlan); }
+    catch (error) { toast(error.message, "error"); }
+    finally { button.disabled = false; button.textContent = original; }
+  }
   const openStudent = event.target.closest("[data-open-student]");
   if (openStudent) openStudentForm({ groupId: openStudent.dataset.group || "" });
   if (event.target.closest("[data-close-training]")) document.getElementById("trainingDialog")?.close();
@@ -1262,7 +1481,7 @@ document.addEventListener("click", async (event) => {
       catch (error) { toast(error.message, "error"); }
     }
   }
-  const grouping = event.target.closest("[data-group]");
+  const grouping = event.target.closest(".group-switch [data-group]");
   if (grouping) {
     groupBy = grouping.dataset.group;
     document.querySelectorAll("[data-group]").forEach((item) => item.classList.toggle("active", item.dataset.group === groupBy));
@@ -1287,6 +1506,14 @@ document.addEventListener("change", (event) => {
     return;
   }
   if (event.target.id === "studentGroup") setStudentDefaultPrice();
+  if (event.target.id === "groupAttendanceMode") syncGroupShiftFields();
+  if (event.target.id === "plannerTraining") {
+    const program = byId(state.programs, event.target.value);
+    const duration = document.getElementById("plannerDuration");
+    if (program?.durationLabel && duration && !duration.value) duration.value = program.durationLabel;
+    renderPlannerSuggestions();
+  }
+  if (event.target.id === "plannerMode") renderPlannerSuggestions();
   const opsFilter = event.target.closest("[data-ops-filter]");
   if (opsFilter) { operationsFilters[opsFilter.dataset.opsFilter] = opsFilter.value; renderOperations(); }
   const filter = event.target.closest("[data-filter]");
@@ -1309,6 +1536,8 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.closest("#plannerTrainingName, #plannerDuration, #plannerCapacity")) renderPlannerSuggestions();
+  if (event.target.closest("#groupForm") && event.target.name === "days") syncGroupShiftFields();
   const opsFilter = event.target.closest('[data-ops-filter="search"]');
   if (opsFilter) { operationsFilters.search = opsFilter.value; renderOperations(); }
   const filter = event.target.closest('[data-filter="search"]');

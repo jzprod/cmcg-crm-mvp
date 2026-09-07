@@ -7,6 +7,7 @@ const { createStorage } = require("./storage");
 const PORT = Number(process.env.PORT || 3000);
 const DATA_FILE = process.env.CRM_DATA_FILE || path.join(__dirname, "data", "crm.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
+const OPERATIONS_ROUTES = new Set(["/groups", "/students", "/operations", "/planning"]);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -87,6 +88,18 @@ function normalizeState(input) {
     if (code) usedCodes.add(code);
   });
   state.usedCreativeCodes = [...usedCodes];
+  state.groups.forEach((group) => {
+    group.days = Array.isArray(group.days) ? group.days : splitDays(group.days);
+    group.attendanceMode = group.attendanceMode === "flexible_shift" ? "flexible_shift" : "fixed";
+    group.alternateDays = Array.isArray(group.alternateDays) ? group.alternateDays : splitDays(group.alternateDays);
+    group.alternateTimeStart = cleanText(group.alternateTimeStart);
+    group.alternateTimeEnd = cleanText(group.alternateTimeEnd);
+    if (group.attendanceMode !== "flexible_shift") {
+      group.alternateDays = [];
+      group.alternateTimeStart = "";
+      group.alternateTimeEnd = "";
+    }
+  });
   return state;
 }
 
@@ -127,11 +140,20 @@ function makeCode(state) {
   throw new Error("All available creative codes have been used");
 }
 
+function securityHeaders(headers = {}) {
+  return {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "X-Frame-Options": "SAMEORIGIN",
+    ...headers,
+  };
+}
+
 function json(res, status, data) {
-  res.writeHead(status, {
+  res.writeHead(status, securityHeaders({
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
-  });
+  }));
   res.end(JSON.stringify(data));
 }
 
@@ -158,11 +180,11 @@ function parseBody(req) {
 
 function downloadJson(res, state) {
   const date = new Date().toISOString().slice(0, 10);
-  res.writeHead(200, {
+  res.writeHead(200, securityHeaders({
     "Content-Type": "application/json; charset=utf-8",
     "Content-Disposition": `attachment; filename="cmcg-crm-backup-${date}.json"`,
     "Cache-Control": "no-store",
-  });
+  }));
   res.end(JSON.stringify(state, null, 2));
 }
 
@@ -180,28 +202,71 @@ function authorized(req) {
 
 function requireAuth(req, res) {
   if (authorized(req)) return true;
-  res.writeHead(401, {
+  res.writeHead(401, securityHeaders({
     "WWW-Authenticate": 'Basic realm="CMCG CRM"',
     "Content-Type": "text/plain; charset=utf-8",
-  });
+    "Cache-Control": "no-store",
+  }));
   res.end("Authentication required");
   return false;
 }
 
+function hasSensitiveStudentData(state) {
+  return Boolean(
+    state.groups.length
+    || state.students.length
+    || state.payments.length
+    || state.events.some((event) => event.studentId),
+  );
+}
+
+function publicStateWithoutStudentData(state) {
+  const safe = JSON.parse(JSON.stringify(state));
+  safe.groups = [];
+  safe.students = [];
+  safe.payments = [];
+  safe.events = safe.events.filter((event) => !event.studentId);
+  safe.meta = { ...safe.meta, sensitiveDataLocked: true };
+  return safe;
+}
+
+function isSensitiveStudentApiPath(pathname) {
+  return /^\/api\/(?:groups|students)(?:\/|$)/.test(pathname);
+}
+
+function requireConfiguredAuthForStudentData(res, pathname) {
+  if (hasAuth() || !isSensitiveStudentApiPath(pathname)) return true;
+  return json(res, 403, {
+    error: "Secure login is required before saving student, group, or payment data. Add CRM_USER and CRM_PASSWORD in Hostinger environment variables, then restart the app.",
+  });
+}
+
+function sendOperationsLockedPage(res) {
+  res.writeHead(403, securityHeaders({
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+  }));
+  res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG CRM locked</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0f172a;color:#fff;display:grid;min-height:100vh;place-items:center"><main style="max-width:640px;padding:28px"><p style="color:#86efac;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Secure area locked</p><h1>Student operations need CRM login first.</h1><p style="color:#cbd5e1;line-height:1.6">Add <strong>CRM_USER</strong> and <strong>CRM_PASSWORD</strong> in Hostinger environment variables, restart the app, then open this page again.</p></main></body></html>`);
+}
+
 function serveStatic(req, res) {
   const requested = new URL(req.url, `http://${req.headers.host}`).pathname;
-  const safePath = requested === "/" ? "/index.html" : requested;
-  const filePath = path.normalize(path.join(PUBLIC_DIR, safePath));
-  if (!filePath.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403);
+  const safePath = requested === "/" || OPERATIONS_ROUTES.has(requested) ? "/index.html" : requested;
+  const filePath = path.resolve(PUBLIC_DIR, `.${safePath}`);
+  const relativePath = path.relative(PUBLIC_DIR, filePath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    res.writeHead(403, securityHeaders({ "Content-Type": "text/plain; charset=utf-8" }));
     return res.end("Forbidden");
   }
   fs.readFile(filePath, (error, content) => {
     if (error) {
-      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.writeHead(404, securityHeaders({ "Content-Type": "text/plain; charset=utf-8" }));
       return res.end("Not found");
     }
-    res.writeHead(200, { "Content-Type": MIME[path.extname(filePath)] || "application/octet-stream" });
+    res.writeHead(200, securityHeaders({
+      "Content-Type": MIME[path.extname(filePath)] || "application/octet-stream",
+      "Cache-Control": "no-store",
+    }));
     res.end(content);
   });
 }
@@ -539,7 +604,14 @@ async function handleApi(req, res) {
   try {
     let state = await storage.read();
     if (method === "GET" && url.pathname === "/api/state") {
-      return json(res, 200, { state, authEnabled: hasAuth(), storage: storage.info() });
+      const sensitiveLocked = !hasAuth() && hasSensitiveStudentData(state);
+      return json(res, 200, {
+        state: sensitiveLocked ? publicStateWithoutStudentData(state) : state,
+        authEnabled: hasAuth(),
+        sensitiveLocked,
+        security: { operationsPath: "/groups", studentDataRequiresAuth: true },
+        storage: storage.info(),
+      });
     }
 
     if (method === "GET" && url.pathname === "/api/health") {
@@ -566,8 +638,13 @@ async function handleApi(req, res) {
     }
 
     if (method === "GET" && url.pathname === "/api/backup") {
+      if (!hasAuth() && hasSensitiveStudentData(state)) {
+        return json(res, 403, { error: "Configure CRM_USER and CRM_PASSWORD before downloading backups that contain student data." });
+      }
       return downloadJson(res, state);
     }
+
+    if (method !== "GET" && !requireConfiguredAuthForStudentData(res, url.pathname)) return;
 
     if (method === "POST" && url.pathname === "/api/restore") {
       const body = await parseBody(req);
@@ -690,6 +767,7 @@ async function handleApi(req, res) {
       const programId = cleanText(body.programId || body.trainingId);
       const program = state.programs.find((item) => item.id === programId);
       const days = splitDays(body.days);
+      const attendanceMode = cleanText(body.attendanceMode) === "flexible_shift" ? "flexible_shift" : "fixed";
       const item = {
         id: id("grp"),
         programId,
@@ -698,6 +776,10 @@ async function handleApi(req, res) {
         days,
         timeStart: cleanText(body.timeStart),
         timeEnd: cleanText(body.timeEnd),
+        attendanceMode,
+        alternateDays: attendanceMode === "flexible_shift" ? splitDays(body.alternateDays || body.days) : [],
+        alternateTimeStart: attendanceMode === "flexible_shift" ? cleanText(body.alternateTimeStart) : "",
+        alternateTimeEnd: attendanceMode === "flexible_shift" ? cleanText(body.alternateTimeEnd) : "",
         startDate: validDateInput(body.startDate),
         endDate: validDateInput(body.endDate),
         capacity: Math.max(1, wholeNumber(body.capacity, 20)),
@@ -710,6 +792,9 @@ async function handleApi(req, res) {
       if (!program) return json(res, 400, { error: "Choose a valid training" });
       if (!item.name) item.name = `${program.name} ${item.timeStart || ""}`.trim();
       if (!item.days.length || !item.timeStart || !item.timeEnd) return json(res, 400, { error: "Group days, start time, and end time are required" });
+      if (item.attendanceMode === "flexible_shift" && (!item.alternateDays.length || !item.alternateTimeStart || !item.alternateTimeEnd)) {
+        return json(res, 400, { error: "Nidam shift needs alternate days, start time, and end time" });
+      }
       if (!new Set(["active", "full", "paused", "done"]).has(item.status)) return json(res, 400, { error: "Invalid group status" });
       state.groups.push(item);
       await storage.write(state);
@@ -732,6 +817,20 @@ async function handleApi(req, res) {
       group.days = splitDays(body.days).length ? splitDays(body.days) : group.days;
       group.timeStart = cleanText(body.timeStart || group.timeStart);
       group.timeEnd = cleanText(body.timeEnd || group.timeEnd);
+      group.attendanceMode = cleanText(body.attendanceMode || group.attendanceMode) === "flexible_shift" ? "flexible_shift" : "fixed";
+      if (group.attendanceMode === "flexible_shift") {
+        const alternateDays = body.alternateDays !== undefined ? splitDays(body.alternateDays) : (group.alternateDays || []);
+        group.alternateDays = alternateDays.length ? alternateDays : group.days;
+        group.alternateTimeStart = cleanText(body.alternateTimeStart ?? group.alternateTimeStart);
+        group.alternateTimeEnd = cleanText(body.alternateTimeEnd ?? group.alternateTimeEnd);
+        if (!group.alternateDays.length || !group.alternateTimeStart || !group.alternateTimeEnd) {
+          return json(res, 400, { error: "Nidam shift needs alternate days, start time, and end time" });
+        }
+      } else {
+        group.alternateDays = [];
+        group.alternateTimeStart = "";
+        group.alternateTimeEnd = "";
+      }
       group.startDate = validDateInput(body.startDate) || "";
       group.endDate = validDateInput(body.endDate) || "";
       group.capacity = capacity;
@@ -1060,7 +1159,9 @@ async function handleApi(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   if (req.url.startsWith("/api/")) return handleApi(req, res);
+  if (OPERATIONS_ROUTES.has(url.pathname) && !hasAuth()) return sendOperationsLockedPage(res);
   if (!requireAuth(req, res)) return;
   return serveStatic(req, res);
 });

@@ -255,6 +255,14 @@ td { font-size: .8rem; }
 .status-pill.quality-setup, .status-pill.quality-insufficient, .status-pill.quality-none { background: var(--slate-100); color: var(--slate-700); }
 
 .operations-kpis { margin-top: 0; }
+.planner-card { margin: 0 0 13px; padding: 18px; border-color: #bbf7d0; background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%); }
+.planner-form { display: grid; grid-template-columns: 1fr 1.25fr 1fr 140px 190px; gap: 10px; margin-top: 14px; }
+.planner-suggestions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 13px; }
+.planner-suggestion { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 13px; border: 1px solid var(--slate-200); border-radius: 13px; background: rgba(255,255,255,.88); box-shadow: var(--shadow-sm); }
+.planner-suggestion strong, .planner-suggestion small { display: block; }
+.planner-suggestion strong { margin: 8px 0 3px; }
+.planner-suggestion small { color: var(--slate-600); font-size: .72rem; }
+.planner-suggestion .button { flex: 0 0 auto; }
 .operations-filters .filter-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)) minmax(240px, 1.4fr); }
 .group-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 15px; }
 .group-card { min-width: 0; padding: 16px; }
@@ -360,6 +368,8 @@ td { font-size: .8rem; }
 @media (max-width: 1220px) {
   .kpis { grid-template-columns: repeat(3, 1fr); }
   .filter-grid { grid-template-columns: repeat(3, 1fr); }
+  .planner-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .planner-suggestions { grid-template-columns: 1fr; }
   .agent-form { grid-template-columns: 1fr 1fr; }
   .agent-form > div, .agent-form button { grid-column: 1 / -1; }
   .agent-cards { grid-template-columns: 1fr; }
@@ -394,7 +404,9 @@ td { font-size: .8rem; }
   .period-card { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .kpi:first-child { grid-column: 1 / -1; }
-  .outcome-guide, .filter-grid, .form-grid, .form-grid.two, .outcome-types, .agent-form, .operations-filters .filter-grid, .student-detail-grid, .group-numbers { grid-template-columns: 1fr; }
+  .outcome-guide, .filter-grid, .form-grid, .form-grid.two, .outcome-types, .agent-form, .operations-filters .filter-grid, .student-detail-grid, .group-numbers, .planner-form { grid-template-columns: 1fr; }
+  .planner-suggestion { align-items: stretch; flex-direction: column; }
+  .planner-suggestion .button { width: 100%; }
   .agent-form > * { grid-column: auto !important; }
   .group-switch { width: 100%; overflow-x: auto; }
   .group-switch button { flex: 1; min-width: max-content; }
