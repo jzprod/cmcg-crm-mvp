@@ -342,6 +342,39 @@ test("groups are name-only containers; sessions are managed on the calendar", as
   assert.deepEqual(legacy.sessions, [{ day: "tuesday", timeStart: "18:00", timeEnd: "20:00" }]);
 });
 
+test("manual budget splits across days, attaches to a level, and is deletable", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-manual-budget-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl, authHeader } = await startApp(dataFile, { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const agent = await request("/api/agents", { method: "POST", body: { name: "Souad" }, expectedStatus: 201 });
+
+  // Center-wide budget split evenly across two days.
+  const centre = await request("/api/manual-budget", { method: "POST", body: { amount: 1000, level: "center", from: "2026-09-06", to: "2026-09-07" }, expectedStatus: 201 });
+  assert.equal(centre.days, 2);
+  assert.equal(centre.logs.reduce((sum, l) => sum + l.spend, 0), 1000);
+  assert.deepEqual(centre.logs.map((l) => l.spend), [500, 500]);
+
+  // Agent-level budget attaches the agentId for ROI.
+  const agentBudget = await request("/api/manual-budget", { method: "POST", body: { amount: 600, level: "agent", targetId: agent.id, from: "2026-09-07", to: "2026-09-07" }, expectedStatus: 201 });
+  assert.equal(agentBudget.logs[0].agentId, agent.id);
+
+  // Invalid level and missing target are rejected.
+  await request("/api/manual-budget", { method: "POST", body: { amount: 100, level: "agent" }, expectedStatus: 400 });
+  await request("/api/manual-budget", { method: "POST", body: { amount: 0, level: "center", from: "2026-09-07" }, expectedStatus: 400 });
+
+  const snapshot = (await request("/api/state")).state;
+  assert.equal(snapshot.dailyLogs.filter((l) => l.source === "manual").length, 3);
+
+  // Delete the whole agent batch.
+  const del = await request(`/api/daily-logs/${agentBudget.batchId}`, { method: "DELETE", expectedStatus: 200 });
+  assert.equal(del.removed, 1);
+  const after = (await request("/api/state")).state;
+  assert.equal(after.dailyLogs.filter((l) => l.source === "manual").length, 2);
+});
+
 test("student operations route is locked until CRM auth is configured", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-security-test-"));
   const dataFile = path.join(tempDir, "crm.json");
@@ -591,6 +624,10 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /agentRevenue/);
   assert.match(app, /potentialRoi/);
   assert.match(app, /roiCell/);
+  assert.match(app, /manual-budget/);
+  assert.match(app, /renderManualBudget/);
+  assert.match(app, /data-delete-budget/);
+  assert.match(html, /manualBudgetForm/);
   assert.match(app, /data-students-training/);
   assert.match(app, /data-students-filter/);
   assert.match(html, /data-tab="students"/);

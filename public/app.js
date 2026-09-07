@@ -516,6 +516,30 @@ Object.assign(ar, {
   "Inscrit le": "مسجل بتاريخ",
   "Étudiant transféré": "تم نقل الطالب",
   "Statut mis à jour": "تم تحديث الحالة",
+  "Budget manuel · ميزانية يدوية": "ميزانية يدوية",
+  "Ajoutez un budget sans CSV et répartissez-le où vous voulez, sur la période choisie.": "أضف ميزانية دون CSV ووزّعها حيثما شئت على الفترة المختارة.",
+  "Montant total": "المبلغ الإجمالي",
+  "Niveau": "المستوى",
+  "Centre (global)": "المركز (شامل)",
+  "Agent": "المستشار",
+  "Campagne": "الحملة",
+  "Ad set": "المجموعة الإعلانية",
+  "Cible": "الهدف",
+  "Période": "الفترة",
+  "Aujourd'hui": "اليوم",
+  "2 derniers jours": "آخر يومين",
+  "7 derniers jours": "آخر 7 أيام",
+  "Personnalisé": "مخصص",
+  "Du": "من",
+  "Au": "إلى",
+  "Étiquette": "التسمية",
+  "Ex: nouveau compte pub": "مثلاً: حساب إعلاني جديد",
+  "Le montant est réparti également sur chaque jour de la période. Les budgets manuels ne sont pas écrasés par les imports CSV.": "يُوزَّع المبلغ بالتساوي على كل يوم من الفترة. الميزانيات اليدوية لا تُمحى عند استيراد CSV.",
+  "Ajouter le budget": "إضافة الميزانية",
+  "Aucun budget manuel. Ajoutez-en un ci-dessus.": "لا توجد ميزانية يدوية. أضف واحدة أعلاه.",
+  "Choisir…": "اختر…",
+  "Budget ajouté": "تمت إضافة الميزانية",
+  "Budget supprimé": "تم حذف الميزانية",
   "Encaissé (élèves)": "المحصّل (الطلبة)",
   "ROI (encaissé)": "العائد (المحصّل)",
   "Potentiel (si tout payé)": "المحتمل (إذا أدى الجميع)",
@@ -1123,6 +1147,14 @@ function relationForAd(ad) {
 }
 
 function relationForLog(log) {
+  // Manual budget logs may attach directly to an agent/campaign/ad set (no creative).
+  if (log && !log.creativeId && (log.agentId || log.campaignId || log.adSetId)) {
+    const adSet = byId(state.adSets, log.adSetId);
+    const campaign = byId(state.campaigns, log.campaignId || adSet?.campaignId);
+    const account = byId(state.adAccounts, campaign?.accountId);
+    const agent = byId(state.agents, log.agentId || adSet?.agentId);
+    return { ad: null, adSet, campaign, account, agent, objective: adSet?.objective || campaign?.objective || "" };
+  }
   return relationForAd(byId(state.creatives, log.creativeId));
 }
 
@@ -2254,6 +2286,77 @@ function renderImports() {
   document.getElementById("importRows").innerHTML = state.imports.length ? state.imports.slice(0, 20).map((item) => `<tr><td>${escapeHtml(new Date(item.importedAt).toLocaleString())}</td><td><strong>${escapeHtml(item.filename)}</strong></td><td class="number-cell">${item.rows}</td><td class="number-cell">${item.campaignsAdded}</td><td class="number-cell">${item.adSetsAdded}</td><td class="number-cell">${item.adsAdded}</td><td class="number-cell">${item.metricsUpdated}</td></tr>`).join("") : '<tr><td colspan="7" class="empty">No Meta Ads reports imported yet.</td></tr>';
 }
 
+function manualBudgetPresetRange(preset) {
+  const today = new Date();
+  const iso = (d) => d.toISOString().slice(0, 10);
+  if (preset === "today") return { from: iso(today), to: iso(today) };
+  if (preset === "last2") { const f = new Date(today); f.setDate(f.getDate() - 1); return { from: iso(f), to: iso(today) }; }
+  if (preset === "last7") { const f = new Date(today); f.setDate(f.getDate() - 6); return { from: iso(f), to: iso(today) }; }
+  return null; // custom
+}
+function hydrateManualBudgetTarget() {
+  const level = document.getElementById("manualBudgetLevel")?.value || "center";
+  const field = document.getElementById("manualBudgetTargetField");
+  const label = document.getElementById("manualBudgetTargetLabel");
+  const select = document.getElementById("manualBudgetTarget");
+  if (!field || !select) return;
+  if (level === "center") { field.classList.add("hidden"); select.required = false; return; }
+  field.classList.remove("hidden");
+  select.required = true;
+  let items = [];
+  if (level === "agent") { label.textContent = "Agent"; items = state.agents.map((a) => [a.name, a.id]); }
+  else if (level === "campaign") { label.textContent = "Campagne"; items = state.campaigns.map((c) => [c.name, c.id]); }
+  else if (level === "adset") { label.textContent = "Ad set"; items = state.adSets.map((s) => [s.name, s.id]); }
+  const current = select.value;
+  select.replaceChildren(option("Choisir…", ""));
+  items.slice().sort((a, b) => String(a[0]).localeCompare(String(b[0]))).forEach(([name, id]) => select.append(option(name, id)));
+  if (items.some(([, id]) => id === current)) select.value = current;
+}
+function syncManualBudgetDates() {
+  const preset = document.getElementById("manualBudgetPreset")?.value || "today";
+  const fromField = document.getElementById("manualBudgetFromField");
+  const toField = document.getElementById("manualBudgetToField");
+  const form = document.getElementById("manualBudgetForm");
+  if (!form) return;
+  const range = manualBudgetPresetRange(preset);
+  const custom = !range;
+  fromField?.classList.toggle("hidden", !custom);
+  toField?.classList.toggle("hidden", !custom);
+  if (range) { form.elements.from.value = range.from; form.elements.to.value = range.to; }
+}
+function manualBudgetBatches() {
+  // Group manual logs by batchId for a compact editable list.
+  const batches = new Map();
+  state.dailyLogs.filter((log) => log.source === "manual").forEach((log) => {
+    const key = log.batchId || log.id;
+    if (!batches.has(key)) batches.set(key, { batchId: key, total: 0, days: new Set(), from: log.date, to: log.date, log });
+    const b = batches.get(key);
+    b.total += Number(log.spend || 0);
+    b.days.add(log.date);
+    if (log.date < b.from) b.from = log.date;
+    if (log.date > b.to) b.to = log.date;
+  });
+  return [...batches.values()].sort((a, b) => String(b.to).localeCompare(String(a.to)));
+}
+function manualBudgetTargetName(log) {
+  if (log.agentId) return byId(state.agents, log.agentId)?.name || "Agent";
+  if (log.adSetId) return byId(state.adSets, log.adSetId)?.name || "Ad set";
+  if (log.campaignId) return byId(state.campaigns, log.campaignId)?.name || "Campagne";
+  return "Centre (global)";
+}
+function renderManualBudget() {
+  const container = document.getElementById("manualBudgetList");
+  if (!container) return;
+  hydrateManualBudgetTarget();
+  syncManualBudgetDates();
+  const batches = manualBudgetBatches();
+  container.innerHTML = batches.length ? batches.map((b) => {
+    const span = b.days.size > 1 ? `${b.from} → ${b.to} · ${b.days.size} jours` : b.from;
+    const label = b.log.label ? `${escapeHtml(b.log.label)} · ` : "";
+    return `<div class="simple-list-row"><div><strong>${money(b.total)}</strong><small>${label}${escapeHtml(manualBudgetTargetName(b.log))} · ${escapeHtml(span)}</small></div><button class="icon-button small" type="button" data-delete-budget="${escapeHtml(b.batchId)}" aria-label="Supprimer ce budget">✕</button></div>`;
+  }).join("") : '<div class="empty">Aucun budget manuel. Ajoutez-en un ci-dessus.</div>';
+  applyLanguage(container);
+}
 function renderStorage() {
   const persistent = Boolean(storageInfo?.persistent);
   const badge = document.getElementById("storageBadge");
@@ -2336,7 +2439,7 @@ function render() {
   hydrateFilters();
   hydrateSortOptions();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
-  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderStudentsPage(); renderAgents(); renderImports(); renderStorage(); renderScoringSettings();
+  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderStudentsPage(); renderAgents(); renderImports(); renderManualBudget(); renderStorage(); renderScoringSettings();
   applyRoleAccess();
   applyLanguage();
 }
@@ -2937,6 +3040,15 @@ document.addEventListener("submit", async (event) => {
       // If the student management view is open for this student, refresh it in place.
       if (document.getElementById("studentDetailDialog")?.open && detailStudentId === paidStudentId) openStudentDetail(paidStudentId);
       toast("Payment saved");
+    } else if (form.id === "manualBudgetForm") {
+      const payload = formPayload(form);
+      const range = manualBudgetPresetRange(document.getElementById("manualBudgetPreset")?.value || "today");
+      if (range) { payload.from = range.from; payload.to = range.to; }
+      await api("/api/manual-budget", { method: "POST", body: JSON.stringify(payload) });
+      form.reset();
+      syncManualBudgetDates();
+      hydrateManualBudgetTarget();
+      await load(); toast("Budget ajouté");
     } else if (form.id === "agentEditForm") {
       if (!editingAgentId) throw new Error("Choose an agent to edit");
       await api(`/api/agents/${editingAgentId}`, { method: "PATCH", body: JSON.stringify(formPayload(form)) });
@@ -3092,6 +3204,14 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-close-agent]")) document.getElementById("agentDialog")?.close();
   const editAgent = event.target.closest("[data-edit-agent]");
   if (editAgent) openAgentEditor(editAgent.dataset.editAgent);
+  const deleteBudget = event.target.closest("[data-delete-budget]");
+  if (deleteBudget) {
+    if (confirm("Supprimer ce budget manuel ?")) {
+      try { await api(`/api/daily-logs/${deleteBudget.dataset.deleteBudget}`, { method: "DELETE" }); await load(); toast("Budget supprimé"); }
+      catch (error) { toast(error.message, "error"); }
+    }
+    return;
+  }
   const deleteAgent = event.target.closest("[data-delete-agent]");
   if (deleteAgent) {
     const agent = byId(state.agents, deleteAgent.dataset.deleteAgent);
@@ -3152,6 +3272,8 @@ document.addEventListener("change", (event) => {
     renderPlannerSuggestions();
   }
   if (event.target.id === "plannerMode") renderPlannerSuggestions();
+  if (event.target.id === "manualBudgetLevel") hydrateManualBudgetTarget();
+  if (event.target.id === "manualBudgetPreset") syncManualBudgetDates();
   if (event.target.id === "sessionsGroupPick") { sessionsGroupId = event.target.value; renderPlannerSuggestions(); }
   const opsFilter = event.target.closest("[data-ops-filter]");
   if (opsFilter) { operationsFilters[opsFilter.dataset.opsFilter] = opsFilter.value; renderOperations(); }

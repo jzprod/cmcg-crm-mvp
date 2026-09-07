@@ -1610,6 +1610,73 @@ async function handleApi(req, res) {
       return json(res, 200, lead);
     }
 
+    if (method === "POST" && url.pathname === "/api/manual-budget") {
+      const body = await parseBody(req);
+      const total = nonNegativeMoney(body.amount ?? body.spend);
+      if (!total) return json(res, 400, { error: "Enter a budget amount greater than zero" });
+      // Resolve the attachment level. Any of agent/campaign/adSet, or center-wide (none).
+      const level = cleanText(body.level || "center").toLocaleLowerCase();
+      let adSetId = "";
+      let campaignId = "";
+      let agentId = "";
+      if (level === "adset") {
+        const adSet = state.adSets.find((item) => item.id === cleanText(body.targetId));
+        if (!adSet) return json(res, 400, { error: "Choose a valid ad set" });
+        adSetId = adSet.id; campaignId = adSet.campaignId || ""; agentId = adSet.agentId || "";
+      } else if (level === "campaign") {
+        const campaign = state.campaigns.find((item) => item.id === cleanText(body.targetId));
+        if (!campaign) return json(res, 400, { error: "Choose a valid campaign" });
+        campaignId = campaign.id;
+      } else if (level === "agent") {
+        const agent = state.agents.find((item) => item.id === cleanText(body.targetId));
+        if (!agent) return json(res, 400, { error: "Choose a valid agent" });
+        agentId = agent.id;
+      } else if (level !== "center") {
+        return json(res, 400, { error: "Invalid budget level" });
+      }
+      // Build the day list from the window and split the total evenly.
+      const from = validDateInput(body.from);
+      const to = validDateInput(body.to) || from;
+      if (!from) return json(res, 400, { error: "Choose a start date" });
+      const days = [];
+      for (let d = new Date(`${from}T00:00:00Z`); d <= new Date(`${to}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1)) {
+        days.push(d.toISOString().slice(0, 10));
+        if (days.length > 366) break; // guard against absurd ranges
+      }
+      if (!days.length) return json(res, 400, { error: "The date range is empty" });
+      const perDay = Number((total / days.length).toFixed(2));
+      const batchId = id("mbudget");
+      const created = days.map((date, index) => {
+        // Put any rounding remainder on the last day so the batch sums exactly.
+        const spend = index === days.length - 1 ? Number((total - perDay * (days.length - 1)).toFixed(2)) : perDay;
+        const log = {
+          id: id("log"), source: "manual", batchId,
+          date, reportingStart: date, reportingEnd: date,
+          creativeId: "", adSetId, campaignId, agentId,
+          spend, messages: 0,
+          label: cleanText(body.label),
+          notes: cleanText(body.notes),
+          createdAt: now(),
+        };
+        state.dailyLogs.push(log);
+        return log;
+      });
+      await storage.write(state);
+      return json(res, 201, { batchId, level, days: days.length, total, logs: created });
+    }
+
+    const dailyLogMatch = url.pathname.match(/^\/api\/daily-logs\/([^/]+)$/);
+    if (method === "DELETE" && dailyLogMatch) {
+      const target = dailyLogMatch[1];
+      // Allow deleting a single manual log or a whole manual batch by batchId.
+      const before = state.dailyLogs.length;
+      state.dailyLogs = state.dailyLogs.filter((log) => log.source === "manual" && (log.id === target || log.batchId === target) ? false : true);
+      const removed = before - state.dailyLogs.length;
+      if (!removed) return json(res, 404, { error: "No manual budget entry matched" });
+      await storage.write(state);
+      return json(res, 200, { removed });
+    }
+
     if (method === "POST" && url.pathname === "/api/daily-logs") {
       const body = await parseBody(req);
       const creative = state.creatives.find((item) => item.id === body.creativeId);
