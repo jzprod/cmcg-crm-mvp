@@ -434,6 +434,25 @@ td { font-size: .8rem; }
 .payment-choice.active span { border-color: var(--green-600); }
 .payment-grid { align-items: end; }
 .span-2 { grid-column: span 2; }
+.student-progress { margin: 4px 0 14px; padding: 16px; border: 1px solid var(--slate-200); border-radius: 16px; background: linear-gradient(135deg, #f8fafc, #ffffff 60%); }
+.student-progress.is-paid { border-color: #86efac; background: linear-gradient(135deg, #f0fdf4, #ffffff 60%); }
+.student-progress-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.student-progress-top h3 { margin: 2px 0 0; font-size: 1.4rem; color: var(--navy-900); }
+.student-progress-top h3 span { font-size: .9rem; color: var(--slate-500); font-weight: 600; }
+.student-progress-remaining { text-align: right; }
+.student-progress-remaining span { display: block; font-size: .72rem; color: var(--slate-500); }
+.student-progress-remaining strong { font-size: 1.3rem; color: var(--green-700); }
+.is-paid .student-progress-remaining strong { color: var(--green-600); }
+.progress-track { height: 12px; margin: 12px 0 10px; border-radius: 999px; background: var(--slate-200); overflow: hidden; }
+.progress-track i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--green-500), var(--green-600)); transition: width .3s ease; }
+.student-progress-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.student-progress-foot small { color: var(--slate-600); font-size: .74rem; }
+.student-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.student-quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.student-quick-grid label { display: grid; gap: 4px; }
+.student-quick-grid label span { font-size: .76rem; color: var(--slate-600); font-weight: 600; }
+.is-arabic .student-progress-remaining { text-align: left; }
+@media (max-width: 640px) { .student-quick-grid { grid-template-columns: 1fr; } }
 .spots-map { margin: 8px 0 6px; }
 .spots-map-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .spots-map-head small { color: var(--slate-500); font-size: .74rem; }

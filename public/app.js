@@ -505,6 +505,16 @@ Object.assign(ar, {
   "Heures": "الساعات",
   "Professeur marqué disponible": "تم تعيين الأستاذ كمتوفر",
   "Professeur marqué non disponible": "تم تعيين الأستاذ كغير متوفر",
+  "Reste": "الباقي",
+  "+ Ajouter paiement": "+ إضافة أداء",
+  "Modifier détails": "تعديل التفاصيل",
+  "Transférer vers un groupe": "النقل إلى فوج",
+  "Changer le statut": "تغيير الحالة",
+  "Même formation": "نفس التكوين",
+  "Autres formations": "تكوينات أخرى",
+  "Inscrit le": "مسجل بتاريخ",
+  "Étudiant transféré": "تم نقل الطالب",
+  "Statut mis à jour": "تم تحديث الحالة",
   "Formation choisie": "التكوين المختار",
   "Toutes les formations": "كل التكوينات",
   "Places disponibles": "الأماكن المتوفرة",
@@ -2326,7 +2336,7 @@ function ensureOperationsDialogs() {
     <dialog id="groupDialog" class="modal"><form id="groupForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Groupe · فوج</p><h2>Ajouter groupe</h2><p>Un groupe est juste un nom sous une formation. Les horaires se planifient ensuite sur le calendrier.</p></div><button class="icon-button" type="button" data-close-group aria-label="Fermer">×</button></div><div class="form-grid"><label class="span-2"><span>Formation</span><select id="groupProgram" name="programId" required></select></label><label class="span-2"><span>Nom du groupe</span><input name="name" placeholder="Groupe 1, Groupe 2, Groupe soir…" autocomplete="off" /></label><label><span>Capacité</span><input name="capacity" type="number" min="1" step="1" value="20" required /></label><label><span>Statut</span><select name="status"><option value="active">Actif</option><option value="full">Complet</option><option value="paused">Pause</option><option value="done">Terminé</option></select></label></div><div class="alert info" role="note"><strong>Après avoir créé le groupe</strong>, ouvrez l'assistant planning, choisissez ce groupe, et distribuez ses séances sur les créneaux disponibles du professeur.</div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Salle, formateur, remarque"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-group>Annuler</button><button class="button primary" type="submit">Enregistrer groupe</button></div></form></dialog>
     <dialog id="studentDialog" class="modal outcome-modal wide-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Inscription étudiant · تسجيل</p><h2 id="studentDialogTitle">Inscrire étudiant</h2><p>Assignez l'étudiant au groupe et enregistrez l'accord de paiement exact.</p></div><button class="icon-button" type="button" data-close-student aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom étudiant</span><input name="name" required autocomplete="name" placeholder="Nom complet" /></label><label><span>Téléphone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label class="span-2"><span>Formation choisie</span><select id="studentTrainingPick"><option value="">Toutes les formations</option></select></label></div><section id="studentSpotsMap" class="spots-map span-2"></section><div class="form-grid"><label class="span-2"><span>Groupe (séance principale)</span><select id="studentGroup" name="groupId" required></select><small class="field-note">Choisissez une séance disponible ci-dessus, ou sélectionnez ici. L'étudiant peut assister à n'importe quelle séance de la même formation, même dans un autre groupe.</small></label><label><span>Agent commercial</span><select id="studentAgent" name="agentId"></select></label><label><span>Date inscription</span><input name="registeredAt" type="date" required /></label><label><span>Statut</span><select name="status"><option value="registered">Inscrit</option><option value="active">Actif</option><option value="completed">Terminé</option><option value="paused">Pause</option><option value="cancelled">Annulé</option></select></label></div><section class="payment-agreement-box"><div class="agreement-head"><div><p class="section-kicker">Accord paiement</p><h3>Comment l'étudiant va payer</h3><p id="paymentPlanHelp">Choisissez cash, mensuel, ou un accord spécial.</p></div></div><div class="payment-choice-grid" role="radiogroup" aria-label="Mode paiement"><label class="payment-choice"><input type="radio" name="paymentPlan" value="paid_full" checked /><span><strong>Payé full / Cash</strong><small>Prix cash quand il paie tout le cours.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="monthly" /><span><strong>Paiement mensuel</strong><small>Total plus élevé, payé chaque mois.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="custom" /><span><strong>Accord spécial</strong><small>Ex: 1500 maintenant, reste le mois prochain.</small></span></label></div><div class="form-grid payment-grid"><label><span>Prix convenu total</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Payé maintenant</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Date départ paiement</span><input name="paymentStartDate" type="date" /></label><label data-payment-field="monthly"><span>Montant chaque mois</span><input name="installmentAmount" type="number" min="0" step="0.01" placeholder="1000" /></label><label data-payment-field="monthly"><span>Nombre de mois</span><input name="installmentsCount" type="number" min="0" step="1" placeholder="5" /></label><label data-payment-field="next"><span>Prochain paiement</span><input name="nextPaymentDate" type="date" /></label></div><label data-payment-field="custom"><span>Accord spécial <em>optionnel</em></span><textarea name="agreementNote" rows="2" placeholder="Ex: total 3000, il paie 1500 maintenant et 1500 le mois prochain"></textarea></label></section><label><span>Notes étudiant <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Documents, remarques, besoin particulier"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Annuler</button><button class="button primary" type="submit">Enregistrer étudiant</button></div></form></dialog>
     <dialog id="paymentDialog" class="modal"><form id="paymentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Paiement · أداء</p><h2>Ajouter paiement</h2><p id="paymentStudentName">Enregistrer un paiement étudiant.</p></div><button class="icon-button" type="button" data-close-payment aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Montant</span><input name="amount" type="number" min="0.01" step="0.01" required /></label><label><span>Date paiement</span><input name="paidAt" type="date" required /></label><label><span>Méthode</span><select name="method"><option value="cash">Espèces</option><option value="transfer">Virement</option><option value="card">Carte</option><option value="other">Autre</option></select></label><label><span>Prochain paiement <em>optionnel</em></span><input name="nextPaymentDate" type="date" /></label></div><label><span>Note <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Reçu, tranche, rappel"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-payment>Annuler</button><button class="button primary" type="submit">Enregistrer paiement</button></div></form></dialog>
-    <dialog id="studentDetailDialog" class="modal outcome-modal"><div class="modal-content"><div class="modal-head"><div><p class="section-kicker">Historique étudiant · تتبع</p><h2 id="studentDetailTitle">Historique étudiant</h2><p>Inscription, modifications et paiements dans une seule trace.</p></div><button class="icon-button" type="button" data-close-student-detail aria-label="Fermer">×</button></div><div id="studentDetailBody"></div><div class="modal-actions"><button class="button secondary" type="button" data-close-student-detail>Fermer</button><button class="button primary" type="button" data-edit-current-student>Modifier étudiant</button></div></div></dialog>
+    <dialog id="studentDetailDialog" class="modal outcome-modal"><div class="modal-content"><div class="modal-head"><div><p class="section-kicker">Historique étudiant · تتبع</p><h2 id="studentDetailTitle">Historique étudiant</h2><p>Inscription, modifications et paiements dans une seule trace.</p></div><button class="icon-button" type="button" data-close-student-detail aria-label="Fermer">×</button></div><div id="studentDetailBody"></div><div class="modal-actions"><button class="button secondary" type="button" data-close-student-detail>Fermer</button></div></div></dialog>
   `);
   applyLanguage(document.getElementById("trainingDialog"));
   applyLanguage(document.getElementById("groupDialog"));
@@ -2635,6 +2645,20 @@ function eventDescription(event) {
   return event.type.replaceAll("_", " ");
 }
 
+// Quick PATCH from the student management view (transfer group / change status),
+// then refresh the open view in place so the agent stays in context.
+async function quickUpdateStudent(studentId, patch, successMessage) {
+  if (!studentDataUnlocked()) return;
+  try {
+    await api(`/api/students/${studentId}`, { method: "PATCH", body: JSON.stringify(patch) });
+    await load();
+    if (detailStudentId === studentId) openStudentDetail(studentId);
+    toast(successMessage);
+  } catch (error) {
+    toast(error.message, "error");
+    if (detailStudentId === studentId) openStudentDetail(studentId); // revert the control
+  }
+}
 function openStudentDetail(studentId) {
   ensureOperationsDialogs();
   const student = byId(state.students, studentId);
@@ -2646,9 +2670,42 @@ function openStudentDetail(studentId) {
   const payments = state.payments.filter((payment) => payment.studentId === student.id).sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)));
   const events = state.events.filter((event) => event.studentId === student.id).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   document.getElementById("studentDetailTitle").textContent = student.name;
-  document.getElementById("studentDetailBody").innerHTML = `<div class="student-detail-grid"><article class="mini-ledger"><span>Formation</span><strong>${escapeHtml(training?.name || "Inconnue")}</strong><small>${escapeHtml(group?.name || "Sans groupe")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></article><article class="mini-ledger"><span>Agent commercial</span><strong>${escapeHtml(agent?.name || "Non assigné")}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></article><article class="mini-ledger"><span>Paiement</span><strong>${money(studentPaid(student))} / ${money(student.totalDue)}</strong><small>${money(studentRemaining(student))} reste</small></article><article class="mini-ledger"><span>Accord paiement</span><strong>${escapeHtml(paymentPlanLabel(student))}</strong><small>${escapeHtml(paymentDueStatus(student).detail)}</small>${student.agreementNote ? `<small>${escapeHtml(student.agreementNote)}</small>` : ""}</article></div><h3>Historique paiements</h3><div class="simple-list">${payments.length ? payments.map((payment) => `<div class="simple-list-row"><div><strong>${money(payment.amount)}</strong><small>${escapeHtml(payment.paidAt)} - ${escapeHtml(payment.method || "cash")}</small></div><span>${escapeHtml(payment.notes || "")}</span></div>`).join("") : '<div class="empty">Aucun paiement enregistré.</div>'}</div><h3>Trace complète</h3><ol class="timeline">${events.length ? events.map((event) => `<li><strong>${escapeHtml(eventDescription(event))}</strong><small>${escapeHtml(new Date(event.createdAt).toLocaleString())}</small></li>`).join("") : '<li><strong>Ancien dossier étudiant</strong><small>Aucun événement enregistré.</small></li>'}</ol>`;
+  const paid = studentPaid(student);
+  const total = Number(student.totalDue || 0);
+  const remaining = studentRemaining(student);
+  const percent = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : (paid > 0 ? 100 : 0);
+  const dueStatus = paymentDueStatus(student);
+  const fullyPaid = remaining <= 0;
+  // Groups of the SAME training first (natural transfers), then everything else.
+  const sameTrainingGroups = state.groups.filter((g) => g.programId === student.programId);
+  const otherGroups = state.groups.filter((g) => g.programId !== student.programId);
+  const groupOption = (g) => {
+    const s = groupStats(g);
+    const full = s.spots <= 0 && g.id !== student.groupId;
+    return `<option value="${escapeHtml(g.id)}" ${g.id === student.groupId ? "selected" : ""} ${full ? "disabled" : ""}>${escapeHtml(g.name)} · ${escapeHtml(groupSchedule(g))} · ${full ? "COMPLET" : `${s.spots} places`}</option>`;
+  };
+  const statuses = [["registered", "Inscrit"], ["active", "Actif"], ["paused", "Pause"], ["completed", "Terminé"], ["cancelled", "Annulé"]];
+
+  const progressBlock = `<section class="student-progress ${fullyPaid ? "is-paid" : ""}">
+    <div class="student-progress-top"><div><p class="section-kicker">Paiement</p><h3>${money(paid)} <span>/ ${money(total)}</span></h3></div><div class="student-progress-remaining"><span>Reste</span><strong>${money(remaining)}</strong></div></div>
+    <div class="progress-track" role="img" aria-label="${percent}% payé"><i style="width:${percent}%"></i></div>
+    <div class="student-progress-foot"><span class="status-pill ${dueStatus.className}">${escapeHtml(dueStatus.label)}</span><small>${escapeHtml(dueStatus.detail)}</small><small>${escapeHtml(paymentPlanLabel(student))}${student.agreementNote ? " · " + escapeHtml(student.agreementNote) : ""}</small></div>
+  </section>`;
+
+  const actionsBlock = `<div class="student-actions">
+    <button class="button primary" type="button" data-add-payment="${escapeHtml(student.id)}" ${fullyPaid ? "disabled" : ""}>+ Ajouter paiement</button>
+    <button class="button secondary" type="button" data-edit-current-student>Modifier détails</button>
+  </div>
+  <div class="student-quick-grid">
+    <label><span>Transférer vers un groupe</span><select data-transfer-group="${escapeHtml(student.id)}"><optgroup label="Même formation">${sameTrainingGroups.map(groupOption).join("")}</optgroup>${otherGroups.length ? `<optgroup label="Autres formations">${otherGroups.map(groupOption).join("")}</optgroup>` : ""}</select></label>
+    <label><span>Changer le statut</span><select data-change-status="${escapeHtml(student.id)}">${statuses.map(([value, label]) => `<option value="${value}" ${student.status === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+  </div>`;
+
+  const infoBlock = `<div class="student-detail-grid"><article class="mini-ledger"><span>Formation</span><strong>${escapeHtml(training?.name || "Inconnue")}</strong><small>${escapeHtml(group?.name || "Sans groupe")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></article><article class="mini-ledger"><span>Agent commercial</span><strong>${escapeHtml(agent?.name || "Non assigné")}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></article><article class="mini-ledger"><span>Inscrit le</span><strong>${escapeHtml(student.registeredAt || "-")}</strong><small>${escapeHtml(statuses.find(([v]) => v === student.status)?.[1] || student.status)}</small></article></div>`;
+
+  document.getElementById("studentDetailBody").innerHTML = `${progressBlock}${actionsBlock}${infoBlock}<h3>Historique paiements</h3><div class="simple-list">${payments.length ? payments.map((payment) => `<div class="simple-list-row"><div><strong>${money(payment.amount)}</strong><small>${escapeHtml(payment.paidAt)} - ${escapeHtml(payment.method || "cash")}</small></div><span>${escapeHtml(payment.notes || "")}</span></div>`).join("") : '<div class="empty">Aucun paiement enregistré.</div>'}</div><h3>Trace complète</h3><ol class="timeline">${events.length ? events.map((event) => `<li><strong>${escapeHtml(eventDescription(event))}</strong><small>${escapeHtml(new Date(event.createdAt).toLocaleString())}</small></li>`).join("") : '<li><strong>Ancien dossier étudiant</strong><small>Aucun événement enregistré.</small></li>'}</ol>`;
   applyLanguage(document.getElementById("studentDetailDialog"));
-  document.getElementById("studentDetailDialog").showModal();
+  if (!document.getElementById("studentDetailDialog").open) document.getElementById("studentDetailDialog").showModal();
 }
 
 function selectMetaFile(file) {
@@ -2698,10 +2755,14 @@ document.addEventListener("submit", async (event) => {
       await load(); toast("Student saved");
     } else if (form.id === "paymentForm") {
       if (!paymentStudentId) throw new Error("Choose a student first");
-      await api(`/api/students/${paymentStudentId}/payments`, { method: "POST", body: JSON.stringify(formPayload(form)) });
+      const paidStudentId = paymentStudentId;
+      await api(`/api/students/${paidStudentId}/payments`, { method: "POST", body: JSON.stringify(formPayload(form)) });
       paymentStudentId = "";
       document.getElementById("paymentDialog").close();
-      await load(); toast("Payment saved");
+      await load();
+      // If the student management view is open for this student, refresh it in place.
+      if (document.getElementById("studentDetailDialog")?.open && detailStudentId === paidStudentId) openStudentDetail(paidStudentId);
+      toast("Payment saved");
     } else if (form.id === "agentEditForm") {
       if (!editingAgentId) throw new Error("Choose an agent to edit");
       await api(`/api/agents/${editingAgentId}`, { method: "PATCH", body: JSON.stringify(formPayload(form)) });
@@ -2878,6 +2939,10 @@ document.addEventListener("change", (event) => {
     applyLanguage();
     return;
   }
+  const transferGroup = event.target.closest("[data-transfer-group]");
+  if (transferGroup) { quickUpdateStudent(transferGroup.dataset.transferGroup, { groupId: transferGroup.value }, "Étudiant transféré"); return; }
+  const changeStatus = event.target.closest("[data-change-status]");
+  if (changeStatus) { quickUpdateStudent(changeStatus.dataset.changeStatus, { status: changeStatus.value }, "Statut mis à jour"); return; }
   if (event.target.id === "periodPreset") { applyPeriodPreset(event.target.value); return; }
   if (event.target.id === "periodFrom" || event.target.id === "periodTo") {
     selectedPeriod = "custom";

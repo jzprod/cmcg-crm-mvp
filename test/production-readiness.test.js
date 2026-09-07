@@ -581,6 +581,11 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /autoDistributeSessions/);
   assert.match(app, /data-toggle-session/);
   assert.match(app, /groupSessions/);
+  assert.match(app, /student-progress/);
+  assert.match(app, /progress-track/);
+  assert.match(app, /data-transfer-group/);
+  assert.match(app, /data-change-status/);
+  assert.match(app, /quickUpdateStudent/);
   assert.match(app, /data-toggle-availability/);
   assert.match(app, /trainingMonthlyPrice/);
   assert.match(app, /monthlyPrice/);
