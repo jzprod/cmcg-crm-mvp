@@ -12,6 +12,7 @@ let paymentStudentId = "";
 let detailStudentId = "";
 let plannerSuggestions = [];
 let plannerSelectedDay = localStorage.getItem("cmcg-planner-day") || "monday";
+let plannerView = "plan";
 
 const pageMeta = {
   dashboard: ["Overview", "Your advertising and enrollment results at a glance."],
@@ -454,7 +455,40 @@ Object.assign(ar, {
   "If this exact name appears in campaign, ad set, or ad names, those rows will be assigned to the agent automatically.": "إذا ظهر هذا الاسم بالضبط في اسم الحملة أو المجموعة الإعلانية أو الإعلان، سيتم تعيين تلك الصفوف للمستشار تلقائياً.",
   "Save agent": "حفظ المستشار",
   "Ajouter formation": "إضافة تكوين",
+  "Modifier formation": "تعديل التكوين",
   "Nom du cours, durée, prix normal et prix remisé.": "اسم الدرس، المدة، السعر العادي، والسعر المخفض.",
+  "Nom, durée, rythme des séances et les prix.": "الاسم، المدة، وتيرة الحصص، والأسعار.",
+  "Unité": "الوحدة",
+  "Mois": "أشهر",
+  "Années": "سنوات",
+  "Séances par semaine": "حصص في الأسبوع",
+  "Durée d'une séance (heures)": "مدة الحصة (ساعات)",
+  "Prix · الأسعار": "الأسعار",
+  "Les trois prix de la formation": "الأسعار الثلاثة للتكوين",
+  "Le prix mensuel est le prix principal. Le cash est le prix remisé payé en une fois.": "السعر الشهري هو السعر الأساسي. النقدي هو السعر المخفض المؤدى مرة واحدة.",
+  "Prix mensuel": "السعر الشهري",
+  "principal": "أساسي",
+  "Prix total (une fois)": "الثمن الإجمالي (مرة واحدة)",
+  "Prix cash / remisé": "السعر النقدي / المخفض",
+  "Nidam shift (matin + soir)": "نظام شيفت (صباح + مساء)",
+  "La même séance est offerte le matin et le soir, l'étudiant vient quand il veut.": "نفس الحصة تُقدَّم صباحاً ومساءً، والطالب يحضر متى شاء.",
+  "Disponibilité prof": "توفر الأستاذ",
+  "Planifier": "التخطيط",
+  "Mode disponibilité.": "وضع التوفر.",
+  "Cliquez une case pour indiquer si le professeur est disponible ou non à cette heure. Vert = disponible, gris = non disponible. Les créneaux non disponibles sont bloqués pour les groupes.": "انقر على خانة لتحديد ما إذا كان الأستاذ متوفراً أو لا في هذا الوقت. أخضر = متوفر، رمادي = غير متوفر. الأوقات غير المتوفرة محجوبة عن الأفواج.",
+  "Disponibilité du professeur": "توفر الأستاذ",
+  "Cliquez pour activer / désactiver": "انقر للتفعيل / الإلغاء",
+  "Vert = disponible. Gris = non disponible. Ces créneaux bloqués sont exclus du planning des groupes.": "أخضر = متوفر. رمادي = غير متوفر. هذه الأوقات المحجوبة مستثناة من تخطيط الأفواج.",
+  "Disponible": "متوفر",
+  "Non disponible": "غير متوفر",
+  "Prof non disponible": "الأستاذ غير متوفر",
+  "Bloqué": "محجوب",
+  "Heures": "الساعات",
+  "Professeur marqué disponible": "تم تعيين الأستاذ كمتوفر",
+  "Professeur marqué non disponible": "تم تعيين الأستاذ كغير متوفر",
+  "Groupe (séance principale)": "الفوج (الحصة الأساسية)",
+  "L'étudiant peut assister à n'importe quelle séance de la même formation, même dans un autre groupe.": "يمكن للطالب حضور أي حصة من نفس التكوين، حتى في فوج آخر.",
+  "COMPLET": "ممتلئ",
   "Fermer": "إغلاق",
   "Nom formation": "اسم التكوين",
   "Comptabilité 3 mois": "محاسبة 3 أشهر",
@@ -1452,21 +1486,33 @@ function normalizePaymentPlanUi(value) {
 }
 function durationMonthsFor(group) {
   const training = groupTraining(group);
-  const raw = [group?.durationLabel, training?.durationLabel, training?.durationMonths].filter(Boolean).join(" ");
+  if (training?.durationMonths) return Math.max(1, Number(training.durationMonths));
+  const raw = [group?.durationLabel, training?.durationLabel].filter(Boolean).join(" ");
   const match = String(raw).match(/\d+/);
   return match ? Math.max(1, Number(match[0])) : 0;
 }
+// Price mapping: monthly plan -> training.monthlyPrice (main), cash/full plan -> discountedPrice (cash), fallback to fullPrice.
+function trainingMonthlyPrice(training) {
+  return Number(training?.monthlyPrice || training?.basePrice || training?.fullPrice || training?.discountedPrice || 0);
+}
+function trainingCashPrice(training) {
+  return Number(training?.discountedPrice || training?.fullPrice || training?.basePrice || training?.monthlyPrice || 0);
+}
 function groupCashPrice(group) {
   const training = groupTraining(group);
-  return Number(group?.discountedPrice || training?.discountedPrice || group?.price || training?.basePrice || 0);
+  return Number(group?.discountedPrice || trainingCashPrice(training) || group?.price || 0);
 }
 function groupRegularPrice(group) {
   const training = groupTraining(group);
-  return Number(group?.price || training?.basePrice || group?.discountedPrice || training?.discountedPrice || 0);
+  return Number(group?.price || trainingMonthlyPrice(training) || group?.discountedPrice || 0);
 }
 function defaultPriceForPlan(group, plan) {
   if (!group) return 0;
-  return normalizePaymentPlanUi(plan) === "monthly" ? groupRegularPrice(group) : groupCashPrice(group);
+  const training = groupTraining(group);
+  const normalized = normalizePaymentPlanUi(plan);
+  if (normalized === "monthly") return Number(group?.price || trainingMonthlyPrice(training) || 0);
+  // paid_full / custom default to the cash (discounted) price
+  return Number(group?.discountedPrice || trainingCashPrice(training) || group?.price || 0);
 }
 function paymentPlanLabel(student) {
   const plan = normalizePaymentPlanUi(student?.paymentPlan);
@@ -1578,8 +1624,9 @@ function buildPlannerSuggestions() {
     const daysText = day.label;
     uniqueTimes.forEach(([start, end]) => {
       const pressure = slotPressure(days, start, end);
+      const teacherAvailable = isSlotAvailable(day.key, start, end);
       if (preferredMode !== "flexible_shift") {
-        candidates.push({ daysText, days, start, end, capacity: targetCapacity, attendanceMode: "fixed", pressure });
+        candidates.push({ daysText, days, start, end, capacity: targetCapacity, attendanceMode: "fixed", pressure, teacherAvailable });
         return;
       }
       const alternate = Number(start.slice(0, 2)) < 14 ? ["18:00", "20:00"] : ["10:00", "12:00"];
@@ -1605,6 +1652,9 @@ function plannerSlotKey(suggestion) {
   return `${normalizeDayKey(suggestion.days?.[0] || suggestion.daysText)}|${suggestion.start}|${suggestion.end}`;
 }
 function plannerSlotStatus(suggestion) {
+  if (suggestion.teacherAvailable === false) {
+    return { className: "blocked", pill: "quality-weak", label: "Prof non disponible", action: "Bloqué", blocked: true };
+  }
   const conflicts = suggestion.pressure?.conflicts?.length || 0;
   if (!conflicts) return { className: "free", pill: "quality-strong", label: "Créneau libre", action: "Créer ici" };
   if (conflicts <= 1) return { className: "warning", pill: "quality-watch", label: "1 conflit possible", action: "Voir la journée" };
@@ -1614,9 +1664,59 @@ function selectedPlannerDayInfo() {
   if (!WEEK_DAYS.some((day) => day.key === plannerSelectedDay)) plannerSelectedDay = "monday";
   return WEEK_DAYS.find((day) => day.key === plannerSelectedDay) || WEEK_DAYS[0];
 }
+// Teacher availability: default is available. A weekly false means blocked; a date override wins over weekly.
+function availabilityData() {
+  const data = state.availability || {};
+  return { weekly: data.weekly || {}, overrides: data.overrides || {} };
+}
+function isSlotAvailable(dayKey, start, end, date = "") {
+  const { weekly, overrides } = availabilityData();
+  if (date && overrides[date] && Object.prototype.hasOwnProperty.call(overrides[date], `${start}|${end}`)) {
+    return overrides[date][`${start}|${end}`];
+  }
+  const weeklyKey = `${normalizeDayKey(dayKey)}|${start}|${end}`;
+  return Object.prototype.hasOwnProperty.call(weekly, weeklyKey) ? weekly[weeklyKey] : true;
+}
+async function toggleAvailability(dayKey, start, end) {
+  if (!studentDataUnlocked()) return;
+  const currentlyAvailable = isSlotAvailable(dayKey, start, end);
+  try {
+    const availability = await api("/api/availability", {
+      method: "POST",
+      body: JSON.stringify({ day: dayKey, timeStart: start, timeEnd: end, available: !currentlyAvailable }),
+    });
+    state.availability = availability;
+    renderPlannerSuggestions();
+    toast(currentlyAvailable ? "Professeur marqué non disponible" : "Professeur marqué disponible");
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+function renderAvailabilityGrid(container) {
+  const times = PLANNER_TIME_SLOTS.slice();
+  // Include any custom group times so the agent can toggle those exact slots too.
+  state.groups.forEach((group) => {
+    if (group.timeStart && group.timeEnd && !times.some(([s, e]) => s === group.timeStart && e === group.timeEnd)) {
+      times.push([group.timeStart, group.timeEnd]);
+    }
+  });
+  times.sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
+  const header = `<div class="planner-week-head"><div><p class="section-kicker">Disponibilité du professeur</p><h4>Cliquez pour activer / désactiver</h4><p>Vert = disponible. Gris = non disponible. Ces créneaux bloqués sont exclus du planning des groupes.</p></div><div class="planner-legend"><span><i class="free"></i>Disponible</span><span><i class="busy"></i>Non disponible</span></div></div>`;
+  const gridHead = `<div class="planner-grid-cell planner-time-head">Heures</div>${WEEK_DAYS.map((day) => `<div class="planner-grid-cell planner-day-head"><strong>${escapeHtml(day.label)}</strong></div>`).join("")}`;
+  const gridRows = times.map(([start, end]) => {
+    const cells = WEEK_DAYS.map((day) => {
+      const available = isSlotAvailable(day.key, start, end);
+      return `<button class="planner-grid-cell planner-slot availability-slot ${available ? "free" : "busy"}" type="button" data-toggle-availability data-day="${escapeHtml(day.key)}" data-start="${escapeHtml(start)}" data-end="${escapeHtml(end)}" aria-pressed="${available}" aria-label="${escapeHtml(`${day.label} ${start}-${end}: ${available ? "disponible" : "non disponible"}`)}"><span>${escapeHtml(available ? "Disponible" : "Non disponible")}</span><strong>${available ? "✓" : "✕"}</strong></button>`;
+    }).join("");
+    return `<div class="planner-grid-cell planner-time">${escapeHtml(start)}-${escapeHtml(end)}</div>${cells}`;
+  }).join("");
+  container.innerHTML = `<section class="planner-week availability-week">${header}<div class="planner-calendar" role="grid">${gridHead}${gridRows}</div></section>`;
+  applyLanguage(container);
+}
 function renderPlannerSuggestions() {
   const container = document.getElementById("plannerSuggestions");
   if (!container) return;
+  if (plannerView === "availability") return renderAvailabilityGrid(container);
   plannerSuggestions = buildPlannerSuggestions();
   if (!plannerSuggestions.length) {
     container.innerHTML = '<div class="empty">Ajoutez une formation ou un groupe existant pour recevoir des propositions.</div>';
@@ -1645,6 +1745,9 @@ function renderPlannerSuggestions() {
       if (!suggestion) return '<div class="planner-grid-cell planner-slot empty-slot">—</div>';
       const status = plannerSlotStatus(suggestion);
       const conflicts = suggestion.pressure.conflicts.length;
+      if (status.blocked) {
+        return `<div class="planner-grid-cell planner-slot ${status.className}" aria-label="${escapeHtml(`${day.label} ${start}-${end}: ${status.label}`)}"><span>${escapeHtml(status.label)}</span><strong>Bloqué</strong></div>`;
+      }
       const actionAttr = conflicts ? `data-planner-day="${escapeHtml(day.key)}"` : `data-create-plan="${index}"`;
       return `<button class="planner-grid-cell planner-slot ${status.className}" type="button" ${actionAttr} aria-label="${escapeHtml(`${day.label} ${start}-${end}: ${status.label}`)}"><span>${escapeHtml(status.label)}</span><strong>${escapeHtml(conflicts ? "Voir la journée" : "Créer ici")}</strong></button>`;
     }).join("");
@@ -1681,6 +1784,11 @@ async function createSuggestedPlan(index) {
     programId = program.id;
   }
   const program = byId(state.programs, programId);
+  // A nidam-shift training makes its groups flexible (morning + evening) by default.
+  const nidam = suggestion.attendanceMode === "flexible_shift" || program?.nidamShift;
+  const alternate = suggestion.alternateTimeStart
+    ? { start: suggestion.alternateTimeStart, end: suggestion.alternateTimeEnd }
+    : { start: Number(suggestion.start.slice(0, 2)) < 14 ? "18:00" : "10:00", end: Number(suggestion.start.slice(0, 2)) < 14 ? "20:00" : "12:00" };
   await api("/api/groups", {
     method: "POST",
     body: JSON.stringify({
@@ -1691,10 +1799,10 @@ async function createSuggestedPlan(index) {
       timeStart: suggestion.start,
       timeEnd: suggestion.end,
       capacity: suggestion.capacity,
-      attendanceMode: suggestion.attendanceMode,
-      alternateDays: suggestion.alternateDaysText || "",
-      alternateTimeStart: suggestion.alternateTimeStart || "",
-      alternateTimeEnd: suggestion.alternateTimeEnd || "",
+      attendanceMode: nidam ? "flexible_shift" : "fixed",
+      alternateDays: nidam ? (suggestion.alternateDaysText || suggestion.daysText) : "",
+      alternateTimeStart: nidam ? alternate.start : "",
+      alternateTimeEnd: nidam ? alternate.end : "",
     }),
   });
   await load();
@@ -1702,7 +1810,7 @@ async function createSuggestedPlan(index) {
 }
 function groupPrice(group) {
   const training = groupTraining(group);
-  return Number(group?.discountedPrice || group?.price || training?.discountedPrice || training?.basePrice || 0);
+  return Number(group?.discountedPrice || group?.price || trainingCashPrice(training) || trainingMonthlyPrice(training) || 0);
 }
 function groupStats(group) {
   const students = state.students.filter((student) => student.groupId === group.id && student.status !== "cancelled");
@@ -2100,9 +2208,9 @@ function openAgentEditor(agentId) {
 function ensureOperationsDialogs() {
   if (document.getElementById("trainingDialog")) return;
   document.body.insertAdjacentHTML("beforeend", `
-    <dialog id="trainingDialog" class="modal"><form id="trainingForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Formation · تكوين</p><h2>Ajouter formation</h2><p>Nom du cours, durée, prix normal et prix remisé.</p></div><button class="icon-button" type="button" data-close-training aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom formation</span><input name="name" required placeholder="Comptabilité 3 mois" autocomplete="off" /></label><label><span>Durée</span><input name="durationLabel" placeholder="3 mois, 5 mois, année complète" /></label><label><span>Prix normal</span><input name="basePrice" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Prix remisé</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="0" /></label></div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Ce que la formation inclut"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-training>Annuler</button><button class="button primary" type="submit">Enregistrer formation</button></div></form></dialog>
+    <dialog id="trainingDialog" class="modal outcome-modal wide-modal"><form id="trainingForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Formation · تكوين</p><h2 id="trainingDialogTitle">Ajouter formation</h2><p>Nom, durée, rythme des séances et les prix.</p></div><button class="icon-button" type="button" data-close-training aria-label="Fermer">×</button></div><div class="form-grid"><label class="span-2"><span>Nom formation</span><input name="name" required placeholder="Comptabilité" autocomplete="off" /></label><label><span>Durée</span><input name="durationValue" type="number" min="0" step="1" placeholder="5" /></label><label><span>Unité</span><select name="durationUnit"><option value="months">Mois</option><option value="years">Années</option></select></label><label><span>Séances par semaine</span><input name="sessionsPerWeek" type="number" min="0" step="1" placeholder="3" /></label><label><span>Durée d'une séance (heures)</span><input name="sessionHours" type="number" min="0" step="0.5" placeholder="2" /></label></div><section class="payment-agreement-box"><div class="agreement-head"><div><p class="section-kicker">Prix · الأسعار</p><h3>Les trois prix de la formation</h3><p>Le prix mensuel est le prix principal. Le cash est le prix remisé payé en une fois.</p></div></div><div class="form-grid payment-grid"><label class="price-main"><span>Prix mensuel <em>principal</em></span><input name="monthlyPrice" type="number" min="0" step="0.01" placeholder="5000" /></label><label><span>Prix total (une fois)</span><input name="fullPrice" type="number" min="0" step="0.01" placeholder="4000" /></label><label><span>Prix cash / remisé</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="3000" /></label></div></section><label class="switch-field"><input type="checkbox" name="nidamShift" /><span><strong>Nidam shift (matin + soir)</strong><small>La même séance est offerte le matin et le soir, l'étudiant vient quand il veut.</small></span></label><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Ce que la formation inclut"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-training>Annuler</button><button class="button primary" type="submit">Enregistrer formation</button></div></form></dialog>
     <dialog id="groupDialog" class="modal outcome-modal"><form id="groupForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Groupe · فوج</p><h2>Ajouter groupe</h2><p>Créez un créneau avec capacité, prix, et option nidam shift.</p></div><button class="icon-button" type="button" data-close-group aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Formation</span><select id="groupProgram" name="programId" required></select></label><label><span>Nom groupe</span><input name="name" placeholder="Groupe soir A" autocomplete="off" /></label><label><span>Jours</span><input name="days" required placeholder="Monday, Wednesday" /></label><label><span>Début</span><input name="timeStart" type="time" required /></label><label><span>Fin</span><input name="timeEnd" type="time" required /></label><label><span>Mode présence</span><select id="groupAttendanceMode" name="attendanceMode"><option value="fixed">Groupe fixe</option><option value="flexible_shift">Nidam shift matin/soir</option></select></label><label class="shift-field hidden"><span>Jours shift alternatif</span><input name="alternateDays" placeholder="Monday, Wednesday" /></label><label class="shift-field hidden"><span>Début shift alternatif</span><input name="alternateTimeStart" type="time" /></label><label class="shift-field hidden"><span>Fin shift alternatif</span><input name="alternateTimeEnd" type="time" /></label><label><span>Capacité</span><input name="capacity" type="number" min="1" step="1" value="20" required /></label><label><span>Prix groupe</span><input name="price" type="number" min="0" step="0.01" placeholder="Prix formation" /></label><label><span>Prix remisé</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="Optionnel" /></label><label><span>Date début</span><input name="startDate" type="date" /></label><label><span>Date fin</span><input name="endDate" type="date" /></label><label><span>Statut</span><select name="status"><option value="active">Actif</option><option value="full">Complet</option><option value="paused">Pause</option><option value="done">Terminé</option></select></label></div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Salle, formateur, timing spécial"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-group>Annuler</button><button class="button primary" type="submit">Enregistrer groupe</button></div></form></dialog>
-    <dialog id="studentDialog" class="modal outcome-modal wide-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Inscription étudiant · تسجيل</p><h2 id="studentDialogTitle">Inscrire étudiant</h2><p>Assignez l'étudiant au groupe et enregistrez l'accord de paiement exact.</p></div><button class="icon-button" type="button" data-close-student aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom étudiant</span><input name="name" required autocomplete="name" placeholder="Nom complet" /></label><label><span>Téléphone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label><span>Groupe</span><select id="studentGroup" name="groupId" required></select></label><label><span>Agent commercial</span><select id="studentAgent" name="agentId"></select></label><label><span>Date inscription</span><input name="registeredAt" type="date" required /></label><label><span>Statut</span><select name="status"><option value="registered">Inscrit</option><option value="active">Actif</option><option value="completed">Terminé</option><option value="paused">Pause</option><option value="cancelled">Annulé</option></select></label></div><section class="payment-agreement-box"><div class="agreement-head"><div><p class="section-kicker">Accord paiement</p><h3>Comment l'étudiant va payer</h3><p id="paymentPlanHelp">Choisissez cash, mensuel, ou un accord spécial.</p></div></div><div class="payment-choice-grid" role="radiogroup" aria-label="Mode paiement"><label class="payment-choice"><input type="radio" name="paymentPlan" value="paid_full" checked /><span><strong>Payé full / Cash</strong><small>Prix cash quand il paie tout le cours.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="monthly" /><span><strong>Paiement mensuel</strong><small>Total plus élevé, payé chaque mois.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="custom" /><span><strong>Accord spécial</strong><small>Ex: 1500 maintenant, reste le mois prochain.</small></span></label></div><div class="form-grid payment-grid"><label><span>Prix convenu total</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Payé maintenant</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Date départ paiement</span><input name="paymentStartDate" type="date" /></label><label data-payment-field="monthly"><span>Montant chaque mois</span><input name="installmentAmount" type="number" min="0" step="0.01" placeholder="1000" /></label><label data-payment-field="monthly"><span>Nombre de mois</span><input name="installmentsCount" type="number" min="0" step="1" placeholder="5" /></label><label data-payment-field="next"><span>Prochain paiement</span><input name="nextPaymentDate" type="date" /></label></div><label data-payment-field="custom"><span>Accord spécial <em>optionnel</em></span><textarea name="agreementNote" rows="2" placeholder="Ex: total 3000, il paie 1500 maintenant et 1500 le mois prochain"></textarea></label></section><label><span>Notes étudiant <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Documents, remarques, besoin particulier"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Annuler</button><button class="button primary" type="submit">Enregistrer étudiant</button></div></form></dialog>
+    <dialog id="studentDialog" class="modal outcome-modal wide-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Inscription étudiant · تسجيل</p><h2 id="studentDialogTitle">Inscrire étudiant</h2><p>Assignez l'étudiant au groupe et enregistrez l'accord de paiement exact.</p></div><button class="icon-button" type="button" data-close-student aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom étudiant</span><input name="name" required autocomplete="name" placeholder="Nom complet" /></label><label><span>Téléphone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label class="span-2"><span>Groupe (séance principale)</span><select id="studentGroup" name="groupId" required></select><small class="field-note">L'étudiant peut assister à n'importe quelle séance de la même formation, même dans un autre groupe.</small></label><label><span>Agent commercial</span><select id="studentAgent" name="agentId"></select></label><label><span>Date inscription</span><input name="registeredAt" type="date" required /></label><label><span>Statut</span><select name="status"><option value="registered">Inscrit</option><option value="active">Actif</option><option value="completed">Terminé</option><option value="paused">Pause</option><option value="cancelled">Annulé</option></select></label></div><section class="payment-agreement-box"><div class="agreement-head"><div><p class="section-kicker">Accord paiement</p><h3>Comment l'étudiant va payer</h3><p id="paymentPlanHelp">Choisissez cash, mensuel, ou un accord spécial.</p></div></div><div class="payment-choice-grid" role="radiogroup" aria-label="Mode paiement"><label class="payment-choice"><input type="radio" name="paymentPlan" value="paid_full" checked /><span><strong>Payé full / Cash</strong><small>Prix cash quand il paie tout le cours.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="monthly" /><span><strong>Paiement mensuel</strong><small>Total plus élevé, payé chaque mois.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="custom" /><span><strong>Accord spécial</strong><small>Ex: 1500 maintenant, reste le mois prochain.</small></span></label></div><div class="form-grid payment-grid"><label><span>Prix convenu total</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Payé maintenant</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Date départ paiement</span><input name="paymentStartDate" type="date" /></label><label data-payment-field="monthly"><span>Montant chaque mois</span><input name="installmentAmount" type="number" min="0" step="0.01" placeholder="1000" /></label><label data-payment-field="monthly"><span>Nombre de mois</span><input name="installmentsCount" type="number" min="0" step="1" placeholder="5" /></label><label data-payment-field="next"><span>Prochain paiement</span><input name="nextPaymentDate" type="date" /></label></div><label data-payment-field="custom"><span>Accord spécial <em>optionnel</em></span><textarea name="agreementNote" rows="2" placeholder="Ex: total 3000, il paie 1500 maintenant et 1500 le mois prochain"></textarea></label></section><label><span>Notes étudiant <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Documents, remarques, besoin particulier"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Annuler</button><button class="button primary" type="submit">Enregistrer étudiant</button></div></form></dialog>
     <dialog id="paymentDialog" class="modal"><form id="paymentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Paiement · أداء</p><h2>Ajouter paiement</h2><p id="paymentStudentName">Enregistrer un paiement étudiant.</p></div><button class="icon-button" type="button" data-close-payment aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Montant</span><input name="amount" type="number" min="0.01" step="0.01" required /></label><label><span>Date paiement</span><input name="paidAt" type="date" required /></label><label><span>Méthode</span><select name="method"><option value="cash">Espèces</option><option value="transfer">Virement</option><option value="card">Carte</option><option value="other">Autre</option></select></label><label><span>Prochain paiement <em>optionnel</em></span><input name="nextPaymentDate" type="date" /></label></div><label><span>Note <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Reçu, tranche, rappel"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-payment>Annuler</button><button class="button primary" type="submit">Enregistrer paiement</button></div></form></dialog>
     <dialog id="studentDetailDialog" class="modal outcome-modal"><div class="modal-content"><div class="modal-head"><div><p class="section-kicker">Historique étudiant · تتبع</p><h2 id="studentDetailTitle">Historique étudiant</h2><p>Inscription, modifications et paiements dans une seule trace.</p></div><button class="icon-button" type="button" data-close-student-detail aria-label="Fermer">×</button></div><div id="studentDetailBody"></div><div class="modal-actions"><button class="button secondary" type="button" data-close-student-detail>Fermer</button><button class="button primary" type="button" data-edit-current-student>Modifier étudiant</button></div></div></dialog>
   `);
@@ -2136,10 +2244,28 @@ function hydrateStudentSelects(preferredGroupId = "") {
   const groupSelect = document.getElementById("studentGroup");
   const agentSelect = document.getElementById("studentAgent");
   groupSelect.replaceChildren(option("Choisir groupe", ""));
+  // Group the options by training so the agent sees every group/session of the same
+  // training together and can place the student into any of them (cross-group drop-in).
+  const byTraining = new Map();
   state.groups.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((group) => {
-    const stats = groupStats(group);
-    groupSelect.append(option(`${group.name} - ${groupTraining(group)?.name || "Formation"} - ${stats.spots} places libres`, group.id));
+    const trainingId = group.programId || "none";
+    if (!byTraining.has(trainingId)) byTraining.set(trainingId, []);
+    byTraining.get(trainingId).push(group);
   });
+  [...byTraining.entries()]
+    .sort((a, b) => (byId(state.programs, a[0])?.name || "").localeCompare(byId(state.programs, b[0])?.name || ""))
+    .forEach(([trainingId, groups]) => {
+      const training = byId(state.programs, trainingId);
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = training?.name || "Sans formation";
+      groups.forEach((group) => {
+        const stats = groupStats(group);
+        const opt = option(`${group.name} · ${groupSchedule(group)} · ${stats.spots > 0 ? `${stats.spots} places` : "COMPLET"}`, group.id);
+        if (stats.spots <= 0 && group.id !== preferredGroupId) opt.disabled = true;
+        optgroup.append(opt);
+      });
+      groupSelect.append(optgroup);
+    });
   if (preferredGroupId && state.groups.some((group) => group.id === preferredGroupId)) groupSelect.value = preferredGroupId;
   const agentLabel = agentSelect.closest("label");
   if (currentUser?.role === "sales") {
@@ -2225,13 +2351,32 @@ function setStudentDefaultPrice({ resetDefaults = true } = {}) {
   syncStudentPaymentFields({ resetDefaults });
 }
 
-function openTrainingForm() {
+let editingTrainingId = "";
+function openTrainingForm({ trainingId = "" } = {}) {
   ensureOperationsDialogs();
   if (!studentDataUnlocked()) return;
+  const training = trainingId ? byId(state.programs, trainingId) : null;
+  editingTrainingId = training?.id || "";
   const form = document.getElementById("trainingForm");
   form.reset();
-  form.elements.name.value = document.getElementById("plannerTrainingName")?.value.trim() || "";
-  form.elements.durationLabel.value = document.getElementById("plannerDuration")?.value.trim() || "";
+  document.getElementById("trainingDialogTitle").textContent = training ? "Modifier formation" : "Ajouter formation";
+  if (training) {
+    form.elements.name.value = training.name || "";
+    form.elements.durationValue.value = training.durationValue || "";
+    form.elements.durationUnit.value = training.durationUnit || "months";
+    form.elements.sessionsPerWeek.value = training.sessionsPerWeek || "";
+    form.elements.sessionHours.value = training.sessionHours || "";
+    form.elements.monthlyPrice.value = training.monthlyPrice ? Number(training.monthlyPrice).toFixed(2) : "";
+    form.elements.fullPrice.value = training.fullPrice ? Number(training.fullPrice).toFixed(2) : "";
+    form.elements.discountedPrice.value = training.discountedPrice ? Number(training.discountedPrice).toFixed(2) : "";
+    form.elements.nidamShift.checked = Boolean(training.nidamShift);
+    form.elements.notes.value = training.notes || "";
+  } else {
+    form.elements.name.value = document.getElementById("plannerTrainingName")?.value.trim() || "";
+    const plannerDuration = document.getElementById("plannerDuration")?.value.trim() || "";
+    const plannerMonths = plannerDuration.match(/\d+/);
+    if (plannerMonths) form.elements.durationValue.value = plannerMonths[0];
+  }
   applyLanguage(document.getElementById("trainingDialog"));
   document.getElementById("trainingDialog").showModal();
   form.elements.name.focus();
@@ -2385,8 +2530,12 @@ document.addEventListener("submit", async (event) => {
       document.getElementById("outcomeDialog").close();
       await load(); toast("Outcome saved");
     } else if (form.id === "trainingForm") {
-      await api("/api/programs", { method: "POST", body: JSON.stringify(formPayload(form)) });
+      const payload = formPayload(form);
+      payload.nidamShift = form.elements.nidamShift.checked;
+      const route = editingTrainingId ? `/api/programs/${editingTrainingId}` : "/api/programs";
+      await api(route, { method: editingTrainingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
       document.getElementById("trainingDialog").close();
+      editingTrainingId = "";
       await load(); toast("Training saved");
     } else if (form.id === "groupForm") {
       await api("/api/groups", { method: "POST", body: JSON.stringify(formPayload(form)) });
@@ -2429,6 +2578,20 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("#openResetData")) document.getElementById("resetDataDialog").showModal();
   if (event.target.closest("[data-open-training]")) openTrainingForm();
   if (event.target.closest("[data-open-group]")) openGroupForm();
+  const plannerViewBtn = event.target.closest("[data-planner-view]");
+  if (plannerViewBtn) {
+    plannerView = plannerViewBtn.dataset.plannerView === "availability" ? "availability" : "plan";
+    document.querySelectorAll("[data-planner-view]").forEach((btn) => btn.classList.toggle("active", btn === plannerViewBtn));
+    document.getElementById("availabilityHint")?.classList.toggle("hidden", plannerView !== "availability");
+    renderPlannerSuggestions();
+    document.getElementById("plannerSuggestions")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return;
+  }
+  const availabilityToggle = event.target.closest("[data-toggle-availability]");
+  if (availabilityToggle) {
+    await toggleAvailability(availabilityToggle.dataset.day, availabilityToggle.dataset.start, availabilityToggle.dataset.end);
+    return;
+  }
   if (event.target.closest("[data-run-planner]")) {
     renderPlannerSuggestions();
     document.getElementById("plannerSuggestions")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -2554,6 +2717,15 @@ document.addEventListener("change", (event) => {
   if ((event.target.name === "registeredAt" || event.target.name === "paymentStartDate") && event.target.closest("#studentForm")) syncStudentPaymentFields({ resetDefaults: !editingStudentId });
   if (event.target.closest("#paymentForm") && event.target.name === "paidAt") syncPaymentFormNextDate();
   if (event.target.id === "groupAttendanceMode") syncGroupShiftFields();
+  if (event.target.id === "groupProgram") {
+    // Inherit the training's nidam-shift default when a training is picked.
+    const training = byId(state.programs, event.target.value);
+    const modeSelect = document.getElementById("groupAttendanceMode");
+    if (training && modeSelect) {
+      modeSelect.value = training.nidamShift ? "flexible_shift" : "fixed";
+      syncGroupShiftFields();
+    }
+  }
   if (event.target.id === "plannerTraining") {
     const program = byId(state.programs, event.target.value);
     const duration = document.getElementById("plannerDuration");

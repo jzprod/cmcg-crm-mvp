@@ -230,6 +230,86 @@ test("flexible student payment agreements support cash, monthly, and custom spli
   assert.equal(customAfter.nextPaymentDate, "");
 });
 
+test("trainings store numeric duration, session rhythm, three prices, and nidam flag", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-training-model-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl, authHeader } = await startApp(dataFile, { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const training = await request("/api/programs", {
+    method: "POST",
+    body: { name: "Comptabilité", durationValue: 5, durationUnit: "months", sessionsPerWeek: 3, sessionHours: 2, monthlyPrice: 5000, fullPrice: 4000, discountedPrice: 3000, nidamShift: true },
+    expectedStatus: 201,
+  });
+  assert.equal(training.durationValue, 5);
+  assert.equal(training.durationUnit, "months");
+  assert.equal(training.durationMonths, 5);
+  assert.equal(training.sessionsPerWeek, 3);
+  assert.equal(training.sessionHours, 2);
+  assert.equal(training.monthlyPrice, 5000);
+  assert.equal(training.fullPrice, 4000);
+  assert.equal(training.discountedPrice, 3000);
+  assert.equal(training.nidamShift, true);
+
+  // A one-year training expands to 12 months.
+  const yearly = await request("/api/programs", {
+    method: "POST",
+    body: { name: "Cursus complet", durationValue: 1, durationUnit: "years" },
+    expectedStatus: 201,
+  });
+  assert.equal(yearly.durationMonths, 12);
+
+  // Editing recomputes the derived duration fields.
+  const edited = await request(`/api/programs/${training.id}`, {
+    method: "PATCH",
+    body: { name: "Comptabilité", durationValue: 3, durationUnit: "months", nidamShift: false },
+    expectedStatus: 200,
+  });
+  assert.equal(edited.durationMonths, 3);
+  assert.equal(edited.nidamShift, false);
+
+  // Legacy free-text durations still migrate to numeric fields.
+  const legacy = await request("/api/programs", {
+    method: "POST",
+    body: { name: "RH", durationLabel: "5 mois", basePrice: 2000 },
+    expectedStatus: 201,
+  });
+  assert.equal(legacy.durationValue, 5);
+  assert.equal(legacy.durationUnit, "months");
+});
+
+test("teacher availability grid toggles weekly slots and date overrides", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-availability-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl, authHeader } = await startApp(dataFile, { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  // Mark Saturday 09:00-11:00 as unavailable in the weekly default.
+  const weekly = await request("/api/availability", {
+    method: "POST",
+    body: { day: "saturday", timeStart: "09:00", timeEnd: "11:00", available: false },
+    expectedStatus: 200,
+  });
+  assert.equal(weekly.weekly["saturday|09:00|11:00"], false);
+
+  // Override one specific Saturday back to available.
+  const withOverride = await request("/api/availability", {
+    method: "POST",
+    body: { day: "saturday", date: "2026-09-12", timeStart: "09:00", timeEnd: "11:00", available: true },
+    expectedStatus: 200,
+  });
+  assert.equal(withOverride.overrides["2026-09-12"]["09:00|11:00"], true);
+
+  // Invalid input is rejected.
+  await request("/api/availability", { method: "POST", body: { day: "notaday", timeStart: "09:00", timeEnd: "11:00" }, expectedStatus: 400 });
+
+  const snapshot = (await request("/api/state")).state;
+  assert.equal(snapshot.availability.weekly["saturday|09:00|11:00"], false);
+  assert.equal(snapshot.availability.overrides["2026-09-12"]["09:00|11:00"], true);
+});
+
 test("student operations route is locked until CRM auth is configured", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-security-test-"));
   const dataFile = path.join(tempDir, "crm.json");
@@ -462,6 +542,14 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /buildPlannerSuggestions/);
   assert.match(app, /data-create-plan/);
   assert.match(app, /attendanceMode/);
+  assert.match(app, /toggleAvailability/);
+  assert.match(app, /renderAvailabilityGrid/);
+  assert.match(app, /isSlotAvailable/);
+  assert.match(app, /data-toggle-availability/);
+  assert.match(app, /trainingMonthlyPrice/);
+  assert.match(app, /monthlyPrice/);
+  assert.match(app, /sessionsPerWeek/);
+  assert.match(app, /nidamShift/);
   assert.match(app, /seed-screenshot-schedule/);
   assert.match(app, /\/api\/agents\/\$\{editingAgentId\}/);
   assert.match(app, /Business quality - highest/);

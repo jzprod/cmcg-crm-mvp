@@ -24,6 +24,8 @@ const DEFAULT_SCORING = {
 };
 
 const PAYMENT_PLANS = new Set(["paid_full", "monthly", "custom"]);
+const DURATION_UNITS = new Set(["months", "years"]);
+const WEEK_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 const SCREENSHOT_PROGRAMS = [
   { name: "Comptabilité 3 mois", durationLabel: "3 mois" },
@@ -72,9 +74,10 @@ function normalizeScoringSettings(input = {}) {
 
 function emptyState() {
   return {
-    meta: { schemaVersion: 5, updatedAt: null },
+    meta: { schemaVersion: 6, updatedAt: null },
     centre: { name: "CMCG", city: "Tanger" },
     settings: { currency: "MAD", scoring: { ...DEFAULT_SCORING } },
+    availability: { weekly: {}, overrides: {}, updatedAt: null },
     adAccounts: [],
     programs: [],
     groups: [],
@@ -108,7 +111,8 @@ function normalizeState(input) {
   ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
-  state.meta.schemaVersion = 5;
+  state.meta.schemaVersion = 6;
+  state.availability = normalizeAvailability(state.availability);
   const usedCodes = new Set(
     (Array.isArray(state.usedCreativeCodes) ? state.usedCreativeCodes : [])
       .map(normalizeCode)
@@ -119,6 +123,7 @@ function normalizeState(input) {
     if (code) usedCodes.add(code);
   });
   state.usedCreativeCodes = [...usedCodes];
+  state.programs.forEach((program) => normalizeProgram(program));
   state.groups.forEach((group) => {
     group.days = Array.isArray(group.days) ? group.days : splitDays(group.days);
     group.attendanceMode = group.attendanceMode === "flexible_shift" ? "flexible_shift" : "fixed";
@@ -311,7 +316,7 @@ function publicStateWithoutStudentData(state) {
 }
 
 function isSensitiveStudentApiPath(pathname) {
-  return /^\/api\/(?:groups|students|operations)(?:\/|$)/.test(pathname);
+  return /^\/api\/(?:groups|students|operations|availability)(?:\/|$)/.test(pathname);
 }
 
 function requireConfiguredAuthForStudentData(res, pathname) {
@@ -326,6 +331,7 @@ function salesCanAccessApi(method, pathname) {
   if ((method === "POST" || method === "PATCH") && /^\/api\/programs(?:\/|$)/.test(pathname)) return true;
   if ((method === "POST" || method === "PATCH") && /^\/api\/groups(?:\/|$)/.test(pathname)) return true;
   if ((method === "POST" || method === "PATCH") && /^\/api\/students(?:\/|$)/.test(pathname)) return true;
+  if (method === "POST" && /^\/api\/availability(?:\/|$)/.test(pathname)) return true;
   return false;
 }
 
@@ -490,6 +496,101 @@ function nonNegativeMoney(value) {
 function splitDays(value) {
   if (Array.isArray(value)) return value.map(cleanText).filter(Boolean);
   return cleanText(value).split(",").map((item) => cleanText(item)).filter(Boolean);
+}
+
+function normalizeDurationUnit(value) {
+  const text = cleanText(value).toLocaleLowerCase();
+  if (text === "year" || text === "years" || text === "an" || text === "ans" || text === "année" || text === "annee") return "years";
+  return "months";
+}
+
+function durationLabelFromParts(value, unit) {
+  const count = wholeNumber(value);
+  if (!count) return "";
+  return unit === "years" ? `${count} an${count > 1 ? "s" : ""}` : `${count} mois`;
+}
+
+function durationMonthsFromParts(value, unit) {
+  const count = wholeNumber(value);
+  return unit === "years" ? count * 12 : count;
+}
+
+// Best-effort parse of a legacy free-text duration ("5 mois", "1 an", "année complète").
+function parseLegacyDuration(label) {
+  const text = cleanText(label).toLocaleLowerCase();
+  const match = text.match(/\d+/);
+  const isYears = /an|année|annee|year/.test(text);
+  if (!match) {
+    if (isYears) return { durationValue: 1, durationUnit: "years" };
+    return { durationValue: 0, durationUnit: "months" };
+  }
+  return { durationValue: Number(match[0]), durationUnit: isYears ? "years" : "months" };
+}
+
+function normalizeProgram(program) {
+  program.name = cleanText(program.name);
+  program.notes = cleanText(program.notes);
+  // Migrate legacy durationLabel into numeric value + unit when the new fields are missing.
+  if (program.durationValue === undefined && program.durationUnit === undefined) {
+    const parsed = parseLegacyDuration(program.durationLabel);
+    program.durationValue = program.durationMonths ? Number(program.durationMonths) : parsed.durationValue;
+    program.durationUnit = parsed.durationUnit;
+  }
+  program.durationUnit = normalizeDurationUnit(program.durationUnit);
+  program.durationValue = Math.max(0, wholeNumber(program.durationValue));
+  program.durationLabel = durationLabelFromParts(program.durationValue, program.durationUnit) || cleanText(program.durationLabel);
+  program.durationMonths = durationMonthsFromParts(program.durationValue, program.durationUnit);
+  program.sessionsPerWeek = Math.max(0, wholeNumber(program.sessionsPerWeek));
+  program.sessionHours = Math.max(0, finiteNumber(program.sessionHours));
+  // Three prices. Monthly is the primary. Migrate legacy basePrice/discountedPrice.
+  program.monthlyPrice = nonNegativeMoney(program.monthlyPrice ?? program.basePrice);
+  program.fullPrice = nonNegativeMoney(program.fullPrice ?? program.basePrice);
+  program.discountedPrice = nonNegativeMoney(program.discountedPrice);
+  program.basePrice = program.fullPrice; // keep legacy field aligned to full price
+  program.nidamShift = Boolean(program.nidamShift);
+  return program;
+}
+
+function normalizeTimeInput(value) {
+  const text = cleanText(value);
+  return /^\d{2}:\d{2}$/.test(text) ? text : "";
+}
+
+function availabilitySlotKey(day, start, end) {
+  return `${normalizeDayKey(day)}|${normalizeTimeInput(start)}|${normalizeTimeInput(end)}`;
+}
+
+function normalizeDayKey(value) {
+  const text = cleanText(value).normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase();
+  const map = {
+    lundi: "monday", mardi: "tuesday", mercredi: "wednesday", jeudi: "thursday",
+    vendredi: "friday", samedi: "saturday", dimanche: "sunday",
+  };
+  return map[text] || text;
+}
+
+function normalizeAvailability(input) {
+  const base = { weekly: {}, overrides: {}, updatedAt: null };
+  if (!input || typeof input !== "object") return base;
+  // weekly: { "monday|09:00|11:00": true/false }
+  if (input.weekly && typeof input.weekly === "object") {
+    for (const [key, value] of Object.entries(input.weekly)) {
+      base.weekly[cleanText(key)] = Boolean(value);
+    }
+  }
+  // overrides: { "2026-09-13": { "09:00|11:00": true/false } } — date-specific exceptions
+  if (input.overrides && typeof input.overrides === "object") {
+    for (const [date, slots] of Object.entries(input.overrides)) {
+      const validDate = validDateInput(date);
+      if (!validDate || !slots || typeof slots !== "object") continue;
+      base.overrides[validDate] = {};
+      for (const [slotKey, value] of Object.entries(slots)) {
+        base.overrides[validDate][cleanText(slotKey)] = Boolean(value);
+      }
+    }
+  }
+  base.updatedAt = input.updatedAt || null;
+  return base;
 }
 
 function paidForStudent(state, studentId) {
@@ -1002,18 +1103,59 @@ async function handleApi(req, res) {
       return json(res, 200, { removed: true, outcome: removed });
     }
 
+    if (method === "POST" && url.pathname === "/api/availability") {
+      const body = await parseBody(req);
+      const day = normalizeDayKey(body.day);
+      const start = normalizeTimeInput(body.timeStart || body.start);
+      const end = normalizeTimeInput(body.timeEnd || body.end);
+      if (!WEEK_DAYS.includes(day) || !start || !end) {
+        return json(res, 400, { error: "Availability needs a valid day, start time, and end time" });
+      }
+      const available = body.available === undefined ? true : Boolean(body.available);
+      const date = validDateInput(body.date);
+      state.availability = normalizeAvailability(state.availability);
+      if (date) {
+        // Date-specific override: "this exact Saturday" differs from the weekly default.
+        if (!state.availability.overrides[date]) state.availability.overrides[date] = {};
+        state.availability.overrides[date][`${start}|${end}`] = available;
+      } else {
+        state.availability.weekly[`${day}|${start}|${end}`] = available;
+      }
+      state.availability.updatedAt = now();
+      await storage.write(state);
+      return json(res, 200, state.availability);
+    }
+
+    if (method === "POST" && url.pathname === "/api/availability/clear-override") {
+      const body = await parseBody(req);
+      const date = validDateInput(body.date);
+      state.availability = normalizeAvailability(state.availability);
+      if (date && state.availability.overrides[date]) {
+        delete state.availability.overrides[date];
+        state.availability.updatedAt = now();
+        await storage.write(state);
+      }
+      return json(res, 200, state.availability);
+    }
+
     if (method === "POST" && url.pathname === "/api/programs") {
       const body = await parseBody(req);
-      const item = {
+      const item = normalizeProgram({
         id: id("prg"),
-        name: cleanText(body.name),
-        durationLabel: cleanText(body.durationLabel),
-        durationMonths: wholeNumber(body.durationMonths),
-        basePrice: nonNegativeMoney(body.basePrice),
-        discountedPrice: nonNegativeMoney(body.discountedPrice),
-        notes: cleanText(body.notes),
+        name: body.name,
+        durationValue: body.durationValue,
+        durationUnit: body.durationUnit,
+        durationLabel: body.durationLabel,
+        durationMonths: body.durationMonths,
+        sessionsPerWeek: body.sessionsPerWeek,
+        sessionHours: body.sessionHours,
+        monthlyPrice: body.monthlyPrice,
+        fullPrice: body.fullPrice ?? body.basePrice,
+        discountedPrice: body.discountedPrice,
+        nidamShift: body.nidamShift,
+        notes: body.notes,
         createdAt: now(),
-      };
+      });
       if (!item.name) return json(res, 400, { error: "Program name is required" });
       if (duplicateName(state.programs, item.name)) return json(res, 409, { error: "This training already exists" });
       state.programs.push(item);
@@ -1032,11 +1174,19 @@ async function handleApi(req, res) {
         return json(res, 409, { error: "This training already exists" });
       }
       program.name = nextName;
-      program.durationLabel = cleanText(body.durationLabel);
-      program.durationMonths = wholeNumber(body.durationMonths);
-      program.basePrice = nonNegativeMoney(body.basePrice);
-      program.discountedPrice = nonNegativeMoney(body.discountedPrice);
+      if (body.durationValue !== undefined) program.durationValue = body.durationValue;
+      if (body.durationUnit !== undefined) program.durationUnit = body.durationUnit;
+      // Clear derived fields so normalizeProgram recomputes from the new value/unit.
+      delete program.durationLabel;
+      delete program.durationMonths;
+      if (body.sessionsPerWeek !== undefined) program.sessionsPerWeek = body.sessionsPerWeek;
+      if (body.sessionHours !== undefined) program.sessionHours = body.sessionHours;
+      if (body.monthlyPrice !== undefined) program.monthlyPrice = body.monthlyPrice;
+      if (body.fullPrice !== undefined || body.basePrice !== undefined) program.fullPrice = body.fullPrice ?? body.basePrice;
+      if (body.discountedPrice !== undefined) program.discountedPrice = body.discountedPrice;
+      if (body.nidamShift !== undefined) program.nidamShift = body.nidamShift;
       program.notes = cleanText(body.notes);
+      normalizeProgram(program);
       program.updatedAt = now();
       await storage.write(state);
       return json(res, 200, program);

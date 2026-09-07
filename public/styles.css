@@ -292,6 +292,16 @@ td { font-size: .8rem; }
 .planner-slot.free { background: #dcfce7; }
 .planner-slot.warning { background: #fef3c7; }
 .planner-slot.busy { background: #fee2e2; }
+.planner-slot.blocked { background: #e2e8f0; color: var(--slate-500); cursor: not-allowed; }
+.planner-slot.blocked span, .planner-slot.blocked strong { color: var(--slate-500); }
+.availability-slot { cursor: pointer; }
+.availability-slot.free { background: #dcfce7; box-shadow: inset 0 0 0 1px #86efac; }
+.availability-slot.busy { background: #e2e8f0; box-shadow: inset 0 0 0 1px var(--slate-300); }
+.availability-slot.busy span, .availability-slot.busy strong { color: var(--slate-500); }
+.availability-slot strong { font-size: 1rem; }
+.planner-mode-switch { display: inline-flex; border: 1px solid var(--slate-200); border-radius: 999px; overflow: hidden; background: #fff; }
+.planner-mode-switch button { padding: 8px 14px; border: 0; background: transparent; color: var(--slate-600); font-size: .78rem; font-weight: 600; cursor: pointer; }
+.planner-mode-switch button.active { background: var(--green-600); color: #fff; }
 .empty-slot { color: var(--slate-400); text-align: center; }
 .planner-day-detail { padding: 14px; border: 1px solid var(--slate-200); border-radius: 16px; background: rgba(255,255,255,.9); box-shadow: var(--shadow-sm); }
 .planner-day-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
@@ -417,6 +427,14 @@ td { font-size: .8rem; }
 .payment-choice small { color: var(--slate-600); font-size: .72rem; font-weight: 500; line-height: 1.35; }
 .payment-choice.active span { border-color: var(--green-600); }
 .payment-grid { align-items: end; }
+.span-2 { grid-column: span 2; }
+.field-note { display: block; margin-top: 4px; color: var(--slate-500); font-size: .72rem; }
+.price-main input { border-color: var(--green-600); box-shadow: 0 0 0 3px rgba(22,163,74,.1); }
+.price-main span em { color: var(--green-700); font-style: normal; font-weight: 600; }
+.switch-field { display: flex; align-items: flex-start; gap: 10px; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--slate-200); border-radius: 12px; background: var(--slate-50); cursor: pointer; }
+.switch-field input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+.switch-field strong { display: block; font-size: .88rem; color: var(--navy-900); }
+.switch-field small { display: block; margin-top: 2px; color: var(--slate-600); font-size: .74rem; }
 .payment-status { display: grid; gap: 4px; justify-items: start; }
 .payment-status small, .number-cell small { display: block; margin-top: 3px; color: var(--slate-500); font-size: .67rem; font-weight: 500; white-space: normal; }
 .balance-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }

@@ -28,8 +28,13 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - Imported spend uses Meta `Reporting starts`/`Reporting ends`; if those columns are missing, import falls back to report dates parsed from the filename.
 - All source CSV columns are retained in `dailyLogs[].raw`, while secondary fields and identifiers remain hidden by default in the UI.
 - Programs are also used as trainings in the school operations section. Groups reference programs, students reference groups, and payments reference students.
-- Groups support `attendanceMode: "fixed"` or `attendanceMode: "flexible_shift"`. Flexible shift groups store `alternateDays`, `alternateTimeStart`, and `alternateTimeEnd` so one group can support morning/night attendance.
-- The operations UI includes a weekly planning assistant that shows Monday-Sunday, colors empty/conflicting/busy slots, drills into one day for exact hours, scores each slot by overlap with existing groups, and can create a suggested formation/group.
+- A training stores structured fields: numeric `durationValue` + `durationUnit` (`months`/`years`, with derived `durationLabel`/`durationMonths`), `sessionsPerWeek`, `sessionHours`, three prices (`monthlyPrice` is the primary, plus `fullPrice` and cash/`discountedPrice`), and a `nidamShift` flag. Legacy `durationLabel`/`basePrice` migrate into these fields at load (schema v6). `basePrice` is kept aligned to `fullPrice` for back-compat.
+- Payment plans map to training prices: `monthly` uses the monthly price, `paid_full`/`custom` default to the cash (discounted) price. A group `price`/`discountedPrice` overrides the training price when set.
+- Groups support `attendanceMode: "fixed"` or `attendanceMode: "flexible_shift"`. Flexible shift groups store `alternateDays`, `alternateTimeStart`, and `alternateTimeEnd` so one group can support morning/night attendance. A training with `nidamShift` makes new groups default to `flexible_shift`; the group form pre-selects the mode from the training.
+- One training can have multiple groups with different schedules. When registering a student the group `<select>` is grouped by training (`<optgroup>`) showing each group's schedule and free spots, so an agent can place a student into any group/session of the same training (cross-group drop-in). Full groups are disabled in the picker.
+- Teacher availability is a global weekly grid in `state.availability`: `weekly` maps `"<day>|<start>|<end>"` to available/false (default available when absent), and `overrides` maps a specific date to per-slot exceptions that win over the weekly default. `POST /api/availability` toggles a weekly slot or a date override; `POST /api/availability/clear-override` drops a date's exceptions.
+- The operations planner has two modes: "Planifier" (suggestions) and "Disponibilité prof". In availability mode the agent clicks weekly slots to toggle the teacher available/unavailable. In plan mode, slots where the teacher is unavailable render as blocked and cannot create a group.
+- The operations UI includes a weekly planning assistant that shows Monday-Sunday, colors empty/conflicting/busy/blocked slots, drills into one day for exact hours, scores each slot by overlap with existing groups and teacher availability, and can create a suggested formation/group.
 - The operations UI includes a `Charger planning image` action backed by `POST /api/operations/seed-screenshot-schedule`. It seeds the clearly readable Excel-photo records once: Comptabilité 3 mois, Comptabilité 5 mois, Comptabilité complet, RH, and the visible Tue-Sun 10:00-20:00 groups.
 - Group capacity is derived from non-cancelled students in each group. Remaining student balance is derived from `student.totalDue - sum(payments.amount)`.
 - Student payment agreements support `paid_full`, `monthly`, and `custom`. Paid-full is for cash/full-course deals, monthly can store installment amount/count/start/next due date, and custom stores exceptional split agreements plus notes and the exact next-payment date.
@@ -63,8 +68,10 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - `POST /api/meta-import` - validates and synchronizes an ad-level Meta Ads CSV.
 - `POST /api/settings/scoring` - saves optional timing/rate assumptions used by the automatic score.
 - `POST /api/reset-data` - resets CRM records to a clean empty state while preserving centre/currency settings.
-- `POST /api/programs` - creates a training, including optional duration and default prices.
-- `PATCH /api/programs/:id` - updates a training.
+- `POST /api/programs` - creates a training with numeric duration (value + unit), sessions/week, session hours, three prices (monthly/full/discounted), and the nidam-shift flag.
+- `PATCH /api/programs/:id` - updates a training and recomputes derived duration fields.
+- `POST /api/availability` - toggles a teacher-availability slot; a `date` makes it a date-specific override, otherwise it sets the weekly default.
+- `POST /api/availability/clear-override` - removes all date-specific overrides for one date, restoring the weekly default.
 - `POST /api/groups` - creates a scheduled training group with days, time, capacity, pricing, and optional nidam-shift alternate timing.
 - `PATCH /api/groups/:id` - updates a group without allowing capacity below current enrollment.
 - `POST /api/students` - registers a student into a group with a flexible payment agreement and can record an initial payment.
