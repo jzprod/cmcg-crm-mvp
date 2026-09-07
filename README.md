@@ -20,6 +20,8 @@ Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It syn
 - Adds a secure **Groupes & paiements** operations section at `/groups` for trainings, scheduled class groups, capacity, student registrations, installments, and remaining balances.
 - Includes a weekly planning assistant with all days visible, colored empty/busy slots, and a day drill-down for exact available hours before creating a formation/group.
 - Supports **nidam shift** groups where the same group can have a main morning/evening slot plus an alternate shift slot.
+- Registers flexible student payment agreements: paid full/cash discount, monthly installments using the normal price, or any custom split with notes and a next-payment date.
+- Shows remaining balances and payment alerts so sales can follow who owes money, who is overdue, and who is scheduled next.
 - Adds a language selector with right-to-left Arabic mode for the full platform, including dialogs, forms, placeholders, alerts, toasts, and generated planner text.
 - Supports separate admin and sales logins: admin sees ads, spend, cost/lead, cost/register, imports, backups, and all operations; sales sees only the student operations area and their own student records.
 - Can load the readable trainings/groups from the provided Excel screenshot into editable CRM records.
@@ -83,7 +85,7 @@ See [HOSTINGER_DEPLOYMENT.md](HOSTINGER_DEPLOYMENT.md) for deployment, verificat
 5. Add only the outcomes Meta cannot know: booked, showed without registration, or registered.
 6. When assigning an outcome to an ad, choose **Campaign -> Ad set -> Ad** so duplicate ad names stay separated.
 7. Use **Performance** to group and compare Ads, Ad sets, Campaigns, or Agents.
-8. Open `/groups` or use **Groupes & paiements** to create trainings, inspect the weekly planning calendar, click any empty slot, drill into a day for exact hours/conflicts, schedule fixed or nidam-shift groups, register students, record installment payments, and watch group capacity.
+8. Open `/groups` or use **Groupes & paiements** to create trainings, inspect the weekly planning calendar, click any empty slot, drill into a day for exact hours/conflicts, schedule fixed or nidam-shift groups, register students, choose the exact payment agreement, record payments, and watch group capacity.
 9. To import the readable old Excel schedule from the screenshot, open **Groupes & paiements** and click **Charger planning image** once. Repeating it does not duplicate the seeded records.
 
 Business quality learns from gathered data. It rewards low cost per registered student, low cost per total visit, low cost per booked appointment, strong outcome volume, and healthy visit-to-registration close rate. Rows stay **Awaiting** inside the closing window, tiny mature spends stay **Not enough**, and a row only turns **Weak** after enough time and spend have passed to judge it fairly.

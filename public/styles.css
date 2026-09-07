@@ -382,6 +382,7 @@ td { font-size: .8rem; }
 
 .modal { width: min(620px, calc(100% - 28px)); max-height: calc(100vh - 30px); padding: 0; overflow: auto; border: 0; border-radius: var(--radius-lg); box-shadow: 0 24px 70px rgba(15,23,42,.28); }
 .outcome-modal { width: min(720px, calc(100% - 28px)); }
+.wide-modal { width: min(920px, calc(100% - 28px)); }
 .modal::backdrop { background: rgba(7,17,31,.62); backdrop-filter: blur(3px); }
 .modal-content { padding: 24px; }
 .modal-head { margin-bottom: 18px; }
@@ -402,6 +403,25 @@ td { font-size: .8rem; }
 .attribution-box { display: grid; gap: 10px; margin: 14px 0; padding: 14px; border: 1px solid var(--slate-200); border-radius: 12px; background: var(--slate-50); }
 .attribution-box p { margin: 1px 0 0; color: var(--slate-600); font-size: .75rem; }
 .form-hint { color: var(--blue-700) !important; font-size: .74rem; }
+.payment-agreement-box { display: grid; gap: 12px; margin: 15px 0; padding: 15px; border: 1px solid #bbf7d0; border-radius: 15px; background: linear-gradient(135deg, #f0fdf4, #ffffff 64%); }
+.agreement-head h3 { margin: 0; font-size: 1rem; }
+.agreement-head p:not(.section-kicker) { margin: 2px 0 0; color: var(--slate-600); font-size: .8rem; }
+.payment-choice-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.payment-choice { position: relative; display: block; cursor: pointer; }
+.payment-choice input { position: absolute; opacity: 0; pointer-events: none; }
+.payment-choice span { min-height: 92px; display: grid; align-content: center; gap: 4px; padding: 13px; border: 1px solid var(--slate-300); border-radius: 12px; background: white; transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease; }
+.payment-choice:hover span { border-color: var(--green-600); }
+.payment-choice input:focus-visible + span { outline: 3px solid rgba(29,78,216,.28); outline-offset: 2px; }
+.payment-choice input:checked + span { border-color: var(--green-600); background: var(--green-50); box-shadow: 0 0 0 3px rgba(22,163,74,.12); }
+.payment-choice strong { color: var(--navy-900); font-size: .88rem; }
+.payment-choice small { color: var(--slate-600); font-size: .72rem; font-weight: 500; line-height: 1.35; }
+.payment-choice.active span { border-color: var(--green-600); }
+.payment-grid { align-items: end; }
+.payment-status { display: grid; gap: 4px; justify-items: start; }
+.payment-status small, .number-cell small { display: block; margin-top: 3px; color: var(--slate-500); font-size: .67rem; font-weight: 500; white-space: normal; }
+.balance-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.payment-alert-row { align-items: center; }
+.payment-alert-row .status-pill { width: fit-content; margin-top: 6px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 19px; }
 .toast { max-width: min(440px, calc(100% - 28px)); position: fixed; right: 18px; bottom: 18px; z-index: 60; padding: 12px 15px; border-radius: 10px; background: var(--navy-900); color: white; box-shadow: 0 14px 38px rgba(15,23,42,.25); }
 .toast.error { background: #7f1d1d; }
@@ -423,7 +443,10 @@ td { font-size: .8rem; }
 .is-arabic .planner-day-tabs button,
 .is-arabic .planner-day-detail,
 .is-arabic .planner-day-head,
-.is-arabic .planner-slot { text-align: right; }
+.is-arabic .planner-slot,
+.is-arabic .payment-agreement-box,
+.is-arabic .payment-status { text-align: right; }
+.is-arabic .payment-status { justify-items: end; }
 .is-arabic .tab,
 .is-arabic .sidebar-import,
 .is-arabic .brand,
@@ -494,7 +517,7 @@ td { font-size: .8rem; }
   .period-card { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .kpi:first-child { grid-column: 1 / -1; }
-  .outcome-guide, .filter-grid, .form-grid, .form-grid.two, .outcome-types, .agent-form, .operations-filters .filter-grid, .student-detail-grid, .group-numbers, .planner-form { grid-template-columns: 1fr; }
+  .outcome-guide, .filter-grid, .form-grid, .form-grid.two, .outcome-types, .payment-choice-grid, .agent-form, .operations-filters .filter-grid, .student-detail-grid, .group-numbers, .planner-form { grid-template-columns: 1fr; }
   .planner-day-tabs { grid-template-columns: 1fr; }
   .planner-day-slot { align-items: stretch; flex-direction: column; }
   .planner-day-slot .button { width: 100%; }

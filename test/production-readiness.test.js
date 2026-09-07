@@ -163,10 +163,13 @@ test("training groups track capacity, installments, and student timeline events"
 
   const student = await request("/api/students", { method: "POST", body: { groupId: group.id, agentId: agent.id, name: "Ali Student", phone: "+212600000001", registeredAt: "2026-09-07", totalDue: 2500, paymentPlan: "installments", initialPaid: 500 }, expectedStatus: 201 });
   assert.equal(student.totalDue, 2500);
+  assert.equal(student.paymentPlan, "monthly");
+  assert.equal(student.nextPaymentDate, "2026-10-07");
   await request(`/api/students/${student.id}/payments`, { method: "POST", body: { amount: 1000, paidAt: "2026-09-10", method: "cash", notes: "Second installment" }, expectedStatus: 201 });
   const updated = await request(`/api/students/${student.id}`, { method: "PATCH", body: { name: "Ali Student", status: "active", groupId: group.id, agentId: agent.id, totalDue: 2400, paymentPlan: "installments" }, expectedStatus: 200 });
   assert.equal(updated.status, "active");
   assert.equal(updated.totalDue, 2400);
+  assert.equal(updated.nextPaymentDate, "2026-10-10");
 
   await request("/api/students", { method: "POST", body: { groupId: group.id, name: "Second Student", totalDue: 2500 }, expectedStatus: 201 });
   await request("/api/students", { method: "POST", body: { groupId: group.id, name: "Third Student", totalDue: 2500 }, expectedStatus: 400 });
@@ -176,6 +179,55 @@ test("training groups track capacity, installments, and student timeline events"
   assert.equal(snapshot.students.length, 2);
   assert.equal(snapshot.payments.filter((payment) => payment.studentId === student.id).reduce((sum, payment) => sum + payment.amount, 0), 1500);
   assert.equal(snapshot.events.filter((event) => event.studentId === student.id).length, 4);
+});
+
+test("flexible student payment agreements support cash, monthly, and custom splits", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-flex-payments-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl, authHeader } = await startApp(dataFile, { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const training = await request("/api/programs", { method: "POST", body: { name: "Allemand 5 mois", durationLabel: "5 mois", basePrice: 5000, discountedPrice: 3000 }, expectedStatus: 201 });
+  const agent = await request("/api/agents", { method: "POST", body: { name: "SM" }, expectedStatus: 201 });
+  const group = await request("/api/groups", { method: "POST", body: { programId: training.id, name: "Groupe flexible", days: "Monday", timeStart: "10:00", timeEnd: "12:00", capacity: 10, price: 5000, discountedPrice: 3000 }, expectedStatus: 201 });
+
+  const paidFull = await request("/api/students", {
+    method: "POST",
+    body: { groupId: group.id, agentId: agent.id, name: "Cash Student", registeredAt: "2026-09-01", paymentPlan: "paid_full", initialPaid: 3000 },
+    expectedStatus: 201,
+  });
+  assert.equal(paidFull.totalDue, 3000);
+  assert.equal(paidFull.paymentPlan, "paid_full");
+  assert.equal(paidFull.nextPaymentDate, "");
+
+  const monthly = await request("/api/students", {
+    method: "POST",
+    body: { groupId: group.id, agentId: agent.id, name: "Monthly Student", registeredAt: "2026-09-01", paymentPlan: "monthly", totalDue: 5000, initialPaid: 1000, paymentStartDate: "2026-09-01", installmentAmount: 1000, installmentsCount: 5 },
+    expectedStatus: 201,
+  });
+  assert.equal(monthly.totalDue, 5000);
+  assert.equal(monthly.installmentAmount, 1000);
+  assert.equal(monthly.installmentsCount, 5);
+  assert.equal(monthly.nextPaymentDate, "2026-10-01");
+
+  const custom = await request("/api/students", {
+    method: "POST",
+    body: { groupId: group.id, agentId: agent.id, name: "Custom Student", registeredAt: "2026-09-01", paymentPlan: "custom", totalDue: 3000, initialPaid: 1500, nextPaymentDate: "2026-10-01", agreementNote: "1500 now, 1500 next month" },
+    expectedStatus: 201,
+  });
+  assert.equal(custom.paymentPlan, "custom");
+  assert.equal(custom.nextPaymentDate, "2026-10-01");
+  assert.equal(custom.agreementNote, "1500 now, 1500 next month");
+
+  await request(`/api/students/${monthly.id}/payments`, { method: "POST", body: { amount: 1000, paidAt: "2026-10-01", method: "cash" }, expectedStatus: 201 });
+  await request(`/api/students/${custom.id}/payments`, { method: "POST", body: { amount: 1500, paidAt: "2026-10-01", method: "cash" }, expectedStatus: 201 });
+  const snapshot = (await request("/api/state")).state;
+  const monthlyAfter = snapshot.students.find((student) => student.id === monthly.id);
+  const customAfter = snapshot.students.find((student) => student.id === custom.id);
+  assert.equal(monthlyAfter.nextPaymentDate, "2026-11-01");
+  assert.equal(snapshot.payments.filter((payment) => payment.studentId === custom.id).reduce((sum, payment) => sum + payment.amount, 0), 3000);
+  assert.equal(customAfter.nextPaymentDate, "");
 });
 
 test("student operations route is locked until CRM auth is configured", async (t) => {
@@ -395,6 +447,15 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /groupForm/);
   assert.match(app, /studentForm/);
   assert.match(app, /paymentForm/);
+  assert.match(app, /payment-agreement-box/);
+  assert.match(app, /paid_full/);
+  assert.match(app, /paymentPlanHelp/);
+  assert.match(app, /installmentAmount/);
+  assert.match(app, /installmentsCount/);
+  assert.match(app, /nextPaymentDate/);
+  assert.match(app, /agreementNote/);
+  assert.match(app, /paymentDueStatus/);
+  assert.match(app, /syncStudentPaymentFields/);
   assert.match(app, /studentDetailDialog/);
   assert.match(app, /panelFromLocation/);
   assert.match(app, /studentDataUnlocked/);

@@ -32,6 +32,8 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - The operations UI includes a weekly planning assistant that shows Monday-Sunday, colors empty/conflicting/busy slots, drills into one day for exact hours, scores each slot by overlap with existing groups, and can create a suggested formation/group.
 - The operations UI includes a `Charger planning image` action backed by `POST /api/operations/seed-screenshot-schedule`. It seeds the clearly readable Excel-photo records once: Comptabilité 3 mois, Comptabilité 5 mois, Comptabilité complet, RH, and the visible Tue-Sun 10:00-20:00 groups.
 - Group capacity is derived from non-cancelled students in each group. Remaining student balance is derived from `student.totalDue - sum(payments.amount)`.
+- Student payment agreements support `paid_full`, `monthly`, and `custom`. Paid-full is for cash/full-course deals, monthly can store installment amount/count/start/next due date, and custom stores exceptional split agreements plus notes and the exact next-payment date.
+- Payment due status is computed from the remaining balance and `nextPaymentDate`; fully paid students clear the next date, while monthly payments advance by one month only after a payment is recorded.
 - Student history is traceable through `events[]` entries keyed by `studentId` for registration, edits, and payments.
 - If Basic Auth is not configured and sensitive student data exists, `/api/state` redacts groups, students, payments, and student events instead of exposing them.
 - Arabic mode is client-side through the language selector. It sets `html dir="rtl"`, applies Arabic fonts, and translates static/dynamic UI copy, generated dialogs, placeholders, alerts, toasts, planner text, and common API errors using the local dictionary in `public/app.js`.
@@ -65,9 +67,9 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - `PATCH /api/programs/:id` - updates a training.
 - `POST /api/groups` - creates a scheduled training group with days, time, capacity, pricing, and optional nidam-shift alternate timing.
 - `PATCH /api/groups/:id` - updates a group without allowing capacity below current enrollment.
-- `POST /api/students` - registers a student into a group and can record an initial payment.
+- `POST /api/students` - registers a student into a group with a flexible payment agreement and can record an initial payment.
 - `PATCH /api/students/:id` - edits student/group/payment agreement/status fields and records a timeline event.
-- `POST /api/students/:id/payments` - records an installment/payment and timeline event.
+- `POST /api/students/:id/payments` - records a payment, updates the next due date when needed, and records a timeline event.
 - `POST /api/operations/seed-screenshot-schedule` - creates readable trainings/groups extracted from the provided Excel screenshot without duplicating on repeat clicks.
 - `PATCH /api/agents/:id` - renames or updates an agent and reruns automatic imported ad-set matching.
 - `DELETE /api/agents/:id` - deletes an agent and clears related agent links without deleting imported advertising data.
@@ -89,7 +91,7 @@ node --check public/quality.js
 - **Overview** - date-windowed spend, messages, booked appointments, visits, registrations, quality-ranked ads, agent results, and a large multi-metric trend graph controlled by the KPI cards. Cost per registration is inverted visually so upward movement means lower cost.
 - **Performance** - group by ad, ad set, campaign, or agent; filter, sort by business quality/spend/outcomes/costs/rates, and reveal optional Meta columns.
 - **Outcomes** - add and audit the three manual outcome types; ad attribution is chosen by Campaign -> Ad set -> Ad.
-- **Groupes & paiements** - secure `/groups` area for French/Arabic school operations, weekly calendar planning, day/hour drill-down, screenshot schedule seeding, fixed or nidam-shift groups, capacity preview, training/timing/payment/search filters, student registration, payment recording, and student timelines.
+- **Groupes & paiements** - secure `/groups` area for French/Arabic school operations, weekly calendar planning, day/hour drill-down, screenshot schedule seeding, fixed or nidam-shift groups, capacity preview, training/timing/payment/search filters, student registration with paid-full/monthly/custom agreements, payment recording, due-payment alerts, and student timelines.
 - **Agents** - create, rename, or delete independent agents, review automatic ad-set matching, and see agent closing quality.
 - **Import & data** - upload reports, audit import history, download backups, restore, and reset old data before a clean start.
 
@@ -99,4 +101,4 @@ node --check public/quality.js
 - Direct Meta Marketing API synchronization and WhatsApp Cloud API webhooks.
 - Person-level lead lifecycle so a booked appointment, show-up, and registration can be linked to one student record.
 - Normalized MySQL tables and migrations when reporting volume requires SQL analytics.
-- Payment due dates, reminders, and receipt uploads.
+- Receipt uploads and automated WhatsApp/SMS reminders for upcoming or overdue payments.

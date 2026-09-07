@@ -481,6 +481,7 @@ Object.assign(ar, {
   "Prix groupe": "سعر الفوج",
   "Prix formation": "سعر التكوين",
   "Optionnel": "اختياري",
+  "optionnel": "اختياري",
   "Date début": "تاريخ البداية",
   "Date fin": "تاريخ النهاية",
   "Statut": "الحالة",
@@ -493,19 +494,40 @@ Object.assign(ar, {
   "Inscrire étudiant": "تسجيل طالب",
   "Modifier étudiant": "تعديل الطالب",
   "Assignez l'étudiant au groupe et enregistrez le prix convenu.": "عيّن الطالب في الفوج وسجّل السعر المتفق عليه.",
+  "Assignez l'étudiant au groupe et enregistrez l'accord de paiement exact.": "عيّن الطالب في الفوج وسجّل اتفاق الأداء بدقة.",
   "Nom étudiant": "اسم الطالب",
   "Nom complet": "الاسم الكامل",
   "Téléphone": "الهاتف",
   "Agent commercial": "المستشار التجاري",
   "Date inscription": "تاريخ التسجيل",
+  "Accord paiement": "اتفاق الأداء",
+  "Comment l'étudiant va payer": "طريقة أداء الطالب",
+  "Choisissez cash, mensuel, ou un accord spécial.": "اختر الأداء نقداً، شهرياً، أو اتفاقاً خاصاً.",
+  "Use this when the student pays the whole course price now, usually the cash discount.": "استعمل هذا الخيار عندما يؤدي الطالب ثمن التكوين كاملاً الآن، غالباً بالسعر النقدي المخفض.",
+  "Use this when the student pays a higher total split month by month.": "استعمل هذا الخيار عندما يكون الثمن الإجمالي أعلى ومقسماً على دفعات شهرية.",
+  "Use this for exceptions: choose the total deal, what they paid now, and the exact next follow-up date.": "استعمل هذا الخيار للحالات الخاصة: حدّد الثمن المتفق عليه، ما دفعه الآن، وتاريخ المتابعة القادم بدقة.",
   "Mode paiement": "طريقة الأداء",
   "Paiement total": "أداء كامل",
   "Paiement par tranches": "أداء بالتقسيط",
+  "Payé full / Cash": "أداء كامل / نقداً",
+  "Prix cash quand il paie tout le cours.": "السعر النقدي عندما يؤدي التكوين كاملاً.",
+  "Paiement mensuel": "أداء شهري",
+  "Total plus élevé, payé chaque mois.": "ثمن إجمالي أعلى يُؤدى كل شهر.",
+  "Accord spécial": "اتفاق خاص",
+  "Ex: 1500 maintenant, reste le mois prochain.": "مثلاً: 1500 الآن والباقي الشهر القادم.",
   "Prix final": "السعر النهائي",
+  "Prix convenu total": "الثمن الإجمالي المتفق عليه",
   "Payé maintenant": "المدفوع الآن",
+  "Date départ paiement": "تاريخ بداية الأداء",
+  "Montant chaque mois": "مبلغ كل شهر",
+  "Nombre de mois": "عدد الأشهر",
+  "Prochain paiement": "الأداء القادم",
+  "Ex: total 3000, il paie 1500 maintenant et 1500 le mois prochain": "مثلاً: المجموع 3000، أدى 1500 الآن و1500 الشهر القادم",
   "Inscrit": "مسجل",
   "Annulé": "ملغى",
   "Accord paiement, documents, remarques": "اتفاق الأداء، الوثائق، الملاحظات",
+  "Notes étudiant": "ملاحظات الطالب",
+  "Documents, remarques, besoin particulier": "الوثائق، الملاحظات، أو أي احتياج خاص",
   "Enregistrer étudiant": "حفظ الطالب",
   "Paiement · أداء": "الأداء",
   "Ajouter paiement": "إضافة أداء",
@@ -517,6 +539,7 @@ Object.assign(ar, {
   "Virement": "تحويل بنكي",
   "Carte": "بطاقة",
   "Autre": "أخرى",
+  "Prochain paiement optionnel": "الأداء القادم اختياري",
   "Reçu, tranche, rappel": "وصل، قسط، تذكير",
   "Enregistrer paiement": "حفظ الأداء",
   "Historique étudiant": "تتبع الطالب",
@@ -527,6 +550,20 @@ Object.assign(ar, {
   "Aucun paiement enregistré.": "لا يوجد أي أداء مسجل.",
   "Ancien dossier étudiant": "ملف طالب قديم",
   "Aucun événement enregistré.": "لا يوجد أي حدث مسجل.",
+  "Paid full / cash": "أداء كامل / نقداً",
+  "Monthly payments": "أداء شهري",
+  "Custom agreement": "اتفاق خاص",
+  "Paid full": "مؤدى بالكامل",
+  "No remaining balance": "لا يوجد مبلغ متبقٍ",
+  "Overdue payment": "أداء متأخر",
+  "Due today": "مستحق اليوم",
+  "Collect today": "يجب التحصيل اليوم",
+  "Due soon": "قريب الاستحقاق",
+  "Next payment scheduled": "الأداء القادم مبرمج",
+  "Flexible balance": "باقي باتفاق مرن",
+  "No next date set": "لم يتم تحديد التاريخ القادم",
+  "No payment yet": "لم يتم الأداء بعد",
+  "Collect first payment": "حصّل الدفعة الأولى",
   "Choose the CSV version of your Meta report": "اختر نسخة CSV من تقرير Meta",
   "The CSV is larger than 9 MB": "ملف CSV أكبر من 9 MB",
   "ready to import": "جاهز للاستيراد",
@@ -623,6 +660,11 @@ Object.assign(ar, {
 });
 
 arDynamic.push(
+  [/^(.+) each month$/, "$1 كل شهر"],
+  [/^(.+) payments$/, "$1 دفعات"],
+  [/^Next: (.+)$/, "القادم: $1"],
+  [/^Due in (.+) days$/, "مستحق بعد $1 أيام"],
+  [/^(.+) days late$/, "متأخر بـ $1 أيام"],
   [/^(\d+) créneau libre$/, "$1 وقت متاح"],
   [/^(\d+) créneaux libres$/, "$1 أوقات متاحة"],
   [/^(\d+) conflit$/, "$1 تعارض"],
@@ -1380,6 +1422,78 @@ function studentGroup(student) { return byId(state.groups, student?.groupId); }
 function studentTraining(student) { return groupTraining(studentGroup(student)); }
 function studentPaid(student) { return state.payments.filter((payment) => payment.studentId === student?.id).reduce((sum, payment) => sum + Number(payment.amount || 0), 0); }
 function studentRemaining(student) { return Math.max(0, Number(student?.totalDue || 0) - studentPaid(student)); }
+function parseInputDate(value) {
+  const text = String(value || "").slice(0, 10);
+  const date = text && /^\d{4}-\d{2}-\d{2}$/.test(text) ? new Date(`${text}T00:00:00`) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+function todayInput() {
+  return new Date().toISOString().slice(0, 10);
+}
+function addMonthsInput(value, months = 1) {
+  const date = parseInputDate(value);
+  if (!date) return "";
+  const originalDay = date.getDate();
+  date.setMonth(date.getMonth() + months);
+  if (date.getDate() !== originalDay) date.setDate(0);
+  return date.toISOString().slice(0, 10);
+}
+function daysUntil(value) {
+  const date = parseInputDate(value);
+  if (!date) return null;
+  const today = parseInputDate(todayInput());
+  return Math.round((date.getTime() - today.getTime()) / 86400000);
+}
+function normalizePaymentPlanUi(value) {
+  const text = String(value || "").toLocaleLowerCase();
+  if (text === "full" || text === "cash" || text === "paid-full") return "paid_full";
+  if (text === "installments" || text === "installment") return "monthly";
+  return ["paid_full", "monthly", "custom"].includes(text) ? text : "paid_full";
+}
+function durationMonthsFor(group) {
+  const training = groupTraining(group);
+  const raw = [group?.durationLabel, training?.durationLabel, training?.durationMonths].filter(Boolean).join(" ");
+  const match = String(raw).match(/\d+/);
+  return match ? Math.max(1, Number(match[0])) : 0;
+}
+function groupCashPrice(group) {
+  const training = groupTraining(group);
+  return Number(group?.discountedPrice || training?.discountedPrice || group?.price || training?.basePrice || 0);
+}
+function groupRegularPrice(group) {
+  const training = groupTraining(group);
+  return Number(group?.price || training?.basePrice || group?.discountedPrice || training?.discountedPrice || 0);
+}
+function defaultPriceForPlan(group, plan) {
+  if (!group) return 0;
+  return normalizePaymentPlanUi(plan) === "monthly" ? groupRegularPrice(group) : groupCashPrice(group);
+}
+function paymentPlanLabel(student) {
+  const plan = normalizePaymentPlanUi(student?.paymentPlan);
+  if (plan === "monthly") return "Monthly payments";
+  if (plan === "custom") return "Custom agreement";
+  return "Paid full / cash";
+}
+function paymentDueStatus(student) {
+  const remaining = studentRemaining(student);
+  if (remaining <= 0) return { key: "paid", label: "Paid full", className: "quality-strong", detail: "No remaining balance" };
+  const paid = studentPaid(student);
+  const dueIn = daysUntil(student?.nextPaymentDate);
+  if (dueIn !== null && dueIn < 0) return { key: "overdue", label: "Overdue payment", className: "quality-weak", detail: `${Math.abs(dueIn)} days late` };
+  if (dueIn === 0) return { key: "due", label: "Due today", className: "quality-watch", detail: "Collect today" };
+  if (dueIn !== null && dueIn <= 7) return { key: "due_soon", label: "Due soon", className: "quality-watch", detail: `Due in ${dueIn} days` };
+  if (dueIn !== null) return { key: "scheduled", label: "Next payment scheduled", className: "quality-pending", detail: `Next: ${student.nextPaymentDate}` };
+  return paid > 0
+    ? { key: "balance", label: "Flexible balance", className: "quality-watch", detail: "No next date set" }
+    : { key: "none", label: "No payment yet", className: "quality-weak", detail: "Collect first payment" };
+}
+function paymentAgreementSummary(student) {
+  const parts = [paymentPlanLabel(student)];
+  if (student?.installmentAmount) parts.push(`${money(student.installmentAmount)} each month`);
+  if (student?.installmentsCount) parts.push(`${number(student.installmentsCount)} payments`);
+  if (student?.nextPaymentDate && studentRemaining(student) > 0) parts.push(`Next: ${student.nextPaymentDate}`);
+  return parts.join(" · ");
+}
 function simpleDay(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase();
 }
@@ -1605,10 +1719,8 @@ function paymentState(student) {
   return remaining > 0 ? "balance" : "paid";
 }
 function paymentBadge(student) {
-  const stateName = paymentState(student);
-  const label = stateName === "paid" ? "Payé" : stateName === "balance" ? "Reste à payer" : "Aucun paiement";
-  const className = stateName === "paid" ? "quality-strong" : stateName === "balance" ? "quality-watch" : "quality-weak";
-  return `<span class="status-pill ${className}">${label}</span>`;
+  const status = paymentDueStatus(student);
+  return `<div class="payment-status"><span class="status-pill ${status.className}">${escapeHtml(status.label)}</span><small>${escapeHtml(status.detail)}</small></div>`;
 }
 function filteredGroups() {
   return state.groups.filter((group) => {
@@ -1682,14 +1794,22 @@ function renderStudentRows() {
     const group = studentGroup(student);
     const training = studentTraining(student);
     const agent = byId(state.agents, student.agentId);
-    return `<tr><td><button class="link-button" type="button" data-student-detail="${escapeHtml(student.id)}"><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></button></td><td><div class="entity-cell"><strong>${escapeHtml(group?.name || "Sans groupe")}</strong><small>${escapeHtml(training?.name || "Formation inconnue")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></div></td><td>${escapeHtml(agent?.name || "Non assigné")}</td><td>${escapeHtml(student.registeredAt || "-")}</td><td class="number-cell">${money(studentPaid(student))}</td><td class="number-cell"><strong>${money(studentRemaining(student))}</strong></td><td>${paymentBadge(student)}</td><td><div class="agent-actions"><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Ajouter paiement pour ${escapeHtml(student.name)}">+</button><button class="icon-button small" type="button" data-edit-student="${escapeHtml(student.id)}" aria-label="Modifier ${escapeHtml(student.name)}"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 16.6 10.9-10.9 2.4 2.4L7.4 19H5v-2.4ZM17.1 4.5l1.1-1.1c.6-.6 1.6-.6 2.2 0l.2.2c.6.6.6 1.6 0 2.2l-1.1 1.1-2.4-2.4Z"/></svg></button></div></td></tr>`;
+    return `<tr><td><button class="link-button" type="button" data-student-detail="${escapeHtml(student.id)}"><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></button></td><td><div class="entity-cell"><strong>${escapeHtml(group?.name || "Sans groupe")}</strong><small>${escapeHtml(training?.name || "Formation inconnue")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></div></td><td>${escapeHtml(agent?.name || "Non assigné")}</td><td>${escapeHtml(student.registeredAt || "-")}</td><td class="number-cell">${money(studentPaid(student))}</td><td class="number-cell"><strong>${money(studentRemaining(student))}</strong><small>${escapeHtml(paymentAgreementSummary(student))}</small></td><td>${paymentBadge(student)}</td><td><div class="agent-actions"><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Ajouter paiement pour ${escapeHtml(student.name)}">+</button><button class="icon-button small" type="button" data-edit-student="${escapeHtml(student.id)}" aria-label="Modifier ${escapeHtml(student.name)}"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 16.6 10.9-10.9 2.4 2.4L7.4 19H5v-2.4ZM17.1 4.5l1.1-1.1c.6-.6 1.6-.6 2.2 0l.2.2c.6.6.6 1.6 0 2.2l-1.1 1.1-2.4-2.4Z"/></svg></button></div></td></tr>`;
   }).join("") : '<tr><td colspan="8" class="empty">Aucun étudiant ne correspond à ces filtres.</td></tr>';
 }
 function renderPaymentAlerts() {
-  const rows = filteredStudents().filter((student) => studentRemaining(student) > 0).sort((a, b) => studentRemaining(b) - studentRemaining(a)).slice(0, 12);
+  const urgency = { overdue: 0, due: 1, due_soon: 2, scheduled: 3, balance: 4, none: 5, paid: 9 };
+  const rows = filteredStudents().filter((student) => studentRemaining(student) > 0).sort((a, b) => {
+    const statusA = paymentDueStatus(a);
+    const statusB = paymentDueStatus(b);
+    return (urgency[statusA.key] ?? 8) - (urgency[statusB.key] ?? 8)
+      || String(a.nextPaymentDate || "9999-99-99").localeCompare(String(b.nextPaymentDate || "9999-99-99"))
+      || studentRemaining(b) - studentRemaining(a);
+  }).slice(0, 12);
   document.getElementById("paymentAlerts").innerHTML = rows.length ? rows.map((student) => {
     const group = studentGroup(student);
-    return `<div class="simple-list-row"><div><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(group?.name || "Sans groupe")} - payé ${money(studentPaid(student))}</small></div><div class="balance-actions"><strong>${money(studentRemaining(student))}</strong><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Ajouter paiement pour ${escapeHtml(student.name)}">+</button></div></div>`;
+    const status = paymentDueStatus(student);
+    return `<div class="simple-list-row payment-alert-row"><div><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(group?.name || "Sans groupe")} - ${escapeHtml(paymentAgreementSummary(student))}</small><span class="status-pill ${status.className}">${escapeHtml(status.label)}</span></div><div class="balance-actions"><strong>${money(studentRemaining(student))}</strong><button class="row-add" type="button" data-add-payment="${escapeHtml(student.id)}" aria-label="Ajouter paiement pour ${escapeHtml(student.name)}">+</button></div></div>`;
   }).join("") : '<div class="empty success-empty">Aucun reste à payer dans cette vue.</div>';
 }
 function renderOperations() {
@@ -1982,8 +2102,8 @@ function ensureOperationsDialogs() {
   document.body.insertAdjacentHTML("beforeend", `
     <dialog id="trainingDialog" class="modal"><form id="trainingForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Formation · تكوين</p><h2>Ajouter formation</h2><p>Nom du cours, durée, prix normal et prix remisé.</p></div><button class="icon-button" type="button" data-close-training aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom formation</span><input name="name" required placeholder="Comptabilité 3 mois" autocomplete="off" /></label><label><span>Durée</span><input name="durationLabel" placeholder="3 mois, 5 mois, année complète" /></label><label><span>Prix normal</span><input name="basePrice" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Prix remisé</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="0" /></label></div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Ce que la formation inclut"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-training>Annuler</button><button class="button primary" type="submit">Enregistrer formation</button></div></form></dialog>
     <dialog id="groupDialog" class="modal outcome-modal"><form id="groupForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Groupe · فوج</p><h2>Ajouter groupe</h2><p>Créez un créneau avec capacité, prix, et option nidam shift.</p></div><button class="icon-button" type="button" data-close-group aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Formation</span><select id="groupProgram" name="programId" required></select></label><label><span>Nom groupe</span><input name="name" placeholder="Groupe soir A" autocomplete="off" /></label><label><span>Jours</span><input name="days" required placeholder="Monday, Wednesday" /></label><label><span>Début</span><input name="timeStart" type="time" required /></label><label><span>Fin</span><input name="timeEnd" type="time" required /></label><label><span>Mode présence</span><select id="groupAttendanceMode" name="attendanceMode"><option value="fixed">Groupe fixe</option><option value="flexible_shift">Nidam shift matin/soir</option></select></label><label class="shift-field hidden"><span>Jours shift alternatif</span><input name="alternateDays" placeholder="Monday, Wednesday" /></label><label class="shift-field hidden"><span>Début shift alternatif</span><input name="alternateTimeStart" type="time" /></label><label class="shift-field hidden"><span>Fin shift alternatif</span><input name="alternateTimeEnd" type="time" /></label><label><span>Capacité</span><input name="capacity" type="number" min="1" step="1" value="20" required /></label><label><span>Prix groupe</span><input name="price" type="number" min="0" step="0.01" placeholder="Prix formation" /></label><label><span>Prix remisé</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="Optionnel" /></label><label><span>Date début</span><input name="startDate" type="date" /></label><label><span>Date fin</span><input name="endDate" type="date" /></label><label><span>Statut</span><select name="status"><option value="active">Actif</option><option value="full">Complet</option><option value="paused">Pause</option><option value="done">Terminé</option></select></label></div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Salle, formateur, timing spécial"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-group>Annuler</button><button class="button primary" type="submit">Enregistrer groupe</button></div></form></dialog>
-    <dialog id="studentDialog" class="modal outcome-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Inscription étudiant · تسجيل</p><h2 id="studentDialogTitle">Inscrire étudiant</h2><p>Assignez l'étudiant au groupe et enregistrez le prix convenu.</p></div><button class="icon-button" type="button" data-close-student aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom étudiant</span><input name="name" required autocomplete="name" placeholder="Nom complet" /></label><label><span>Téléphone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label><span>Groupe</span><select id="studentGroup" name="groupId" required></select></label><label><span>Agent commercial</span><select id="studentAgent" name="agentId"></select></label><label><span>Date inscription</span><input name="registeredAt" type="date" required /></label><label><span>Mode paiement</span><select name="paymentPlan"><option value="full">Paiement total</option><option value="installments">Paiement par tranches</option></select></label><label><span>Prix final</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Payé maintenant</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Statut</span><select name="status"><option value="registered">Inscrit</option><option value="active">Actif</option><option value="completed">Terminé</option><option value="paused">Pause</option><option value="cancelled">Annulé</option></select></label></div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Accord paiement, documents, remarques"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Annuler</button><button class="button primary" type="submit">Enregistrer étudiant</button></div></form></dialog>
-    <dialog id="paymentDialog" class="modal"><form id="paymentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Paiement · أداء</p><h2>Ajouter paiement</h2><p id="paymentStudentName">Enregistrer un paiement étudiant.</p></div><button class="icon-button" type="button" data-close-payment aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Montant</span><input name="amount" type="number" min="0.01" step="0.01" required /></label><label><span>Date paiement</span><input name="paidAt" type="date" required /></label><label><span>Méthode</span><select name="method"><option value="cash">Espèces</option><option value="transfer">Virement</option><option value="card">Carte</option><option value="other">Autre</option></select></label></div><label><span>Note <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Reçu, tranche, rappel"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-payment>Annuler</button><button class="button primary" type="submit">Enregistrer paiement</button></div></form></dialog>
+    <dialog id="studentDialog" class="modal outcome-modal wide-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Inscription étudiant · تسجيل</p><h2 id="studentDialogTitle">Inscrire étudiant</h2><p>Assignez l'étudiant au groupe et enregistrez l'accord de paiement exact.</p></div><button class="icon-button" type="button" data-close-student aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom étudiant</span><input name="name" required autocomplete="name" placeholder="Nom complet" /></label><label><span>Téléphone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label><span>Groupe</span><select id="studentGroup" name="groupId" required></select></label><label><span>Agent commercial</span><select id="studentAgent" name="agentId"></select></label><label><span>Date inscription</span><input name="registeredAt" type="date" required /></label><label><span>Statut</span><select name="status"><option value="registered">Inscrit</option><option value="active">Actif</option><option value="completed">Terminé</option><option value="paused">Pause</option><option value="cancelled">Annulé</option></select></label></div><section class="payment-agreement-box"><div class="agreement-head"><div><p class="section-kicker">Accord paiement</p><h3>Comment l'étudiant va payer</h3><p id="paymentPlanHelp">Choisissez cash, mensuel, ou un accord spécial.</p></div></div><div class="payment-choice-grid" role="radiogroup" aria-label="Mode paiement"><label class="payment-choice"><input type="radio" name="paymentPlan" value="paid_full" checked /><span><strong>Payé full / Cash</strong><small>Prix cash quand il paie tout le cours.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="monthly" /><span><strong>Paiement mensuel</strong><small>Total plus élevé, payé chaque mois.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="custom" /><span><strong>Accord spécial</strong><small>Ex: 1500 maintenant, reste le mois prochain.</small></span></label></div><div class="form-grid payment-grid"><label><span>Prix convenu total</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Payé maintenant</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Date départ paiement</span><input name="paymentStartDate" type="date" /></label><label data-payment-field="monthly"><span>Montant chaque mois</span><input name="installmentAmount" type="number" min="0" step="0.01" placeholder="1000" /></label><label data-payment-field="monthly"><span>Nombre de mois</span><input name="installmentsCount" type="number" min="0" step="1" placeholder="5" /></label><label data-payment-field="next"><span>Prochain paiement</span><input name="nextPaymentDate" type="date" /></label></div><label data-payment-field="custom"><span>Accord spécial <em>optionnel</em></span><textarea name="agreementNote" rows="2" placeholder="Ex: total 3000, il paie 1500 maintenant et 1500 le mois prochain"></textarea></label></section><label><span>Notes étudiant <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Documents, remarques, besoin particulier"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Annuler</button><button class="button primary" type="submit">Enregistrer étudiant</button></div></form></dialog>
+    <dialog id="paymentDialog" class="modal"><form id="paymentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Paiement · أداء</p><h2>Ajouter paiement</h2><p id="paymentStudentName">Enregistrer un paiement étudiant.</p></div><button class="icon-button" type="button" data-close-payment aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Montant</span><input name="amount" type="number" min="0.01" step="0.01" required /></label><label><span>Date paiement</span><input name="paidAt" type="date" required /></label><label><span>Méthode</span><select name="method"><option value="cash">Espèces</option><option value="transfer">Virement</option><option value="card">Carte</option><option value="other">Autre</option></select></label><label><span>Prochain paiement <em>optionnel</em></span><input name="nextPaymentDate" type="date" /></label></div><label><span>Note <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Reçu, tranche, rappel"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-payment>Annuler</button><button class="button primary" type="submit">Enregistrer paiement</button></div></form></dialog>
     <dialog id="studentDetailDialog" class="modal outcome-modal"><div class="modal-content"><div class="modal-head"><div><p class="section-kicker">Historique étudiant · تتبع</p><h2 id="studentDetailTitle">Historique étudiant</h2><p>Inscription, modifications et paiements dans une seule trace.</p></div><button class="icon-button" type="button" data-close-student-detail aria-label="Fermer">×</button></div><div id="studentDetailBody"></div><div class="modal-actions"><button class="button secondary" type="button" data-close-student-detail>Fermer</button><button class="button primary" type="button" data-edit-current-student>Modifier étudiant</button></div></div></dialog>
   `);
   applyLanguage(document.getElementById("trainingDialog"));
@@ -2033,11 +2153,76 @@ function hydrateStudentSelects(preferredGroupId = "") {
   state.agents.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((agent) => agentSelect.append(option(agent.name, agent.id)));
 }
 
-function setStudentDefaultPrice() {
-  if (editingStudentId) return;
+function paymentPlanHelpText(plan) {
+  const normalized = normalizePaymentPlanUi(plan);
+  if (normalized === "monthly") return "Use this when the student pays a higher total split month by month.";
+  if (normalized === "custom") return "Use this for exceptions: choose the total deal, what they paid now, and the exact next follow-up date.";
+  return "Use this when the student pays the whole course price now, usually the cash discount.";
+}
+
+function syncStudentPaymentFields({ resetDefaults = false } = {}) {
   const form = document.getElementById("studentForm");
-  const group = byId(state.groups, form.elements.groupId.value);
-  form.elements.totalDue.value = group ? groupPrice(group).toFixed(2) : "";
+  if (!form) return;
+  const plan = normalizePaymentPlanUi(form.elements.paymentPlan?.value);
+  const group = byId(state.groups, form.elements.groupId?.value);
+  const registeredAt = form.elements.registeredAt?.value || todayInput();
+  const paymentStartDate = form.elements.paymentStartDate?.value || registeredAt;
+  const months = durationMonthsFor(group);
+  const totalInput = form.elements.totalDue;
+  const initialPaidInput = form.elements.initialPaid;
+  const installmentInput = form.elements.installmentAmount;
+  const countInput = form.elements.installmentsCount;
+  const nextDateInput = form.elements.nextPaymentDate;
+  const help = document.getElementById("paymentPlanHelp");
+
+  form.querySelectorAll("[data-payment-field]").forEach((field) => {
+    const target = field.dataset.paymentField;
+    const show = target === "monthly" ? plan === "monthly" : target === "custom" ? plan === "custom" : plan !== "paid_full";
+    field.classList.toggle("hidden", !show);
+  });
+  form.querySelectorAll(".payment-choice").forEach((choice) => choice.classList.toggle("active", Boolean(choice.querySelector("input")?.checked)));
+  if (help) help.textContent = paymentPlanHelpText(plan);
+  if (form.elements.paymentStartDate && !form.elements.paymentStartDate.value) form.elements.paymentStartDate.value = registeredAt;
+
+  if (resetDefaults && group && !editingStudentId) {
+    const suggested = defaultPriceForPlan(group, plan);
+    if (totalInput) totalInput.value = suggested ? suggested.toFixed(2) : "";
+    if (plan === "paid_full" && initialPaidInput) initialPaidInput.value = totalInput?.value || "";
+    if (plan === "monthly") {
+      if (countInput) countInput.value = months || "";
+      const monthly = months ? Number(totalInput?.value || 0) / months : 0;
+      if (installmentInput) installmentInput.value = monthly ? monthly.toFixed(2) : "";
+      if (nextDateInput) nextDateInput.value = addMonthsInput(paymentStartDate, 1);
+    }
+    if (plan === "custom") {
+      if (initialPaidInput && !initialPaidInput.value) initialPaidInput.value = "";
+      if (nextDateInput && !nextDateInput.value) nextDateInput.value = addMonthsInput(registeredAt, 1);
+      if (installmentInput) installmentInput.value = "";
+      if (countInput) countInput.value = "";
+    }
+  }
+
+  if (plan === "paid_full") {
+    if (nextDateInput) nextDateInput.value = "";
+    if (installmentInput) installmentInput.value = "";
+    if (countInput) countInput.value = "";
+  }
+  if (plan === "monthly" && !editingStudentId) {
+    if (countInput && !countInput.value && months) countInput.value = months;
+    if (installmentInput && !installmentInput.value && Number(totalInput?.value || 0) && Number(countInput?.value || 0)) {
+      installmentInput.value = (Number(totalInput.value) / Number(countInput.value)).toFixed(2);
+    }
+    if (nextDateInput && !nextDateInput.value) nextDateInput.value = addMonthsInput(paymentStartDate, 1);
+  }
+  applyLanguage(document.getElementById("studentDialog"));
+}
+
+function setStudentDefaultPrice({ resetDefaults = true } = {}) {
+  if (editingStudentId) {
+    syncStudentPaymentFields({ resetDefaults: false });
+    return;
+  }
+  syncStudentPaymentFields({ resetDefaults });
 }
 
 function openTrainingForm() {
@@ -2085,18 +2270,25 @@ function openStudentForm({ studentId = "", groupId = "" } = {}) {
   hydrateStudentSelects(groupId || student?.groupId || "");
   document.getElementById("studentDialogTitle").textContent = student ? "Modifier étudiant" : "Inscrire étudiant";
   document.getElementById("initialPaymentField").classList.toggle("hidden", Boolean(student));
-  form.elements.registeredAt.value = student?.registeredAt || new Date().toISOString().slice(0, 10);
+  form.elements.registeredAt.value = student?.registeredAt || todayInput();
   form.elements.status.value = student?.status || "registered";
-  form.elements.paymentPlan.value = student?.paymentPlan || "full";
+  form.elements.paymentPlan.value = normalizePaymentPlanUi(student?.paymentPlan || "paid_full");
   if (student) {
     form.elements.name.value = student.name || "";
     form.elements.phone.value = student.phone || "";
     form.elements.groupId.value = student.groupId || "";
     form.elements.agentId.value = student.agentId || "";
     form.elements.totalDue.value = Number(student.totalDue || 0).toFixed(2);
+    form.elements.installmentAmount.value = student.installmentAmount ? Number(student.installmentAmount).toFixed(2) : "";
+    form.elements.installmentsCount.value = student.installmentsCount || "";
+    form.elements.paymentStartDate.value = student.paymentStartDate || student.registeredAt || todayInput();
+    form.elements.nextPaymentDate.value = student.nextPaymentDate || "";
+    form.elements.agreementNote.value = student.agreementNote || "";
     form.elements.notes.value = student.notes || "";
+    syncStudentPaymentFields({ resetDefaults: false });
   } else {
-    setStudentDefaultPrice();
+    form.elements.paymentStartDate.value = form.elements.registeredAt.value;
+    setStudentDefaultPrice({ resetDefaults: true });
   }
   applyLanguage(document.getElementById("studentDialog"));
   document.getElementById("studentDialog").showModal();
@@ -2111,12 +2303,36 @@ function openPaymentForm(studentId) {
   paymentStudentId = student.id;
   const form = document.getElementById("paymentForm");
   form.reset();
-  form.elements.paidAt.value = new Date().toISOString().slice(0, 10);
-  form.elements.amount.value = studentRemaining(student) ? studentRemaining(student).toFixed(2) : "";
+  form.elements.paidAt.value = todayInput();
+  const remaining = studentRemaining(student);
+  const plan = normalizePaymentPlanUi(student.paymentPlan);
+  const suggestedAmount = plan === "monthly" && student.installmentAmount
+    ? Math.min(remaining, Number(student.installmentAmount || 0))
+    : remaining;
+  form.elements.amount.value = suggestedAmount ? suggestedAmount.toFixed(2) : "";
+  if (form.elements.nextPaymentDate) {
+    form.elements.nextPaymentDate.value = remaining - suggestedAmount > 0
+      ? (student.nextPaymentDate || (plan === "monthly" ? addMonthsInput(form.elements.paidAt.value, 1) : ""))
+      : "";
+  }
   document.getElementById("paymentStudentName").textContent = `${student.name} - reste ${money(studentRemaining(student))}`;
   applyLanguage(document.getElementById("paymentDialog"));
   document.getElementById("paymentDialog").showModal();
   form.elements.amount.focus();
+}
+
+function syncPaymentFormNextDate() {
+  const form = document.getElementById("paymentForm");
+  const student = byId(state.students, paymentStudentId);
+  if (!form || !student || !form.elements.nextPaymentDate) return;
+  const remainingAfterPayment = studentRemaining(student) - Number(form.elements.amount?.value || 0);
+  if (remainingAfterPayment <= 0) {
+    form.elements.nextPaymentDate.value = "";
+    return;
+  }
+  if (normalizePaymentPlanUi(student.paymentPlan) === "monthly" && !form.elements.nextPaymentDate.value) {
+    form.elements.nextPaymentDate.value = addMonthsInput(form.elements.paidAt?.value || todayInput(), 1);
+  }
 }
 
 function eventDescription(event) {
@@ -2137,7 +2353,7 @@ function openStudentDetail(studentId) {
   const payments = state.payments.filter((payment) => payment.studentId === student.id).sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)));
   const events = state.events.filter((event) => event.studentId === student.id).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   document.getElementById("studentDetailTitle").textContent = student.name;
-  document.getElementById("studentDetailBody").innerHTML = `<div class="student-detail-grid"><article class="mini-ledger"><span>Formation</span><strong>${escapeHtml(training?.name || "Inconnue")}</strong><small>${escapeHtml(group?.name || "Sans groupe")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></article><article class="mini-ledger"><span>Agent commercial</span><strong>${escapeHtml(agent?.name || "Non assigné")}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></article><article class="mini-ledger"><span>Paiement</span><strong>${money(studentPaid(student))} / ${money(student.totalDue)}</strong><small>${money(studentRemaining(student))} reste</small></article></div><h3>Historique paiements</h3><div class="simple-list">${payments.length ? payments.map((payment) => `<div class="simple-list-row"><div><strong>${money(payment.amount)}</strong><small>${escapeHtml(payment.paidAt)} - ${escapeHtml(payment.method || "cash")}</small></div><span>${escapeHtml(payment.notes || "")}</span></div>`).join("") : '<div class="empty">Aucun paiement enregistré.</div>'}</div><h3>Trace complète</h3><ol class="timeline">${events.length ? events.map((event) => `<li><strong>${escapeHtml(eventDescription(event))}</strong><small>${escapeHtml(new Date(event.createdAt).toLocaleString())}</small></li>`).join("") : '<li><strong>Ancien dossier étudiant</strong><small>Aucun événement enregistré.</small></li>'}</ol>`;
+  document.getElementById("studentDetailBody").innerHTML = `<div class="student-detail-grid"><article class="mini-ledger"><span>Formation</span><strong>${escapeHtml(training?.name || "Inconnue")}</strong><small>${escapeHtml(group?.name || "Sans groupe")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></article><article class="mini-ledger"><span>Agent commercial</span><strong>${escapeHtml(agent?.name || "Non assigné")}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></article><article class="mini-ledger"><span>Paiement</span><strong>${money(studentPaid(student))} / ${money(student.totalDue)}</strong><small>${money(studentRemaining(student))} reste</small></article><article class="mini-ledger"><span>Accord paiement</span><strong>${escapeHtml(paymentPlanLabel(student))}</strong><small>${escapeHtml(paymentDueStatus(student).detail)}</small>${student.agreementNote ? `<small>${escapeHtml(student.agreementNote)}</small>` : ""}</article></div><h3>Historique paiements</h3><div class="simple-list">${payments.length ? payments.map((payment) => `<div class="simple-list-row"><div><strong>${money(payment.amount)}</strong><small>${escapeHtml(payment.paidAt)} - ${escapeHtml(payment.method || "cash")}</small></div><span>${escapeHtml(payment.notes || "")}</span></div>`).join("") : '<div class="empty">Aucun paiement enregistré.</div>'}</div><h3>Trace complète</h3><ol class="timeline">${events.length ? events.map((event) => `<li><strong>${escapeHtml(eventDescription(event))}</strong><small>${escapeHtml(new Date(event.createdAt).toLocaleString())}</small></li>`).join("") : '<li><strong>Ancien dossier étudiant</strong><small>Aucun événement enregistré.</small></li>'}</ol>`;
   applyLanguage(document.getElementById("studentDetailDialog"));
   document.getElementById("studentDetailDialog").showModal();
 }
@@ -2333,7 +2549,10 @@ document.addEventListener("change", (event) => {
     render();
     return;
   }
-  if (event.target.id === "studentGroup") setStudentDefaultPrice();
+  if (event.target.id === "studentGroup") setStudentDefaultPrice({ resetDefaults: true });
+  if (event.target.name === "paymentPlan" && event.target.closest("#studentForm")) syncStudentPaymentFields({ resetDefaults: true });
+  if ((event.target.name === "registeredAt" || event.target.name === "paymentStartDate") && event.target.closest("#studentForm")) syncStudentPaymentFields({ resetDefaults: !editingStudentId });
+  if (event.target.closest("#paymentForm") && event.target.name === "paidAt") syncPaymentFormNextDate();
   if (event.target.id === "groupAttendanceMode") syncGroupShiftFields();
   if (event.target.id === "plannerTraining") {
     const program = byId(state.programs, event.target.value);
@@ -2366,6 +2585,13 @@ document.addEventListener("change", (event) => {
 document.addEventListener("input", (event) => {
   if (event.target.closest("#plannerTrainingName, #plannerDuration, #plannerCapacity")) renderPlannerSuggestions();
   if (event.target.closest("#groupForm") && event.target.name === "days") syncGroupShiftFields();
+  if (event.target.closest("#studentForm") && ["totalDue", "installmentsCount"].includes(event.target.name)) {
+    const form = event.target.form;
+    if (normalizePaymentPlanUi(form.elements.paymentPlan?.value) === "monthly" && Number(form.elements.totalDue?.value || 0) && Number(form.elements.installmentsCount?.value || 0)) {
+      form.elements.installmentAmount.value = (Number(form.elements.totalDue.value) / Number(form.elements.installmentsCount.value)).toFixed(2);
+    }
+  }
+  if (event.target.closest("#paymentForm") && event.target.name === "amount") syncPaymentFormNextDate();
   const opsFilter = event.target.closest('[data-ops-filter="search"]');
   if (opsFilter) { operationsFilters.search = opsFilter.value; renderOperations(); }
   const filter = event.target.closest('[data-filter="search"]');

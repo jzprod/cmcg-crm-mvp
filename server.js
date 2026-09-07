@@ -23,6 +23,8 @@ const DEFAULT_SCORING = {
   targetCloseRate: 40,
 };
 
+const PAYMENT_PLANS = new Set(["paid_full", "monthly", "custom"]);
+
 const SCREENSHOT_PROGRAMS = [
   { name: "Comptabilité 3 mois", durationLabel: "3 mois" },
   { name: "Comptabilité 5 mois", durationLabel: "5 mois" },
@@ -70,7 +72,7 @@ function normalizeScoringSettings(input = {}) {
 
 function emptyState() {
   return {
-    meta: { schemaVersion: 4, updatedAt: null },
+    meta: { schemaVersion: 5, updatedAt: null },
     centre: { name: "CMCG", city: "Tanger" },
     settings: { currency: "MAD", scoring: { ...DEFAULT_SCORING } },
     adAccounts: [],
@@ -106,7 +108,7 @@ function normalizeState(input) {
   ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
-  state.meta.schemaVersion = 4;
+  state.meta.schemaVersion = 5;
   const usedCodes = new Set(
     (Array.isArray(state.usedCreativeCodes) ? state.usedCreativeCodes : [])
       .map(normalizeCode)
@@ -128,6 +130,15 @@ function normalizeState(input) {
       group.alternateTimeStart = "";
       group.alternateTimeEnd = "";
     }
+  });
+  state.students.forEach((student) => {
+    student.paymentPlan = normalizePaymentPlan(student.paymentPlan);
+    student.totalDue = nonNegativeMoney(student.totalDue);
+    student.installmentAmount = nonNegativeMoney(student.installmentAmount);
+    student.installmentsCount = Math.max(0, wholeNumber(student.installmentsCount));
+    student.paymentStartDate = validDateInput(student.paymentStartDate) || "";
+    student.nextPaymentDate = validDateInput(student.nextPaymentDate) || "";
+    student.agreementNote = cleanText(student.agreementNote);
   });
   return state;
 }
@@ -396,6 +407,75 @@ function addStudentEvent(state, studentId, type, details = {}) {
 function validDateInput(value) {
   const text = cleanText(value);
   return text && /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function addMonthsInput(value, months = 1) {
+  const text = validDateInput(value);
+  if (!text) return "";
+  const [year, month, day] = text.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const originalDay = date.getUTCDate();
+  date.setUTCMonth(date.getUTCMonth() + months);
+  if (date.getUTCDate() !== originalDay) date.setUTCDate(0);
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizePaymentPlan(value) {
+  const text = cleanText(value).toLocaleLowerCase();
+  if (text === "full" || text === "cash" || text === "paidfull" || text === "paid-full") return "paid_full";
+  if (text === "installments" || text === "installment" || text === "monthly_installments") return "monthly";
+  if (text === "monthly") return "monthly";
+  if (text === "custom" || text === "split" || text === "agreement") return "custom";
+  return "paid_full";
+}
+
+function applyStudentPaymentAgreement(student, body = {}, defaults = {}) {
+  const registeredAt = validDateInput(student.registeredAt) || new Date().toISOString().slice(0, 10);
+  const plan = normalizePaymentPlan(body.paymentPlan ?? defaults.paymentPlan ?? student.paymentPlan);
+  student.paymentPlan = plan;
+  if (body.totalDue !== undefined || defaults.totalDue !== undefined || student.totalDue === undefined) {
+    student.totalDue = nonNegativeMoney(body.totalDue ?? defaults.totalDue ?? student.totalDue);
+  }
+  student.installmentsCount = Math.max(0, wholeNumber(body.installmentsCount ?? defaults.installmentsCount ?? student.installmentsCount));
+  student.installmentAmount = nonNegativeMoney(body.installmentAmount ?? body.monthlyAmount ?? defaults.installmentAmount ?? student.installmentAmount);
+  student.paymentStartDate = validDateInput(body.paymentStartDate ?? defaults.paymentStartDate) || student.paymentStartDate || registeredAt;
+  student.nextPaymentDate = body.nextPaymentDate !== undefined
+    ? validDateInput(body.nextPaymentDate)
+    : (validDateInput(defaults.nextPaymentDate) || student.nextPaymentDate || "");
+  student.agreementNote = cleanText(body.agreementNote ?? defaults.agreementNote ?? student.agreementNote);
+
+  if (student.paymentPlan === "paid_full") {
+    student.installmentsCount = student.installmentsCount || 1;
+    student.installmentAmount = 0;
+    student.nextPaymentDate = "";
+  }
+  if (student.paymentPlan === "monthly") {
+    if (!student.installmentsCount) student.installmentsCount = 0;
+    if (!student.installmentAmount && student.installmentsCount) {
+      student.installmentAmount = Number((student.totalDue / student.installmentsCount).toFixed(2));
+    }
+    if (!student.nextPaymentDate) student.nextPaymentDate = addMonthsInput(student.paymentStartDate || registeredAt, 1);
+  }
+  if (student.paymentPlan === "custom" && !student.paymentStartDate) student.paymentStartDate = registeredAt;
+  return student;
+}
+
+function refreshStudentPaymentStatus(state, student, { latestPaymentDate = "", nextPaymentDateProvided = false, nextPaymentDate = "" } = {}) {
+  const paid = paidForStudent(state, student.id);
+  const remaining = Math.max(0, nonNegativeMoney(student.totalDue) - paid);
+  if (remaining <= 0) {
+    student.nextPaymentDate = "";
+    return { paid, remaining };
+  }
+  if (nextPaymentDateProvided) {
+    student.nextPaymentDate = validDateInput(nextPaymentDate);
+    return { paid, remaining };
+  }
+  if (student.paymentPlan === "monthly") {
+    if (latestPaymentDate) student.nextPaymentDate = addMonthsInput(latestPaymentDate, 1);
+    else if (!student.nextPaymentDate) student.nextPaymentDate = addMonthsInput(student.paymentStartDate || student.registeredAt, 1);
+  }
+  return { paid, remaining };
 }
 
 function wholeNumber(value, fallback = 0) {
@@ -1054,7 +1134,10 @@ async function handleApi(req, res) {
       if (agentId && !agent) return json(res, 400, { error: "Choose a valid sales agent" });
       if (activeStudentsInGroup(state, group.id).length >= group.capacity) return json(res, 400, { error: "This group is already full" });
       const program = state.programs.find((item) => item.id === group.programId);
-      const defaultPrice = group.discountedPrice || group.price || program?.discountedPrice || program?.basePrice || 0;
+      const requestedPlan = normalizePaymentPlan(body.paymentPlan);
+      const defaultPrice = requestedPlan === "monthly"
+        ? (group.price || program?.basePrice || group.discountedPrice || program?.discountedPrice || 0)
+        : (group.discountedPrice || program?.discountedPrice || group.price || program?.basePrice || 0);
       const requestedPrice = body.totalDue !== undefined ? body.totalDue : (body.totalPrice !== undefined ? body.totalPrice : defaultPrice);
       const totalDue = nonNegativeMoney(requestedPrice);
       const item = {
@@ -1066,23 +1149,45 @@ async function handleApi(req, res) {
         phone: cleanText(body.phone),
         registeredAt: validDateInput(body.registeredAt) || new Date().toISOString().slice(0, 10),
         totalDue,
-        paymentPlan: cleanText(body.paymentPlan || "full"),
+        paymentPlan: requestedPlan,
+        installmentAmount: 0,
+        installmentsCount: 0,
+        paymentStartDate: "",
+        nextPaymentDate: "",
+        agreementNote: "",
         status: cleanText(body.status || "registered"),
         notes: cleanText(body.notes),
         createdAt: now(),
         updatedAt: now(),
       };
+      applyStudentPaymentAgreement(item, body, { totalDue, paymentStartDate: item.registeredAt });
       if (!item.name) return json(res, 400, { error: "Student name is required" });
       if (!new Set(["registered", "active", "completed", "paused", "cancelled"]).has(item.status)) return json(res, 400, { error: "Invalid student status" });
-      if (!new Set(["full", "installments"]).has(item.paymentPlan)) return json(res, 400, { error: "Invalid payment plan" });
+      if (!PAYMENT_PLANS.has(item.paymentPlan)) return json(res, 400, { error: "Invalid payment plan" });
       state.students.push(item);
-      addStudentEvent(state, item.id, "registered", { groupId: item.groupId, programId: item.programId, agentId: item.agentId, totalDue: item.totalDue });
+      addStudentEvent(state, item.id, "registered", {
+        groupId: item.groupId,
+        programId: item.programId,
+        agentId: item.agentId,
+        totalDue: item.totalDue,
+        paymentPlan: item.paymentPlan,
+        installmentAmount: item.installmentAmount,
+        installmentsCount: item.installmentsCount,
+        paymentStartDate: item.paymentStartDate,
+        nextPaymentDate: item.nextPaymentDate,
+        agreementNote: item.agreementNote,
+      });
       const initialPaid = nonNegativeMoney(body.initialPaid ?? body.amountPaid);
       if (initialPaid > 0) {
         const payment = { id: id("pay"), studentId: item.id, amount: initialPaid, paidAt: item.registeredAt, method: cleanText(body.paymentMethod || "cash"), notes: cleanText(body.paymentNotes || "Initial payment"), createdAt: now() };
         state.payments.push(payment);
         addStudentEvent(state, item.id, "payment_added", { paymentId: payment.id, amount: payment.amount, paidAt: payment.paidAt, method: payment.method });
       }
+      refreshStudentPaymentStatus(state, item, {
+        latestPaymentDate: item.registeredAt,
+        nextPaymentDateProvided: body.nextPaymentDate !== undefined,
+        nextPaymentDate: body.nextPaymentDate,
+      });
       await storage.write(state);
       return json(res, 201, item);
     }
@@ -1105,8 +1210,13 @@ async function handleApi(req, res) {
         createdAt: now(),
       };
       state.payments.push(item);
+      const paymentStatus = refreshStudentPaymentStatus(state, student, {
+        latestPaymentDate: item.paidAt,
+        nextPaymentDateProvided: body.nextPaymentDate !== undefined,
+        nextPaymentDate: body.nextPaymentDate,
+      });
       student.updatedAt = now();
-      addStudentEvent(state, student.id, "payment_added", { paymentId: item.id, amount: item.amount, paidAt: item.paidAt, method: item.method });
+      addStudentEvent(state, student.id, "payment_added", { paymentId: item.id, amount: item.amount, paidAt: item.paidAt, method: item.method, nextPaymentDate: student.nextPaymentDate, remaining: paymentStatus.remaining });
       await storage.write(state);
       return json(res, 201, item);
     }
@@ -1134,16 +1244,19 @@ async function handleApi(req, res) {
         if (body[field] !== undefined) student[field] = cleanText(body[field]);
       });
       if (body.registeredAt !== undefined) student.registeredAt = validDateInput(body.registeredAt) || student.registeredAt;
-      if (body.totalDue !== undefined) student.totalDue = nonNegativeMoney(body.totalDue);
-      if (body.paymentPlan !== undefined) student.paymentPlan = cleanText(body.paymentPlan);
+      applyStudentPaymentAgreement(student, body);
       if (body.status !== undefined) student.status = cleanText(body.status);
       if (!student.name) return json(res, 400, { error: "Student name is required" });
       if (!new Set(["registered", "active", "completed", "paused", "cancelled"]).has(student.status)) return json(res, 400, { error: "Invalid student status" });
-      if (!new Set(["full", "installments"]).has(student.paymentPlan)) return json(res, 400, { error: "Invalid payment plan" });
+      if (!PAYMENT_PLANS.has(student.paymentPlan)) return json(res, 400, { error: "Invalid payment plan" });
+      refreshStudentPaymentStatus(state, student, {
+        nextPaymentDateProvided: body.nextPaymentDate !== undefined,
+        nextPaymentDate: body.nextPaymentDate,
+      });
       student.updatedAt = now();
       addStudentEvent(state, student.id, "updated", {
         from: { groupId: previous.groupId, status: previous.status, totalDue: previous.totalDue },
-        to: { groupId: student.groupId, status: student.status, totalDue: student.totalDue },
+        to: { groupId: student.groupId, status: student.status, totalDue: student.totalDue, paymentPlan: student.paymentPlan, nextPaymentDate: student.nextPaymentDate },
       });
       await storage.write(state);
       return json(res, 200, student);
