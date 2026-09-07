@@ -11,6 +11,7 @@ let editingStudentId = "";
 let paymentStudentId = "";
 let detailStudentId = "";
 let plannerSuggestions = [];
+let plannerSelectedDay = localStorage.getItem("cmcg-planner-day") || "monday";
 
 const pageMeta = {
   dashboard: ["Overview", "Your advertising and enrollment results at a glance."],
@@ -27,6 +28,32 @@ const outcomeMeta = {
 };
 const groupLabels = { ad: "Ad", adSet: "Ad set", campaign: "Campaign", agent: "Agent" };
 const periodLabels = { today: "Today", yesterday: "Yesterday", last7: "Last 7 days", thisWeek: "This week", thisMonth: "This month", thisYear: "This year", lifetime: "Lifetime", custom: "Custom" };
+const WEEK_DAYS = [
+  { key: "monday", label: "Lundi" },
+  { key: "tuesday", label: "Mardi" },
+  { key: "wednesday", label: "Mercredi" },
+  { key: "thursday", label: "Jeudi" },
+  { key: "friday", label: "Vendredi" },
+  { key: "saturday", label: "Samedi" },
+  { key: "sunday", label: "Dimanche" },
+];
+const PLANNER_TIME_SLOTS = [
+  ["09:00", "11:00"],
+  ["10:00", "12:00"],
+  ["12:00", "14:00"],
+  ["14:00", "16:00"],
+  ["16:00", "18:00"],
+  ["18:00", "20:00"],
+];
+const DAY_ALIASES = {
+  monday: ["monday", "mon", "lundi", "الإثنين", "الاثنين"],
+  tuesday: ["tuesday", "tue", "mardi", "الثلاثاء"],
+  wednesday: ["wednesday", "wed", "mercredi", "الأربعاء", "الاربعاء"],
+  thursday: ["thursday", "thu", "jeudi", "الخميس"],
+  friday: ["friday", "fri", "vendredi", "الجمعة"],
+  saturday: ["saturday", "sat", "samedi", "السبت"],
+  sunday: ["sunday", "sun", "dimanche", "الأحد", "الاحد"],
+};
 const ar = {
   "CMCG CRM": "نظام CMCG",
   "Ads to enrollment": "من الإعلان إلى التسجيل",
@@ -121,6 +148,10 @@ const ar = {
   "Registered student": "طالب مسجل",
   "Registration also counts as a visit.": "التسجيل يُحسب أيضاً كزيارة.",
   "Gestion école · تدبير المركز": "تدبير المركز",
+  "Formation · تكوين": "التكوين",
+  "Groupe · فوج": "الفوج",
+  "Inscription étudiant · تسجيل": "تسجيل طالب",
+  "Historique étudiant · تتبع": "تتبع الطالب",
   "Groupes, étudiants et paiements": "الأفواج، الطلبة، والأداءات",
   "Planning des formations, capacité, inscriptions, avances et historique étudiant.": "تخطيط التكوينات، الطاقة الاستيعابية، التسجيلات، التسبيقات، وتتبع الطالب.",
   "Lien direct sécurisé": "رابط آمن مباشر",
@@ -238,6 +269,383 @@ const arDynamic = [
   [/^(.+) paid$/, "مدفوع $1"],
   [/^(.+) payé$/, "مدفوع $1"],
 ];
+
+Object.assign(ar, {
+  "Name": "الاسم",
+  "Quality": "الجودة",
+  "Total visits": "إجمالي الزيارات",
+  "Agent closing": "إغلاق المستشار",
+  "Reach": "الوصول",
+  "Frequency": "التكرار",
+  "Link clicks": "نقرات الرابط",
+  "Shop clicks": "نقرات المتجر",
+  "All clicks": "كل النقرات",
+  "Link CTR": "نسبة نقر الرابط",
+  "Link CPC": "تكلفة نقرة الرابط",
+  "All-click CTR": "نسبة كل النقرات",
+  "All-click CPC": "تكلفة كل النقرات",
+  "CPM": "تكلفة ألف ظهور",
+  "Landing-page views": "مشاهدات صفحة الهبوط",
+  "Cost / landing-page view": "تكلفة مشاهدة صفحة الهبوط",
+  "Quality ranking": "ترتيب الجودة",
+  "Engagement ranking": "ترتيب التفاعل",
+  "Conversion ranking": "ترتيب التحويل",
+  "Reporting starts": "بداية التقرير",
+  "Reporting ends": "نهاية التقرير",
+  "Account": "الحساب",
+  "Account ID": "معرّف الحساب",
+  "Campaign ID": "معرّف الحملة",
+  "Ad set ID": "معرّف المجموعة الإعلانية",
+  "Ad ID": "معرّف الإعلان",
+  "Page ID": "معرّف الصفحة",
+  "All dates": "كل التواريخ",
+  "Start": "البداية",
+  "No saved changes yet": "لا توجد تغييرات محفوظة بعد",
+  "Saved": "تم الحفظ",
+  "Unknown": "غير معروف",
+  "Unknown storage": "تخزين غير معروف",
+  "MySQL storage is active. Automatic snapshots are kept before every change.": "تخزين MySQL مفعّل. يتم حفظ نسخة أمان تلقائياً قبل كل تغيير.",
+  "Local JSON is for development only. Configure MySQL before entering production data.": "تخزين JSON المحلي مخصص للتجارب فقط. قم بإعداد MySQL قبل إدخال بيانات حقيقية.",
+  "Click one or more cards above after importing reports to build the trend graph.": "بعد استيراد التقارير، اضغط على بطاقة أو أكثر لبناء الرسم البياني.",
+  "Overview trend graph": "رسم اتجاه النظرة العامة",
+  "Lines are scaled 0-100 so different metrics can sit on one graph. For cost per registered, the line is reversed: higher means the cost is lower.": "كل الخطوط مقاسة من 0 إلى 100 حتى تظهر المقاييس المختلفة في رسم واحد. تكلفة التسجيل معكوسة: الصعود يعني أن التكلفة تنخفض.",
+  "Start with your Meta Ads report": "ابدأ بتقرير Meta Ads",
+  "Import the saved CSV once. Campaigns, ad sets, ads, spend, and messages will appear automatically.": "استورد ملف CSV المحفوظ مرة واحدة. ستظهر الحملات والمجموعات والإعلانات والصرف والرسائل تلقائياً.",
+  "Import first report": "استيراد أول تقرير",
+  "Import a Meta Ads report to see performance.": "استورد تقرير Meta Ads لرؤية الأداء.",
+  "Add agents to compare their results.": "أضف المستشارين لمقارنة نتائجهم.",
+  "No performance matches these filters.": "لا توجد نتائج أداء مطابقة لهذه الفلاتر.",
+  "No outcomes recorded yet. Use “Add outcome” to begin.": "لا توجد نتائج مسجلة بعد. استعمل “إضافة نتيجة” للبدء.",
+  "Not entered": "غير مدخل",
+  "No phone": "لا يوجد هاتف",
+  "Delete outcome": "حذف النتيجة",
+  "Delete": "حذف",
+  "No agents yet.": "لا يوجد مستشارون بعد.",
+  "No WhatsApp number": "لا يوجد رقم واتساب",
+  "matched ad sets": "مجموعات مطابقة",
+  "registrations": "تسجيلات",
+  "Add your first sales agent. Existing imported ad sets will be matched immediately.": "أضف أول مستشار تجاري. ستتم مطابقة المجموعات الإعلانية المستوردة فوراً.",
+  "Unknown campaign": "حملة غير معروفة",
+  "Multiple names found": "تم العثور على عدة أسماء",
+  "No matching agent": "لا يوجد مستشار مطابق",
+  "All imported ad sets are assigned.": "كل المجموعات الإعلانية المستوردة معيّنة.",
+  "No days": "لا توجد أيام",
+  "Nidam shift": "نظام الشيفت",
+  "Calendrier hebdomadaire": "الجدول الأسبوعي",
+  "Tous les jours visibles": "كل أيام الأسبوع ظاهرة",
+  "Vert = libre. Orange = conflit léger. Rouge = chargé. Cliquez sur un jour pour voir les heures exactes.": "الأخضر يعني متاح. البرتقالي يعني تعارض خفيف. الأحمر يعني مزدحم. اضغط على اليوم لرؤية الساعات بالتفصيل.",
+  "Vue semaine": "عرض الأسبوع",
+  "Jour détaillé": "تفاصيل اليوم",
+  "Cliquez sur une case verte pour créer le groupe directement. Cliquez sur un jour pour voir toutes les heures libres et occupées.": "اضغط على خانة خضراء لإنشاء الفوج مباشرة. اضغط على اليوم لرؤية كل الساعات المتاحة والمشغولة.",
+  "Disponible": "متاح",
+  "Conflit": "تعارض",
+  "Chargé": "مزدحم",
+  "Libre": "متاح",
+  "Occupé": "مشغول",
+  "Créneau libre": "وقت متاح",
+  "Créer ici": "إنشاء هنا",
+  "Voir la journée": "عرض اليوم",
+  "Créer quand même": "إنشاء رغم ذلك",
+  "Créer ce planning": "إنشاء هذه البرمجة",
+  "Meilleur créneau": "أفضل وقت",
+  "Aucun conflit": "لا يوجد تعارض",
+  "Conflits détectés": "تم اكتشاف تعارضات",
+  "Groupes déjà dans ce créneau": "أفواج موجودة في هذا الوقت",
+  "Aucun groupe dans ce créneau.": "لا يوجد أي فوج في هذا الوقت.",
+  "Heures exactes": "الساعات بالتفصيل",
+  "Sélectionnez un jour": "اختر يوماً",
+  "Lundi": "الإثنين",
+  "Mardi": "الثلاثاء",
+  "Mercredi": "الأربعاء",
+  "Jeudi": "الخميس",
+  "Vendredi": "الجمعة",
+  "Samedi": "السبت",
+  "Dimanche": "الأحد",
+  "Monday": "الإثنين",
+  "Tuesday": "الثلاثاء",
+  "Wednesday": "الأربعاء",
+  "Thursday": "الخميس",
+  "Friday": "الجمعة",
+  "Saturday": "السبت",
+  "Sunday": "الأحد",
+  "Créer une nouvelle formation": "إنشاء تكوين جديد",
+  "Ajoutez une formation ou un groupe existant pour recevoir des propositions.": "أضف تكويناً أو فوجاً موجوداً للحصول على اقتراحات.",
+  "Relancez les propositions avant de créer le groupe": "أعد تشغيل الاقتراحات قبل إنشاء الفوج",
+  "Choisissez une formation ou tapez le nom de la nouvelle formation": "اختر تكويناً أو اكتب اسم التكوين الجديد",
+  "Planning créé. Vérifiez le groupe puis ajoutez les étudiants.": "تم إنشاء البرمجة. راجع الفوج ثم أضف الطلبة.",
+  "Payé": "مدفوع",
+  "Aucun groupe pour le moment. Ajoutez une formation, puis créez le premier groupe planifié.": "لا يوجد أي فوج حالياً. أضف تكويناً، ثم أنشئ أول فوج مبرمج.",
+  "Sans téléphone": "بدون هاتف",
+  "Sans groupe": "بدون فوج",
+  "Formation inconnue": "تكوين غير معروف",
+  "Non assigné": "غير معيّن",
+  "Aucun étudiant ne correspond à ces filtres.": "لا يوجد أي طالب مطابق لهذه الفلاتر.",
+  "Aucun reste à payer dans cette vue.": "لا يوجد أي مبلغ متبقٍ في هذه الرؤية.",
+  "Compte commercial non lié.": "حساب المستشار غير مربوط.",
+  "Zone étudiants verrouillée.": "منطقة الطلبة مقفلة.",
+  "Configurez CRM_USER et CRM_PASSWORD sur Hostinger avant de saisir des noms, téléphones ou paiements.": "قم بإعداد CRM_USER و CRM_PASSWORD في Hostinger قبل إدخال الأسماء أو الهواتف أو الأداءات.",
+  "Ce compte commercial n'est pas lié à un agent. Créez l'agent correspondant avec le compte admin.": "هذا الحساب التجاري غير مربوط بمستشار. أنشئ المستشار المطابق من حساب المدير.",
+  "Configurez CRM_USER et CRM_PASSWORD sur Hostinger avant de saisir les données étudiants.": "قم بإعداد CRM_USER و CRM_PASSWORD في Hostinger قبل إدخال بيانات الطلبة.",
+  "Toutes les formations": "كل التكوينات",
+  "Tous les horaires": "كل الأوقات",
+  "Groupes": "الأفواج",
+  "Places utilisées": "المقاعد المستعملة",
+  "Places restantes": "المقاعد المتبقية",
+  "Encaissé": "المبلغ المحصل",
+  "groupes filtrés": "أفواج مفلترة",
+  "places restantes": "مقاعد متبقية",
+  "registre filtré": "سجل مفلتر",
+  "paiements enregistrés": "أداءات مسجلة",
+  "à relancer": "للمتابعة",
+  "Pas de date début": "لا يوجد تاريخ بداية",
+  "prix par défaut": "السعر الافتراضي",
+  "étudiants": "طلبة",
+  "payé": "مدفوع",
+  "reste": "الباقي",
+  "Voir étudiants": "عرض الطلبة",
+  "Inscrire": "تسجيل",
+  "Ajouter paiement pour": "إضافة أداء لـ",
+  "Modifier": "تعديل",
+  "Manual result": "نتيجة يدوية",
+  "Add an outcome": "إضافة نتيجة",
+  "Choose what happened and where it came from.": "اختر ما حدث ومن أين جاء.",
+  "What happened?": "ماذا حدث؟",
+  "Plans to visit": "ينوي زيارة المركز",
+  "Visited, did not register": "زار ولم يسجل",
+  "Also counts as a visit": "يُحسب أيضاً كزيارة",
+  "Person name": "اسم الشخص",
+  "Student name": "اسم الطالب",
+  "Phone": "الهاتف",
+  "Date": "التاريخ",
+  "Assign this outcome": "تعيين هذه النتيجة",
+  "Use the most specific source you know.": "استعمل أدق مصدر تعرفه.",
+  "Level": "المستوى",
+  "Ad set": "المجموعة الإعلانية",
+  "Note": "ملاحظة",
+  "Anything useful to remember": "أي معلومة مفيدة للتذكر",
+  "Save outcome": "حفظ النتيجة",
+  "Close outcome form": "إغلاق نموذج النتيجة",
+  "Choose campaign": "اختر الحملة",
+  "No campaign available": "لا توجد حملة متاحة",
+  "No objective": "لا يوجد هدف",
+  "Choose ad set": "اختر المجموعة الإعلانية",
+  "No ad sets in this campaign": "لا توجد مجموعات إعلانية في هذه الحملة",
+  "Choose campaign first": "اختر الحملة أولاً",
+  "Choose exact ad": "اختر الإعلان بالضبط",
+  "No ads in this ad set": "لا توجد إعلانات في هذه المجموعة",
+  "Choose ad set first": "اختر المجموعة الإعلانية أولاً",
+  "no code": "بدون كود",
+  "Choose campaign, then ad set, then exact ad so duplicate ad names stay separate.": "اختر الحملة، ثم المجموعة الإعلانية، ثم الإعلان بالضبط حتى تبقى الإعلانات ذات الاسم نفسه منفصلة.",
+  "Choose campaign first, then the ad set that produced the outcome.": "اختر الحملة أولاً، ثم المجموعة الإعلانية التي أنتجت النتيجة.",
+  "Choose the campaign that produced the outcome.": "اختر الحملة التي أنتجت النتيجة.",
+  "Use when you only know the sales agent.": "استعمل هذا عندما تعرف المستشار التجاري فقط.",
+  "Clean start": "بداية نظيفة",
+  "Reset all CRM data?": "هل تريد تصفير كل بيانات النظام؟",
+  "This clears accounts, campaigns, ad sets, ads, imports, ad spend logs, outcomes, leads, trainings, groups, students, payments, and used creative codes. Download a backup first if you might need the old data.": "هذا سيحذف الحسابات والحملات والمجموعات الإعلانية والإعلانات والاستيرادات وسجلات الصرف والنتائج والعملاء المحتملين والتكوينات والأفواج والطلبة والأداءات وأكواد الإبداع المستعملة. حمّل نسخة احتياطية أولاً إذا كنت قد تحتاج البيانات القديمة.",
+  "Reset data": "تصفير البيانات",
+  "Confirm recovery": "تأكيد الاسترجاع",
+  "Replace current CRM data?": "هل تريد استبدال بيانات النظام الحالية؟",
+  "The selected backup will replace the current records. A safety backup is created first.": "النسخة المختارة ستستبدل السجلات الحالية. سيتم إنشاء نسخة أمان أولاً.",
+  "Restore backup": "استرجاع النسخة",
+  "Edit agent": "تعديل المستشار",
+  "Renaming an agent rematches imported ad sets by name, ignoring uppercase/lowercase.": "تغيير اسم المستشار يعيد مطابقة المجموعات الإعلانية المستوردة حسب الاسم دون حساسية لحجم الحروف.",
+  "Close agent form": "إغلاق نموذج المستشار",
+  "WhatsApp": "واتساب",
+  "If this exact name appears in campaign, ad set, or ad names, those rows will be assigned to the agent automatically.": "إذا ظهر هذا الاسم بالضبط في اسم الحملة أو المجموعة الإعلانية أو الإعلان، سيتم تعيين تلك الصفوف للمستشار تلقائياً.",
+  "Save agent": "حفظ المستشار",
+  "Ajouter formation": "إضافة تكوين",
+  "Nom du cours, durée, prix normal et prix remisé.": "اسم الدرس، المدة، السعر العادي، والسعر المخفض.",
+  "Fermer": "إغلاق",
+  "Nom formation": "اسم التكوين",
+  "Comptabilité 3 mois": "محاسبة 3 أشهر",
+  "3 mois, 5 mois, année complète": "3 أشهر، 5 أشهر، سنة كاملة",
+  "Prix normal": "السعر العادي",
+  "Prix remisé": "السعر المخفض",
+  "Notes": "ملاحظات",
+  "Ce que la formation inclut": "ما يشمله التكوين",
+  "Annuler": "إلغاء",
+  "Enregistrer formation": "حفظ التكوين",
+  "Ajouter groupe": "إضافة فوج",
+  "Créez un créneau avec capacité, prix, et option nidam shift.": "أنشئ وقتاً بطاقة استيعابية وسعر مع خيار نظام الشيفت.",
+  "Nom groupe": "اسم الفوج",
+  "Groupe soir A": "فوج المساء A",
+  "Jours": "الأيام",
+  "Monday, Wednesday": "الإثنين، الأربعاء",
+  "Début": "البداية",
+  "Fin": "النهاية",
+  "Mode présence": "نظام الحضور",
+  "Jours shift alternatif": "أيام الشيفت البديل",
+  "Début shift alternatif": "بداية الشيفت البديل",
+  "Fin shift alternatif": "نهاية الشيفت البديل",
+  "Capacité": "الطاقة الاستيعابية",
+  "Prix groupe": "سعر الفوج",
+  "Prix formation": "سعر التكوين",
+  "Optionnel": "اختياري",
+  "Date début": "تاريخ البداية",
+  "Date fin": "تاريخ النهاية",
+  "Statut": "الحالة",
+  "Actif": "نشط",
+  "Pause": "متوقف مؤقتاً",
+  "Terminé": "منتهي",
+  "Salle, formateur, timing spécial": "القاعة، الأستاذ، توقيت خاص",
+  "Enregistrer groupe": "حفظ الفوج",
+  "Inscription étudiant": "تسجيل طالب",
+  "Inscrire étudiant": "تسجيل طالب",
+  "Modifier étudiant": "تعديل الطالب",
+  "Assignez l'étudiant au groupe et enregistrez le prix convenu.": "عيّن الطالب في الفوج وسجّل السعر المتفق عليه.",
+  "Nom étudiant": "اسم الطالب",
+  "Nom complet": "الاسم الكامل",
+  "Téléphone": "الهاتف",
+  "Agent commercial": "المستشار التجاري",
+  "Date inscription": "تاريخ التسجيل",
+  "Mode paiement": "طريقة الأداء",
+  "Paiement total": "أداء كامل",
+  "Paiement par tranches": "أداء بالتقسيط",
+  "Prix final": "السعر النهائي",
+  "Payé maintenant": "المدفوع الآن",
+  "Inscrit": "مسجل",
+  "Annulé": "ملغى",
+  "Accord paiement, documents, remarques": "اتفاق الأداء، الوثائق، الملاحظات",
+  "Enregistrer étudiant": "حفظ الطالب",
+  "Paiement · أداء": "الأداء",
+  "Ajouter paiement": "إضافة أداء",
+  "Enregistrer un paiement étudiant.": "تسجيل أداء للطالب.",
+  "Montant": "المبلغ",
+  "Date paiement": "تاريخ الأداء",
+  "Méthode": "الطريقة",
+  "Espèces": "نقداً",
+  "Virement": "تحويل بنكي",
+  "Carte": "بطاقة",
+  "Autre": "أخرى",
+  "Reçu, tranche, rappel": "وصل، قسط، تذكير",
+  "Enregistrer paiement": "حفظ الأداء",
+  "Historique étudiant": "تتبع الطالب",
+  "Inscription, modifications et paiements dans une seule trace.": "التسجيل، التعديلات، والأداءات في سجل واحد.",
+  "Historique paiements": "تاريخ الأداءات",
+  "Trace complète": "السجل الكامل",
+  "Inconnue": "غير معروف",
+  "Aucun paiement enregistré.": "لا يوجد أي أداء مسجل.",
+  "Ancien dossier étudiant": "ملف طالب قديم",
+  "Aucun événement enregistré.": "لا يوجد أي حدث مسجل.",
+  "Choose the CSV version of your Meta report": "اختر نسخة CSV من تقرير Meta",
+  "The CSV is larger than 9 MB": "ملف CSV أكبر من 9 MB",
+  "ready to import": "جاهز للاستيراد",
+  "Saving…": "جاري الحفظ…",
+  "Outcome saved": "تم حفظ النتيجة",
+  "Training saved": "تم حفظ التكوين",
+  "Group saved": "تم حفظ الفوج",
+  "Student saved": "تم حفظ الطالب",
+  "Payment saved": "تم حفظ الأداء",
+  "Agent updated and ad sets rematched": "تم تحديث المستشار وإعادة مطابقة المجموعات الإعلانية",
+  "Agent added and ad sets rematched": "تمت إضافة المستشار وإعادة مطابقة المجموعات الإعلانية",
+  "Choose where this outcome came from": "اختر مصدر هذه النتيجة",
+  "Choose a student first": "اختر الطالب أولاً",
+  "Agent not found": "المستشار غير موجود",
+  "Ajoutez une formation avant de créer un groupe": "أضف تكويناً قبل إنشاء فوج",
+  "Ajoutez un groupe avant d'inscrire des étudiants": "أضف فوجاً قبل تسجيل الطلبة",
+  "Étudiant introuvable": "الطالب غير موجود",
+  "Chargement...": "جاري التحميل...",
+  "Création...": "جاري الإنشاء...",
+  "Agent deleted and ad sets rematched": "تم حذف المستشار وإعادة مطابقة المجموعات الإعلانية",
+  "Outcome deleted": "تم حذف النتيجة",
+  "Data refreshed": "تم تحديث البيانات",
+  "Synchronizing…": "جاري المزامنة…",
+  "Backup file is larger than 10 MB": "ملف النسخة الاحتياطية أكبر من 10 MB",
+  "Restoring…": "جاري الاسترجاع…",
+  "Backup restored successfully": "تم استرجاع النسخة الاحتياطية بنجاح",
+  "Resetting...": "جاري التصفير...",
+  "CRM data reset. Import your first real report.": "تم تصفير بيانات النظام. استورد أول تقرير حقيقي.",
+  "Request failed": "فشل الطلب",
+  "This group is already full": "هذا الفوج ممتلئ",
+  "Choose a valid group": "اختر فوجاً صحيحاً",
+  "Choose a valid sales agent": "اختر مستشاراً صحيحاً",
+  "This student belongs to another sales agent.": "هذا الطالب تابع لمستشار آخر.",
+  "This login can only access student operations.": "هذا الدخول مخصص لعمليات الطلبة فقط.",
+  "Strong": "قوي",
+  "Watch": "راقب",
+  "Weak": "ضعيف",
+  "Awaiting": "في الانتظار",
+  "Learning": "يتعلم",
+  "Not enough": "غير كافٍ",
+  "No data": "لا توجد بيانات",
+  "No spend": "لا يوجد صرف",
+  "Low confidence": "ثقة منخفضة",
+  "Medium confidence": "ثقة متوسطة",
+  "High confidence": "ثقة عالية",
+  "Quality score — highest": "نقطة الجودة — الأعلى",
+  "Spend — highest": "الصرف — الأعلى",
+  "Spend — lowest": "الصرف — الأقل",
+  "Booked appointments — most": "المواعيد المحجوزة — الأكثر",
+  "Showed, no registration — most": "زار ولم يسجل — الأكثر",
+  "Registered students — most": "الطلبة المسجلون — الأكثر",
+  "Cost / booked — lowest": "تكلفة الموعد — الأقل",
+  "Cost / showed — lowest": "تكلفة الزيارة بدون تسجيل — الأقل",
+  "Cost / registered — lowest": "تكلفة التسجيل — الأقل",
+  "Messages — most": "الرسائل — الأكثر",
+  "Business quality - highest": "جودة العمل - الأعلى",
+  "Agent closing - highest": "إغلاق المستشار - الأعلى",
+  "Spend - highest": "الصرف - الأعلى",
+  "Spend - lowest": "الصرف - الأقل",
+  "Booked appointments - most": "المواعيد المحجوزة - الأكثر",
+  "Total visits - most": "إجمالي الزيارات - الأكثر",
+  "Showed, no registration - most": "زار ولم يسجل - الأكثر",
+  "Registered students - most": "الطلبة المسجلون - الأكثر",
+  "Cost / booked - lowest": "تكلفة الموعد - الأقل",
+  "Cost / visit - lowest": "تكلفة الزيارة - الأقل",
+  "Cost / registered - lowest": "تكلفة التسجيل - الأقل",
+  "Show rate - highest": "نسبة الحضور - الأعلى",
+  "Close rate - highest": "نسبة التسجيل - الأعلى",
+  "Messages - most": "الرسائل - الأكثر",
+  "Français / English": "الفرنسية / الإنجليزية",
+  "CRM sections": "أقسام النظام",
+  "Secure direct link": "رابط آمن مباشر",
+  "Search outcomes": "بحث في النتائج",
+  "Filter outcomes by type": "فلترة النتائج حسب النوع",
+  "All outcomes": "كل النتائج",
+  "Outcome": "النتيجة",
+  "Person": "الشخص",
+  "Assigned to": "مُعيّن إلى",
+  "Actions": "الإجراءات",
+  "Your latest successful synchronizations.": "آخر المزامنات الناجحة.",
+  "Imported": "تاريخ الاستيراد",
+  "File": "الملف",
+  "Report rows": "صفوف التقرير",
+  "New campaigns": "حملات جديدة",
+  "New ad sets": "مجموعات جديدة",
+  "New ads": "إعلانات جديدة",
+  "Updated rows": "صفوف محدثة",
+  "Protect the complete CRM, including hidden Meta fields.": "احمِ النظام كاملاً، بما في ذلك حقول Meta المخفية.",
+  "Verifying the active storage backend.": "جاري التحقق من نظام التخزين النشط.",
+  "Save a private JSON copy before major changes.": "احفظ نسخة JSON خاصة قبل التغييرات الكبيرة.",
+  "This replaces current CRM records after confirmation.": "هذا يستبدل سجلات النظام الحالية بعد التأكيد.",
+  "Choose JSON backup": "اختيار نسخة JSON احتياطية",
+  "Clear old imports, spend, ads, outcomes, leads, and used creative codes before starting with real data.": "امسح الاستيرادات والصرف والإعلانات والنتائج والعملاء المحتملين وأكواد الإبداع القديمة قبل البدء ببيانات حقيقية.",
+});
+
+arDynamic.push(
+  [/^(\d+) créneau libre$/, "$1 وقت متاح"],
+  [/^(\d+) créneaux libres$/, "$1 أوقات متاحة"],
+  [/^(\d+) conflit$/, "$1 تعارض"],
+  [/^(\d+) conflits$/, "$1 تعارضات"],
+  [/^(\d+) conflit possible$/, "$1 تعارض محتمل"],
+  [/^(\d+) conflits possibles$/, "$1 تعارضات محتملة"],
+  [/^(\d+) groupes? déjà dans ce créneau$/, "$1 أفواج موجودة في هذا الوقت"],
+  [/^(.+) formations et (.+) groupes chargés depuis l'image\.$/, "تم تحميل $1 تكوينات و $2 أفواج من الصورة."],
+  [/^(.+) KB · ready to import$/, "$1 KB · جاهز للاستيراد"],
+  [/^Créez d'abord un agent nommé (.+) avec le compte admin\.$/, "أنشئ أولاً مستشاراً باسم $1 من حساب المدير."],
+  [/^Capacité proposée: (.+) étudiants$/, "الطاقة المقترحة: $1 طالب"],
+  [/^(.+) places libres$/, "$1 مقاعد شاغرة"],
+  [/^(.+) places restantes$/, "$1 مقاعد متبقية"],
+  [/^(.+) étudiants$/, "$1 طلبة"],
+  [/^(.+) reste$/, "الباقي $1"],
+  [/^(.+) payé$/, "مدفوع $1"],
+  [/^Ajouter paiement pour (.+)$/, "إضافة أداء لـ $1"],
+  [/^Modifier (.+)$/, "تعديل $1"],
+  [/^Select (.+)$/, "اختر $1"],
+  [/^No (.+) available$/, "لا يوجد $1 متاح"],
+  [/^This backup contains (.+) CRM records\. Current data will be replaced after a safety backup is created\.$/, "تحتوي هذه النسخة على $1 سجل في النظام. سيتم استبدال البيانات الحالية بعد إنشاء نسخة أمان."],
+  [/^(.+) rows synced · (.+) new ads · (.+) updated$/, "تمت مزامنة $1 صف · $2 إعلانات جديدة · $3 تحديث"],
+);
 const overviewMetricDefinitions = {
   spend: { label: "Spend", color: "#0f172a", format: (row) => money(row.spend) },
   messages: { label: "Messages", color: "#2563eb", format: (row) => number(row.messages) },
@@ -431,18 +839,25 @@ function translatePhrase(value) {
   for (const [pattern, replacement] of arDynamic) {
     if (pattern.test(normalized)) return text.replace(normalized, normalized.replace(pattern, replacement));
   }
+  for (const delimiter of [" · ", " - ", " — "]) {
+    if (normalized.includes(delimiter)) {
+      const translated = normalized.split(delimiter).map((part) => translatePhrase(part)).join(delimiter);
+      if (translated !== normalized) return text.replace(normalized, translated);
+    }
+  }
   return text;
 }
 
-function applyLanguage() {
+function applyLanguage(root = document.body) {
   const useArabic = currentLanguage === "ar";
   document.documentElement.lang = useArabic ? "ar" : "en";
   document.documentElement.dir = useArabic ? "rtl" : "ltr";
   document.body.classList.toggle("is-arabic", useArabic);
   const select = document.getElementById("languageSelect");
   if (select) select.value = currentLanguage;
+  if (!root) return;
 
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement;
       if (!parent || ["SCRIPT", "STYLE", "TEXTAREA"].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
@@ -452,17 +867,22 @@ function applyLanguage() {
   });
   let node = walker.nextNode();
   while (node) {
-    if (!i18nTextNodes.has(node)) i18nTextNodes.set(node, node.nodeValue);
-    const base = i18nTextNodes.get(node);
+    const current = node.nodeValue;
+    const stored = i18nTextNodes.get(node);
+    const storedTranslation = stored ? translatePhrase(stored) : "";
+    const base = stored && current !== stored && current !== storedTranslation ? current : (stored || current);
+    i18nTextNodes.set(node, base);
     node.nodeValue = useArabic ? translatePhrase(base) : base;
     node = walker.nextNode();
   }
 
-  document.querySelectorAll("[placeholder], [title], [aria-label]").forEach((element) => {
+  root.querySelectorAll?.("[placeholder], [title], [aria-label]").forEach((element) => {
     const stored = i18nAttrNodes.get(element) || {};
     ["placeholder", "title", "aria-label"].forEach((attribute) => {
       if (!element.hasAttribute(attribute)) return;
-      if (!stored[attribute]) stored[attribute] = element.getAttribute(attribute);
+      const current = element.getAttribute(attribute);
+      const previous = stored[attribute];
+      if (!previous || (current !== previous && current !== translatePhrase(previous))) stored[attribute] = current;
       element.setAttribute(attribute, useArabic ? translatePhrase(stored[attribute]) : stored[attribute]);
     });
     i18nAttrNodes.set(element, stored);
@@ -506,7 +926,7 @@ function formatSavedAt(value) {
 function toast(message, type = "success") {
   const element = document.getElementById("toast");
   clearTimeout(toastTimer);
-  element.textContent = message;
+  element.textContent = currentLanguage === "ar" ? translatePhrase(message) : message;
   element.classList.toggle("error", type === "error");
   element.classList.remove("hidden");
   toastTimer = setTimeout(() => element.classList.add("hidden"), 3600);
@@ -960,10 +1380,26 @@ function studentGroup(student) { return byId(state.groups, student?.groupId); }
 function studentTraining(student) { return groupTraining(studentGroup(student)); }
 function studentPaid(student) { return state.payments.filter((payment) => payment.studentId === student?.id).reduce((sum, payment) => sum + Number(payment.amount || 0), 0); }
 function studentRemaining(student) { return Math.max(0, Number(student?.totalDue || 0) - studentPaid(student)); }
+function simpleDay(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase();
+}
+function normalizeDayKey(value) {
+  const simple = simpleDay(value);
+  const direct = WEEK_DAYS.find((day) => day.key === simple || simpleDay(day.label) === simple);
+  if (direct) return direct.key;
+  const found = Object.entries(DAY_ALIASES).find(([, aliases]) => aliases.some((alias) => simpleDay(alias) === simple));
+  return found?.[0] || simple;
+}
+function dayLabel(value) {
+  const key = normalizeDayKey(value);
+  return WEEK_DAYS.find((day) => day.key === key)?.label || String(value || "");
+}
 function groupSchedule(group) {
-  const main = `${(group.days || []).join(", ") || "No days"} - ${group.timeStart || "?"}-${group.timeEnd || "?"}`;
+  const mainDays = (group.days || []).map(dayLabel).join(", ") || "No days";
+  const main = `${mainDays} - ${group.timeStart || "?"}-${group.timeEnd || "?"}`;
   if (group?.attendanceMode !== "flexible_shift") return main;
-  const alternate = `${(group.alternateDays?.length ? group.alternateDays : group.days || []).join(", ")} - ${group.alternateTimeStart || "?"}-${group.alternateTimeEnd || "?"}`;
+  const alternateDays = (group.alternateDays?.length ? group.alternateDays : group.days || []).map(dayLabel).join(", ") || mainDays;
+  const alternate = `${alternateDays} - ${group.alternateTimeStart || "?"}-${group.alternateTimeEnd || "?"}`;
   return `${main} · Nidam shift: ${alternate}`;
 }
 function groupTimeKeys(group) {
@@ -986,11 +1422,11 @@ function timeRangesOverlap(startA, endA, startB, endB) {
   return aStart < bEnd && bStart < aEnd;
 }
 function dayNames(value) {
-  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+  return String(value || "").split(",").map((item) => dayLabel(item.trim())).filter(Boolean);
 }
 function dayOverlap(a = [], b = []) {
-  const normalized = new Set(a.map((day) => day.toLocaleLowerCase()));
-  return b.some((day) => normalized.has(day.toLocaleLowerCase()));
+  const normalized = new Set(a.map(normalizeDayKey));
+  return b.some((day) => normalized.has(normalizeDayKey(day)));
 }
 function groupOverlapsSlot(group, days, start, end) {
   const mainOverlap = dayOverlap(group.days || [], days) && timeRangesOverlap(group.timeStart, group.timeEnd, start, end);
@@ -1015,52 +1451,54 @@ function hydratePlannerControls() {
 function buildPlannerSuggestions() {
   const preferredMode = document.getElementById("plannerMode")?.value || "fixed";
   const targetCapacity = Math.max(1, Number(document.getElementById("plannerCapacity")?.value || 20));
-  const dayOptions = [
-    "Monday, Wednesday",
-    "Tuesday, Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-    ...state.groups.map((group) => (group.days || []).join(", ")).filter(Boolean),
-  ];
   const timeOptions = [
-    ["09:00", "11:00"],
-    ["10:00", "12:00"],
-    ["12:00", "14:00"],
-    ["14:00", "16:00"],
-    ["16:00", "18:00"],
-    ["18:00", "20:00"],
+    ...PLANNER_TIME_SLOTS,
     ...state.groups.map((group) => [group.timeStart, group.timeEnd]).filter(([start, end]) => start && end),
+    ...state.groups.map((group) => [group.alternateTimeStart, group.alternateTimeEnd]).filter(([start, end]) => start && end),
   ];
-  const uniqueDays = [...new Set(dayOptions)];
-  const uniqueTimes = [...new Map(timeOptions.map(([start, end]) => [`${start}-${end}`, [start, end]])).values()];
+  const uniqueTimes = [...new Map(timeOptions.map(([start, end]) => [`${start}-${end}`, [start, end]])).values()]
+    .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
   const candidates = [];
-  uniqueDays.forEach((daysText) => {
-    const days = dayNames(daysText);
+  WEEK_DAYS.forEach((day) => {
+    const days = [day.key];
+    const daysText = day.label;
     uniqueTimes.forEach(([start, end]) => {
       const pressure = slotPressure(days, start, end);
-      candidates.push({ daysText, days, start, end, capacity: targetCapacity, attendanceMode: "fixed", pressure });
-      if (preferredMode === "flexible_shift") {
-        const alternate = Number(start.slice(0, 2)) < 14 ? ["18:00", "20:00"] : ["10:00", "12:00"];
-        const alternatePressure = slotPressure(days, alternate[0], alternate[1]);
-        candidates.push({
-          daysText,
-          days,
-          start,
-          end,
-          capacity: targetCapacity,
-          attendanceMode: "flexible_shift",
-          alternateDaysText: daysText,
-          alternateTimeStart: alternate[0],
-          alternateTimeEnd: alternate[1],
-          pressure: { conflicts: [...pressure.conflicts, ...alternatePressure.conflicts], score: pressure.score + alternatePressure.score + 15 },
-        });
+      if (preferredMode !== "flexible_shift") {
+        candidates.push({ daysText, days, start, end, capacity: targetCapacity, attendanceMode: "fixed", pressure });
+        return;
       }
+      const alternate = Number(start.slice(0, 2)) < 14 ? ["18:00", "20:00"] : ["10:00", "12:00"];
+      const alternatePressure = slotPressure(days, alternate[0], alternate[1]);
+      const conflictMap = new Map([...pressure.conflicts, ...alternatePressure.conflicts].map((group) => [group.id, group]));
+      candidates.push({
+        daysText,
+        days,
+        start,
+        end,
+        capacity: targetCapacity,
+        attendanceMode: "flexible_shift",
+        alternateDaysText: daysText,
+        alternateTimeStart: alternate[0],
+        alternateTimeEnd: alternate[1],
+        pressure: { conflicts: [...conflictMap.values()], score: pressure.score + alternatePressure.score + 15 },
+      });
     });
   });
-  return candidates
-    .sort((a, b) => a.pressure.score - b.pressure.score || a.daysText.localeCompare(b.daysText) || a.start.localeCompare(b.start))
-    .slice(0, 4);
+  return candidates;
+}
+function plannerSlotKey(suggestion) {
+  return `${normalizeDayKey(suggestion.days?.[0] || suggestion.daysText)}|${suggestion.start}|${suggestion.end}`;
+}
+function plannerSlotStatus(suggestion) {
+  const conflicts = suggestion.pressure?.conflicts?.length || 0;
+  if (!conflicts) return { className: "free", pill: "quality-strong", label: "Créneau libre", action: "Créer ici" };
+  if (conflicts <= 1) return { className: "warning", pill: "quality-watch", label: "1 conflit possible", action: "Voir la journée" };
+  return { className: "busy", pill: "quality-weak", label: `${conflicts} conflits possibles`, action: "Voir la journée" };
+}
+function selectedPlannerDayInfo() {
+  if (!WEEK_DAYS.some((day) => day.key === plannerSelectedDay)) plannerSelectedDay = "monday";
+  return WEEK_DAYS.find((day) => day.key === plannerSelectedDay) || WEEK_DAYS[0];
 }
 function renderPlannerSuggestions() {
   const container = document.getElementById("plannerSuggestions");
@@ -1068,15 +1506,52 @@ function renderPlannerSuggestions() {
   plannerSuggestions = buildPlannerSuggestions();
   if (!plannerSuggestions.length) {
     container.innerHTML = '<div class="empty">Ajoutez une formation ou un groupe existant pour recevoir des propositions.</div>';
+    applyLanguage(container);
     return;
   }
-  container.innerHTML = plannerSuggestions.map((suggestion, index) => {
-    const conflicts = suggestion.pressure.conflicts.length;
-    const label = conflicts ? `${conflicts} conflit${conflicts === 1 ? "" : "s"} possible${conflicts === 1 ? "" : "s"}` : "Créneau libre";
-    const className = conflicts ? "quality-watch" : "quality-strong";
-    const shift = suggestion.attendanceMode === "flexible_shift" ? `<small>Nidam shift: ${escapeHtml(suggestion.alternateDaysText)} ${escapeHtml(suggestion.alternateTimeStart)}-${escapeHtml(suggestion.alternateTimeEnd)}</small>` : "<small>Groupe fixe</small>";
-    return `<article class="planner-suggestion"><div><span class="status-pill ${className}">${escapeHtml(label)}</span><strong>${escapeHtml(suggestion.daysText)} · ${escapeHtml(suggestion.start)}-${escapeHtml(suggestion.end)}</strong>${shift}<small>Capacité proposée: ${number(suggestion.capacity)} étudiants</small></div><button class="button secondary" type="button" data-create-plan="${index}">Créer ce planning</button></article>`;
+  const slotIndex = new Map(plannerSuggestions.map((suggestion, index) => [plannerSlotKey(suggestion), index]));
+  const times = [...new Set(plannerSuggestions.map((suggestion) => `${suggestion.start}-${suggestion.end}`))]
+    .map((range) => range.split("-"))
+    .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
+  const selectedDay = selectedPlannerDayInfo();
+  const dayStats = WEEK_DAYS.map((day) => {
+    const slots = plannerSuggestions.filter((suggestion) => normalizeDayKey(suggestion.days?.[0] || suggestion.daysText) === day.key);
+    const free = slots.filter((slot) => !slot.pressure.conflicts.length).length;
+    const busy = slots.length - free;
+    const best = slots.slice().sort((a, b) => a.pressure.score - b.pressure.score || a.start.localeCompare(b.start))[0];
+    return { day, slots, free, busy, best };
+  });
+  const header = `<div class="planner-week-head"><div><p class="section-kicker">Calendrier hebdomadaire</p><h4>Tous les jours visibles</h4><p>Vert = libre. Orange = conflit léger. Rouge = chargé. Cliquez sur un jour pour voir les heures exactes.</p></div><div class="planner-legend"><span><i class="free"></i>Disponible</span><span><i class="warning"></i>Conflit</span><span><i class="busy"></i>Chargé</span></div></div>`;
+  const dayTabs = `<div class="planner-day-tabs">${dayStats.map(({ day, free, busy }) => `<button class="${day.key === selectedDay.key ? "active" : ""}" type="button" data-planner-day="${escapeHtml(day.key)}"><strong>${escapeHtml(day.label)}</strong><span>${free} créneaux libres · ${busy} conflits</span></button>`).join("")}</div>`;
+  const gridHead = `<div class="planner-grid-cell planner-time-head">Heures exactes</div>${WEEK_DAYS.map((day) => `<button class="planner-grid-cell planner-day-head ${day.key === selectedDay.key ? "active" : ""}" type="button" data-planner-day="${escapeHtml(day.key)}"><strong>${escapeHtml(day.label)}</strong><small>${dayStats.find((item) => item.day.key === day.key)?.free || 0} créneaux libres</small></button>`).join("")}`;
+  const gridRows = times.map(([start, end]) => {
+    const cells = WEEK_DAYS.map((day) => {
+      const index = slotIndex.get(`${day.key}|${start}|${end}`);
+      const suggestion = plannerSuggestions[index];
+      if (!suggestion) return '<div class="planner-grid-cell planner-slot empty-slot">—</div>';
+      const status = plannerSlotStatus(suggestion);
+      const conflicts = suggestion.pressure.conflicts.length;
+      const actionAttr = conflicts ? `data-planner-day="${escapeHtml(day.key)}"` : `data-create-plan="${index}"`;
+      return `<button class="planner-grid-cell planner-slot ${status.className}" type="button" ${actionAttr} aria-label="${escapeHtml(`${day.label} ${start}-${end}: ${status.label}`)}"><span>${escapeHtml(status.label)}</span><strong>${escapeHtml(conflicts ? "Voir la journée" : "Créer ici")}</strong></button>`;
+    }).join("");
+    return `<div class="planner-grid-cell planner-time">${escapeHtml(start)}-${escapeHtml(end)}</div>${cells}`;
   }).join("");
+  const selectedSlots = plannerSuggestions
+    .map((suggestion, index) => ({ suggestion, index }))
+    .filter(({ suggestion }) => normalizeDayKey(suggestion.days?.[0] || suggestion.daysText) === selectedDay.key)
+    .sort((a, b) => a.suggestion.start.localeCompare(b.suggestion.start));
+  const selectedFree = selectedSlots.filter(({ suggestion }) => !suggestion.pressure.conflicts.length).length;
+  const selectedBusy = selectedSlots.length - selectedFree;
+  const detail = `<article class="planner-day-detail"><div class="planner-day-summary"><div><p class="section-kicker">Jour détaillé</p><h4>${escapeHtml(selectedDay.label)}</h4><p>${selectedFree} créneaux libres · ${selectedBusy} conflits</p></div><span class="status-pill quality-strong">Meilleur créneau: ${escapeHtml(dayStats.find((item) => item.day.key === selectedDay.key)?.best?.start || "-")}</span></div><p class="form-hint">Cliquez sur une case verte pour créer le groupe directement. Cliquez sur un jour pour voir toutes les heures libres et occupées.</p><div class="planner-day-slots">${selectedSlots.map(({ suggestion, index }) => {
+    const status = plannerSlotStatus(suggestion);
+    const conflicts = suggestion.pressure.conflicts || [];
+    const shift = suggestion.attendanceMode === "flexible_shift" ? `<small>Nidam shift: ${escapeHtml(suggestion.alternateDaysText)} ${escapeHtml(suggestion.alternateTimeStart)}-${escapeHtml(suggestion.alternateTimeEnd)}</small>` : "<small>Groupe fixe</small>";
+    const conflictText = conflicts.length ? conflicts.slice(0, 3).map((group) => group.name).join(", ") : "Aucun groupe dans ce créneau.";
+    const more = conflicts.length > 3 ? ` + ${conflicts.length - 3}` : "";
+    return `<article class="planner-day-slot ${status.className}"><div><span class="status-pill ${status.pill}">${escapeHtml(status.label)}</span><strong>${escapeHtml(suggestion.start)}-${escapeHtml(suggestion.end)}</strong>${shift}<small>${escapeHtml(conflictText)}${escapeHtml(more)}</small><small>Capacité proposée: ${number(suggestion.capacity)} étudiants</small></div><button class="button ${conflicts.length ? "secondary" : "primary"}" type="button" data-create-plan="${index}">${conflicts.length ? "Créer quand même" : "Créer ce planning"}</button></article>`;
+  }).join("")}</div></article>`;
+  container.innerHTML = `<section class="planner-week">${header}${dayTabs}<div class="planner-calendar" role="grid">${gridHead}${gridRows}</div>${detail}</section>`;
+  applyLanguage(container);
 }
 async function createSuggestedPlan(index) {
   if (!studentDataUnlocked()) return;
@@ -1096,7 +1571,7 @@ async function createSuggestedPlan(index) {
     method: "POST",
     body: JSON.stringify({
       programId,
-      name: `${program?.name || newTrainingName} ${suggestion.start}`,
+      name: `${program?.name || newTrainingName} ${suggestion.daysText} ${suggestion.start}`,
       durationLabel: durationLabel || program?.durationLabel || "",
       days: suggestion.daysText,
       timeStart: suggestion.start,
@@ -1347,6 +1822,7 @@ function showPanel(name, updateHash = true) {
   const meta = pageMeta[name] || ["CMCG CRM", ""];
   document.getElementById("pageTitle").textContent = meta[0];
   document.getElementById("pageSubtitle").textContent = meta[1];
+  applyLanguage(document.querySelector(".topbar"));
   if (updateHash && window.location.hash !== `#view=${name}`) window.history.replaceState(null, "", `#view=${name}`);
   window.scrollTo({ top: 0, behavior: "auto" });
 }
@@ -1430,6 +1906,7 @@ function syncOutcomeHierarchy(preferred = {}) {
   if (preferred.adId && ads.some((ad) => ad.id === preferred.adId)) adSelect.value = preferred.adId;
 
   hiddenTarget.value = level === "campaign" ? campaignSelect.value : level === "adSet" ? adSetSelect.value : adSelect.value;
+  applyLanguage(document.getElementById("outcomeDialog"));
 }
 
 function fillOutcomeTargets(preferred = "") {
@@ -1447,6 +1924,7 @@ function fillOutcomeTargets(preferred = "") {
     document.getElementById("outcomeAd").closest("label").classList.toggle("hidden", level !== "ad");
     syncOutcomeHierarchy(preferredOutcomePath(level, preferred));
     document.getElementById("assignmentHint").textContent = level === "ad" ? "Choose campaign, then ad set, then exact ad so duplicate ad names stay separate." : level === "adSet" ? "Choose campaign first, then the ad set that produced the outcome." : "Choose the campaign that produced the outcome.";
+    applyLanguage(document.getElementById("outcomeDialog"));
     return;
   }
 
@@ -1458,6 +1936,7 @@ function fillOutcomeTargets(preferred = "") {
   if (options.some((item) => item.id === preferred)) target.value = preferred;
   hiddenTarget.value = target.value;
   document.getElementById("assignmentHint").textContent = "Use when you only know the sales agent.";
+  applyLanguage(document.getElementById("outcomeDialog"));
 }
 
 function openOutcome({ level = "ad", targetId = "", type = "" } = {}) {
@@ -1468,6 +1947,7 @@ function openOutcome({ level = "ad", targetId = "", type = "" } = {}) {
   form.elements.assignmentLevel.value = level;
   if (type && form.elements.type) form.querySelector(`input[name="type"][value="${CSS.escape(type)}"]`).checked = true;
   fillOutcomeTargets(targetId);
+  applyLanguage(document.getElementById("outcomeDialog"));
   document.getElementById("outcomeDialog").showModal();
 }
 
@@ -1479,6 +1959,7 @@ function ensureAgentDialog() {
   dialog.className = "modal";
   dialog.innerHTML = `<form id="agentEditForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Sales agent</p><h2>Edit agent</h2><p>Renaming an agent rematches imported ad sets by name, ignoring uppercase/lowercase.</p></div><button class="icon-button" type="button" data-close-agent aria-label="Close agent form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Agent name</span><input name="name" required placeholder="Souad" autocomplete="off" /></label><label><span>WhatsApp <em>optional</em></span><input name="whatsapp" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label></div><p class="form-hint">If this exact name appears in campaign, ad set, or ad names, those rows will be assigned to the agent automatically.</p><div class="modal-actions"><button class="button secondary" type="button" data-close-agent>Cancel</button><button class="button primary" type="submit">Save agent</button></div></form>`;
   document.body.append(dialog);
+  applyLanguage(dialog);
   return dialog;
 }
 
@@ -1491,6 +1972,7 @@ function openAgentEditor(agentId) {
   form.reset();
   form.elements.name.value = agent.name || "";
   form.elements.whatsapp.value = agent.whatsapp || "";
+  applyLanguage(dialog);
   dialog.showModal();
   form.elements.name.focus();
 }
@@ -1504,6 +1986,11 @@ function ensureOperationsDialogs() {
     <dialog id="paymentDialog" class="modal"><form id="paymentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Paiement · أداء</p><h2>Ajouter paiement</h2><p id="paymentStudentName">Enregistrer un paiement étudiant.</p></div><button class="icon-button" type="button" data-close-payment aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Montant</span><input name="amount" type="number" min="0.01" step="0.01" required /></label><label><span>Date paiement</span><input name="paidAt" type="date" required /></label><label><span>Méthode</span><select name="method"><option value="cash">Espèces</option><option value="transfer">Virement</option><option value="card">Carte</option><option value="other">Autre</option></select></label></div><label><span>Note <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Reçu, tranche, rappel"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-payment>Annuler</button><button class="button primary" type="submit">Enregistrer paiement</button></div></form></dialog>
     <dialog id="studentDetailDialog" class="modal outcome-modal"><div class="modal-content"><div class="modal-head"><div><p class="section-kicker">Historique étudiant · تتبع</p><h2 id="studentDetailTitle">Historique étudiant</h2><p>Inscription, modifications et paiements dans une seule trace.</p></div><button class="icon-button" type="button" data-close-student-detail aria-label="Fermer">×</button></div><div id="studentDetailBody"></div><div class="modal-actions"><button class="button secondary" type="button" data-close-student-detail>Fermer</button><button class="button primary" type="button" data-edit-current-student>Modifier étudiant</button></div></div></dialog>
   `);
+  applyLanguage(document.getElementById("trainingDialog"));
+  applyLanguage(document.getElementById("groupDialog"));
+  applyLanguage(document.getElementById("studentDialog"));
+  applyLanguage(document.getElementById("paymentDialog"));
+  applyLanguage(document.getElementById("studentDetailDialog"));
 }
 
 function hydrateGroupProgramSelect() {
@@ -1560,6 +2047,7 @@ function openTrainingForm() {
   form.reset();
   form.elements.name.value = document.getElementById("plannerTrainingName")?.value.trim() || "";
   form.elements.durationLabel.value = document.getElementById("plannerDuration")?.value.trim() || "";
+  applyLanguage(document.getElementById("trainingDialog"));
   document.getElementById("trainingDialog").showModal();
   form.elements.name.focus();
 }
@@ -1581,6 +2069,7 @@ function openGroupForm(prefill = {}) {
   form.elements.alternateTimeStart.value = prefill.alternateTimeStart || "";
   form.elements.alternateTimeEnd.value = prefill.alternateTimeEnd || "";
   syncGroupShiftFields();
+  applyLanguage(document.getElementById("groupDialog"));
   document.getElementById("groupDialog").showModal();
   (form.elements.programId.value ? form.elements.name : form.elements.programId).focus();
 }
@@ -1609,6 +2098,7 @@ function openStudentForm({ studentId = "", groupId = "" } = {}) {
   } else {
     setStudentDefaultPrice();
   }
+  applyLanguage(document.getElementById("studentDialog"));
   document.getElementById("studentDialog").showModal();
   form.elements.name.focus();
 }
@@ -1624,6 +2114,7 @@ function openPaymentForm(studentId) {
   form.elements.paidAt.value = new Date().toISOString().slice(0, 10);
   form.elements.amount.value = studentRemaining(student) ? studentRemaining(student).toFixed(2) : "";
   document.getElementById("paymentStudentName").textContent = `${student.name} - reste ${money(studentRemaining(student))}`;
+  applyLanguage(document.getElementById("paymentDialog"));
   document.getElementById("paymentDialog").showModal();
   form.elements.amount.focus();
 }
@@ -1647,6 +2138,7 @@ function openStudentDetail(studentId) {
   const events = state.events.filter((event) => event.studentId === student.id).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   document.getElementById("studentDetailTitle").textContent = student.name;
   document.getElementById("studentDetailBody").innerHTML = `<div class="student-detail-grid"><article class="mini-ledger"><span>Formation</span><strong>${escapeHtml(training?.name || "Inconnue")}</strong><small>${escapeHtml(group?.name || "Sans groupe")} - ${escapeHtml(group ? groupSchedule(group) : "")}</small></article><article class="mini-ledger"><span>Agent commercial</span><strong>${escapeHtml(agent?.name || "Non assigné")}</strong><small>${escapeHtml(student.phone || "Sans téléphone")}</small></article><article class="mini-ledger"><span>Paiement</span><strong>${money(studentPaid(student))} / ${money(student.totalDue)}</strong><small>${money(studentRemaining(student))} reste</small></article></div><h3>Historique paiements</h3><div class="simple-list">${payments.length ? payments.map((payment) => `<div class="simple-list-row"><div><strong>${money(payment.amount)}</strong><small>${escapeHtml(payment.paidAt)} - ${escapeHtml(payment.method || "cash")}</small></div><span>${escapeHtml(payment.notes || "")}</span></div>`).join("") : '<div class="empty">Aucun paiement enregistré.</div>'}</div><h3>Trace complète</h3><ol class="timeline">${events.length ? events.map((event) => `<li><strong>${escapeHtml(eventDescription(event))}</strong><small>${escapeHtml(new Date(event.createdAt).toLocaleString())}</small></li>`).join("") : '<li><strong>Ancien dossier étudiant</strong><small>Aucun événement enregistré.</small></li>'}</ol>`;
+  applyLanguage(document.getElementById("studentDetailDialog"));
   document.getElementById("studentDetailDialog").showModal();
 }
 
@@ -1742,6 +2234,14 @@ document.addEventListener("click", async (event) => {
       button.disabled = false;
       button.textContent = original;
     }
+  }
+  const plannerDay = event.target.closest("[data-planner-day]");
+  if (plannerDay) {
+    plannerSelectedDay = plannerDay.dataset.plannerDay || "monday";
+    localStorage.setItem("cmcg-planner-day", plannerSelectedDay);
+    renderPlannerSuggestions();
+    document.querySelector(".planner-day-detail")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return;
   }
   const createPlan = event.target.closest("[data-create-plan]");
   if (createPlan) {

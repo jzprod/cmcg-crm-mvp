@@ -29,12 +29,12 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - All source CSV columns are retained in `dailyLogs[].raw`, while secondary fields and identifiers remain hidden by default in the UI.
 - Programs are also used as trainings in the school operations section. Groups reference programs, students reference groups, and payments reference students.
 - Groups support `attendanceMode: "fixed"` or `attendanceMode: "flexible_shift"`. Flexible shift groups store `alternateDays`, `alternateTimeStart`, and `alternateTimeEnd` so one group can support morning/night attendance.
-- The operations UI includes a planning assistant that scores candidate day/time slots by overlap with existing groups and can create a suggested formation/group.
+- The operations UI includes a weekly planning assistant that shows Monday-Sunday, colors empty/conflicting/busy slots, drills into one day for exact hours, scores each slot by overlap with existing groups, and can create a suggested formation/group.
 - The operations UI includes a `Charger planning image` action backed by `POST /api/operations/seed-screenshot-schedule`. It seeds the clearly readable Excel-photo records once: Comptabilité 3 mois, Comptabilité 5 mois, Comptabilité complet, RH, and the visible Tue-Sun 10:00-20:00 groups.
 - Group capacity is derived from non-cancelled students in each group. Remaining student balance is derived from `student.totalDue - sum(payments.amount)`.
 - Student history is traceable through `events[]` entries keyed by `studentId` for registration, edits, and payments.
 - If Basic Auth is not configured and sensitive student data exists, `/api/state` redacts groups, students, payments, and student events instead of exposing them.
-- Arabic mode is client-side through the language selector. It sets `html dir="rtl"`, applies Arabic fonts, and translates static/dynamic UI copy using the local dictionary in `public/app.js`.
+- Arabic mode is client-side through the language selector. It sets `html dir="rtl"`, applies Arabic fonts, and translates static/dynamic UI copy, generated dialogs, placeholders, alerts, toasts, planner text, and common API errors using the local dictionary in `public/app.js`.
 - Imported ad sets match active agents only when the complete agent name appears in the ad-set name, case-insensitively. Zero matches remain unassigned and multiple matches remain ambiguous.
 - Agent names can be edited or deleted from the UI. Editing reruns ad-set matching. Deleting an agent clears the old links from ad sets and outcomes but does not delete imported ad data.
 - Outcomes are limited to `booked`, `showed`, and `registered`, and can target an ad, ad set, campaign, or agent.
@@ -89,7 +89,7 @@ node --check public/quality.js
 - **Overview** - date-windowed spend, messages, booked appointments, visits, registrations, quality-ranked ads, agent results, and a large multi-metric trend graph controlled by the KPI cards. Cost per registration is inverted visually so upward movement means lower cost.
 - **Performance** - group by ad, ad set, campaign, or agent; filter, sort by business quality/spend/outcomes/costs/rates, and reveal optional Meta columns.
 - **Outcomes** - add and audit the three manual outcome types; ad attribution is chosen by Campaign -> Ad set -> Ad.
-- **Groupes & paiements** - secure `/groups` area for French/Arabic school operations, planning suggestions, screenshot schedule seeding, fixed or nidam-shift groups, capacity preview, training/timing/payment/search filters, student registration, payment recording, and student timelines.
+- **Groupes & paiements** - secure `/groups` area for French/Arabic school operations, weekly calendar planning, day/hour drill-down, screenshot schedule seeding, fixed or nidam-shift groups, capacity preview, training/timing/payment/search filters, student registration, payment recording, and student timelines.
 - **Agents** - create, rename, or delete independent agents, review automatic ad-set matching, and see agent closing quality.
 - **Import & data** - upload reports, audit import history, download backups, restore, and reset old data before a clean start.
 

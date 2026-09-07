@@ -372,6 +372,13 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /document.documentElement.dir/);
   assert.match(app, /applyRoleAccess/);
   assert.match(app, /currentUser/);
+  assert.match(app, /WEEK_DAYS/);
+  assert.match(app, /PLANNER_TIME_SLOTS/);
+  assert.match(app, /normalizeDayKey/);
+  assert.match(app, /plannerSelectedDay/);
+  assert.match(app, /planner-calendar/);
+  assert.match(app, /planner-day-detail/);
+  assert.match(app, /data-planner-day/);
   assert.match(app, /cmcg-visible-columns/);
   assert.match(app, /cmcg-overview-metrics/);
   assert.match(app, /cmcg-report-period/);
