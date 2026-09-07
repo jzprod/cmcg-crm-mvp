@@ -154,12 +154,12 @@ test("training groups track capacity, installments, and student timeline events"
 
   const training = await request("/api/programs", { method: "POST", body: { name: "Comptabilite 3 mois", durationLabel: "3 months", basePrice: 3000, discountedPrice: 2500 }, expectedStatus: 201 });
   const agent = await request("/api/agents", { method: "POST", body: { name: "Souad" }, expectedStatus: 201 });
-  const group = await request("/api/groups", { method: "POST", body: { programId: training.id, name: "Monday morning", days: "Monday, Wednesday", timeStart: "10:00", timeEnd: "12:00", capacity: 2, price: 2500, startDate: "2026-09-07", attendanceMode: "flexible_shift", alternateDays: "Monday, Wednesday", alternateTimeStart: "18:00", alternateTimeEnd: "20:00" }, expectedStatus: 201 });
+  const group = await request("/api/groups", { method: "POST", body: { programId: training.id, name: "Monday morning", capacity: 2, sessions: [{ day: "Monday", timeStart: "10:00", timeEnd: "12:00" }, { day: "Wednesday", timeStart: "10:00", timeEnd: "12:00" }] }, expectedStatus: 201 });
   assert.equal(group.programId, training.id);
-  assert.deepEqual(group.days, ["Monday", "Wednesday"]);
+  assert.equal(group.sessions.length, 2);
+  assert.deepEqual(group.sessions[0], { day: "monday", timeStart: "10:00", timeEnd: "12:00" });
+  assert.deepEqual(group.days, ["monday", "wednesday"]);
   assert.equal(group.capacity, 2);
-  assert.equal(group.attendanceMode, "flexible_shift");
-  assert.equal(group.alternateTimeStart, "18:00");
 
   const student = await request("/api/students", { method: "POST", body: { groupId: group.id, agentId: agent.id, name: "Ali Student", phone: "+212600000001", registeredAt: "2026-09-07", totalDue: 2500, paymentPlan: "installments", initialPaid: 500 }, expectedStatus: 201 });
   assert.equal(student.totalDue, 2500);
@@ -310,6 +310,38 @@ test("teacher availability grid toggles weekly slots and date overrides", async 
   assert.equal(snapshot.availability.overrides["2026-09-12"]["09:00|11:00"], true);
 });
 
+test("groups are name-only containers; sessions are managed on the calendar", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-group-sessions-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl, authHeader } = await startApp(dataFile, { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const training = await request("/api/programs", { method: "POST", body: { name: "Allemand", sessionsPerWeek: 3, sessionHours: 2, monthlyPrice: 5000 }, expectedStatus: 201 });
+
+  // A group can be created with just a training + name, no time/price required.
+  const group = await request("/api/groups", { method: "POST", body: { programId: training.id, name: "Groupe 1" }, expectedStatus: 201 });
+  assert.equal(group.name, "Groupe 1");
+  assert.deepEqual(group.sessions, []);
+
+  // Sessions are added via the dedicated endpoint.
+  const withSessions = await request(`/api/groups/${group.id}/sessions`, {
+    method: "POST",
+    body: { sessions: [
+      { day: "Monday", timeStart: "09:00", timeEnd: "11:00" },
+      { day: "wednesday", timeStart: "09:00", timeEnd: "11:00" },
+      { day: "Monday", timeStart: "09:00", timeEnd: "11:00" },
+    ] },
+    expectedStatus: 200,
+  });
+  assert.equal(withSessions.sessions.length, 2); // duplicate dropped
+  assert.deepEqual(withSessions.days, ["monday", "wednesday"]);
+
+  // Legacy day/time payloads still migrate into sessions on create.
+  const legacy = await request("/api/groups", { method: "POST", body: { programId: training.id, name: "Groupe 2", days: "Tuesday", timeStart: "18:00", timeEnd: "20:00" }, expectedStatus: 201 });
+  assert.deepEqual(legacy.sessions, [{ day: "tuesday", timeStart: "18:00", timeEnd: "20:00" }]);
+});
+
 test("student operations route is locked until CRM auth is configured", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-security-test-"));
   const dataFile = path.join(tempDir, "crm.json");
@@ -368,7 +400,7 @@ test("screenshot schedule seed creates editable trainings and groups once", asyn
   assert.equal(first.result.programsAdded, 4);
   assert.equal(first.result.groupsAdded, 19);
   assert.ok(first.state.programs.some((program) => program.name === "Comptabilité 3 mois"));
-  assert.ok(first.state.groups.some((group) => group.days.includes("Mardi") && group.timeStart === "10:00"));
+  assert.ok(first.state.groups.some((group) => group.sessions.some((s) => s.day === "tuesday" && s.timeStart === "10:00")));
 
   const second = await request("/api/operations/seed-screenshot-schedule", { method: "POST", body: { source: "screenshot" }, expectedStatus: 200 });
   assert.equal(second.result.programsAdded, 0);
@@ -545,6 +577,10 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /toggleAvailability/);
   assert.match(app, /renderAvailabilityGrid/);
   assert.match(app, /isSlotAvailable/);
+  assert.match(app, /renderGroupSessionsPlanner/);
+  assert.match(app, /autoDistributeSessions/);
+  assert.match(app, /data-toggle-session/);
+  assert.match(app, /groupSessions/);
   assert.match(app, /data-toggle-availability/);
   assert.match(app, /trainingMonthlyPrice/);
   assert.match(app, /monthlyPrice/);

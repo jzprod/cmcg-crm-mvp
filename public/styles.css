@@ -293,6 +293,12 @@ td { font-size: .8rem; }
 .planner-slot.warning { background: #fef3c7; }
 .planner-slot.busy { background: #fee2e2; }
 .planner-slot.blocked { background: #e2e8f0; color: var(--slate-500); cursor: not-allowed; }
+.planner-slot.picked { background: #bbf7d0; box-shadow: inset 0 0 0 2px var(--green-600); }
+.planner-slot.picked span, .planner-slot.picked strong { color: var(--green-800, #166534); }
+.planner-legend .picked { background: var(--green-600); }
+.sessions-controls { display: flex; align-items: flex-end; gap: 12px; margin: 8px 0; flex-wrap: wrap; }
+.sessions-controls label { display: grid; gap: 4px; min-width: 240px; }
+.sessions-controls label span { font-size: .78rem; color: var(--slate-600); font-weight: 600; }
 .planner-slot.blocked span, .planner-slot.blocked strong { color: var(--slate-500); }
 .availability-slot { cursor: pointer; }
 .availability-slot.free { background: #dcfce7; box-shadow: inset 0 0 0 1px #86efac; }

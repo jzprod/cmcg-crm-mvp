@@ -125,16 +125,8 @@ function normalizeState(input) {
   state.usedCreativeCodes = [...usedCodes];
   state.programs.forEach((program) => normalizeProgram(program));
   state.groups.forEach((group) => {
-    group.days = Array.isArray(group.days) ? group.days : splitDays(group.days);
     group.attendanceMode = group.attendanceMode === "flexible_shift" ? "flexible_shift" : "fixed";
-    group.alternateDays = Array.isArray(group.alternateDays) ? group.alternateDays : splitDays(group.alternateDays);
-    group.alternateTimeStart = cleanText(group.alternateTimeStart);
-    group.alternateTimeEnd = cleanText(group.alternateTimeEnd);
-    if (group.attendanceMode !== "flexible_shift") {
-      group.alternateDays = [];
-      group.alternateTimeStart = "";
-      group.alternateTimeEnd = "";
-    }
+    normalizeGroupSessions(group);
   });
   state.students.forEach((student) => {
     student.paymentPlan = normalizePaymentPlan(student.paymentPlan);
@@ -593,6 +585,50 @@ function normalizeAvailability(input) {
   return base;
 }
 
+// A group owns a list of sessions: [{ day, timeStart, timeEnd }]. Legacy groups stored a
+// single days[]/timeStart/timeEnd (+ optional alternate shift); migrate those into sessions[].
+function normalizeGroupSessions(group) {
+  let sessions = Array.isArray(group.sessions) ? group.sessions : [];
+  sessions = sessions
+    .map((session) => ({
+      day: normalizeDayKey(session.day),
+      timeStart: normalizeTimeInput(session.timeStart || session.start),
+      timeEnd: normalizeTimeInput(session.timeEnd || session.end),
+    }))
+    .filter((session) => WEEK_DAYS.includes(session.day) && session.timeStart && session.timeEnd);
+  if (!sessions.length) {
+    // Migrate from the old shape.
+    const legacyDays = Array.isArray(group.days) ? group.days : splitDays(group.days);
+    const start = cleanText(group.timeStart);
+    const end = cleanText(group.timeEnd);
+    legacyDays.forEach((day) => {
+      const dayKey = normalizeDayKey(day);
+      if (WEEK_DAYS.includes(dayKey) && start && end) sessions.push({ day: dayKey, timeStart: start, timeEnd: end });
+    });
+    if (group.attendanceMode === "flexible_shift" && group.alternateTimeStart && group.alternateTimeEnd) {
+      const altDays = Array.isArray(group.alternateDays) && group.alternateDays.length ? group.alternateDays : legacyDays;
+      altDays.forEach((day) => {
+        const dayKey = normalizeDayKey(day);
+        if (WEEK_DAYS.includes(dayKey)) sessions.push({ day: dayKey, timeStart: cleanText(group.alternateTimeStart), timeEnd: cleanText(group.alternateTimeEnd) });
+      });
+    }
+  }
+  // De-duplicate identical sessions.
+  const seen = new Set();
+  group.sessions = sessions.filter((session) => {
+    const key = `${session.day}|${session.timeStart}|${session.timeEnd}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  // Keep legacy fields aligned to the first session so old readers still work.
+  const first = group.sessions[0];
+  group.days = [...new Set(group.sessions.map((session) => session.day))];
+  group.timeStart = first?.timeStart || "";
+  group.timeEnd = first?.timeEnd || "";
+  return group;
+}
+
 function paidForStudent(state, studentId) {
   return state.payments.filter((payment) => payment.studentId === studentId).reduce((sum, payment) => sum + finiteNumber(payment.amount), 0);
 }
@@ -652,28 +688,21 @@ function seedScreenshotSchedule(state) {
   SCREENSHOT_GROUPS.forEach((source) => {
     const program = programMap.get(source.programName) || findProgramByName(state, source.programName);
     if (!program) return;
-    const days = [source.day];
+    const dayKey = normalizeDayKey(source.day);
     const alreadyExists = state.groups.some((group) => (
       group.programId === program.id
-      && sameDays(group.days || [], days)
-      && group.timeStart === source.timeStart
-      && group.timeEnd === source.timeEnd
+      && (group.sessions || []).some((s) => s.day === dayKey && s.timeStart === source.timeStart && s.timeEnd === source.timeEnd)
       && cleanText(group.notes).toLocaleLowerCase().includes("planning excel")
     ));
     if (alreadyExists) return;
     const groupName = `${source.namePrefix ? `${source.namePrefix} - ` : ""}${program.name} ${source.day} ${source.timeStart}`;
-    const group = {
+    const group = normalizeGroupSessions({
       id: id("grp"),
       programId: program.id,
       name: groupName,
       durationLabel: program.durationLabel,
-      days,
-      timeStart: source.timeStart,
-      timeEnd: source.timeEnd,
+      sessions: [{ day: dayKey, timeStart: source.timeStart, timeEnd: source.timeEnd }],
       attendanceMode: "fixed",
-      alternateDays: [],
-      alternateTimeStart: "",
-      alternateTimeEnd: "",
       startDate: "",
       endDate: "",
       capacity: 20,
@@ -682,7 +711,7 @@ function seedScreenshotSchedule(state) {
       status: "active",
       notes: "Importé depuis le planning Excel en photo. À vérifier si la photo était floue.",
       createdAt: now(),
-    };
+    });
     state.groups.push(group);
     createdGroups.push(group);
   });
@@ -1196,35 +1225,30 @@ async function handleApi(req, res) {
       const body = await parseBody(req);
       const programId = cleanText(body.programId || body.trainingId);
       const program = state.programs.find((item) => item.id === programId);
-      const days = splitDays(body.days);
-      const attendanceMode = cleanText(body.attendanceMode) === "flexible_shift" ? "flexible_shift" : "fixed";
+      if (!program) return json(res, 400, { error: "Choose a valid training" });
+      // A group is just a named container under a training. Prices come from the training;
+      // sessions (day/time blocks) are added on the calendar afterwards.
       const item = {
         id: id("grp"),
         programId,
-        name: cleanText(body.name),
+        name: cleanText(body.name) || `${program.name} - Groupe ${state.groups.filter((g) => g.programId === programId).length + 1}`,
         durationLabel: cleanText(body.durationLabel || program?.durationLabel),
-        days,
-        timeStart: cleanText(body.timeStart),
-        timeEnd: cleanText(body.timeEnd),
-        attendanceMode,
-        alternateDays: attendanceMode === "flexible_shift" ? splitDays(body.alternateDays || body.days) : [],
-        alternateTimeStart: attendanceMode === "flexible_shift" ? cleanText(body.alternateTimeStart) : "",
-        alternateTimeEnd: attendanceMode === "flexible_shift" ? cleanText(body.alternateTimeEnd) : "",
+        sessions: Array.isArray(body.sessions) ? body.sessions : [],
+        // Legacy fields accepted so old clients / migrations still populate sessions.
+        days: body.days,
+        timeStart: body.timeStart,
+        timeEnd: body.timeEnd,
+        attendanceMode: program.nidamShift ? "flexible_shift" : "fixed",
         startDate: validDateInput(body.startDate),
         endDate: validDateInput(body.endDate),
         capacity: Math.max(1, wholeNumber(body.capacity, 20)),
-        price: nonNegativeMoney(body.price || program?.discountedPrice || program?.basePrice),
+        price: nonNegativeMoney(body.price),
         discountedPrice: nonNegativeMoney(body.discountedPrice),
         status: cleanText(body.status || "active"),
         notes: cleanText(body.notes),
         createdAt: now(),
       };
-      if (!program) return json(res, 400, { error: "Choose a valid training" });
-      if (!item.name) item.name = `${program.name} ${item.timeStart || ""}`.trim();
-      if (!item.days.length || !item.timeStart || !item.timeEnd) return json(res, 400, { error: "Group days, start time, and end time are required" });
-      if (item.attendanceMode === "flexible_shift" && (!item.alternateDays.length || !item.alternateTimeStart || !item.alternateTimeEnd)) {
-        return json(res, 400, { error: "Nidam shift needs alternate days, start time, and end time" });
-      }
+      normalizeGroupSessions(item);
       if (!new Set(["active", "full", "paused", "done"]).has(item.status)) return json(res, 400, { error: "Invalid group status" });
       state.groups.push(item);
       await storage.write(state);
@@ -1244,32 +1268,31 @@ async function handleApi(req, res) {
       group.programId = programId;
       group.name = cleanText(body.name) || group.name;
       group.durationLabel = cleanText(body.durationLabel || program.durationLabel);
-      group.days = splitDays(body.days).length ? splitDays(body.days) : group.days;
-      group.timeStart = cleanText(body.timeStart || group.timeStart);
-      group.timeEnd = cleanText(body.timeEnd || group.timeEnd);
-      group.attendanceMode = cleanText(body.attendanceMode || group.attendanceMode) === "flexible_shift" ? "flexible_shift" : "fixed";
-      if (group.attendanceMode === "flexible_shift") {
-        const alternateDays = body.alternateDays !== undefined ? splitDays(body.alternateDays) : (group.alternateDays || []);
-        group.alternateDays = alternateDays.length ? alternateDays : group.days;
-        group.alternateTimeStart = cleanText(body.alternateTimeStart ?? group.alternateTimeStart);
-        group.alternateTimeEnd = cleanText(body.alternateTimeEnd ?? group.alternateTimeEnd);
-        if (!group.alternateDays.length || !group.alternateTimeStart || !group.alternateTimeEnd) {
-          return json(res, 400, { error: "Nidam shift needs alternate days, start time, and end time" });
-        }
-      } else {
-        group.alternateDays = [];
-        group.alternateTimeStart = "";
-        group.alternateTimeEnd = "";
-      }
+      // Sessions are the source of truth for a group's timing.
+      if (body.sessions !== undefined) group.sessions = Array.isArray(body.sessions) ? body.sessions : [];
+      group.attendanceMode = program.nidamShift ? "flexible_shift" : "fixed";
       group.startDate = validDateInput(body.startDate) || "";
       group.endDate = validDateInput(body.endDate) || "";
       group.capacity = capacity;
-      group.price = nonNegativeMoney(body.price ?? group.price);
-      group.discountedPrice = nonNegativeMoney(body.discountedPrice ?? group.discountedPrice);
+      if (body.price !== undefined) group.price = nonNegativeMoney(body.price);
+      if (body.discountedPrice !== undefined) group.discountedPrice = nonNegativeMoney(body.discountedPrice);
       group.status = cleanText(body.status || group.status || "active");
       group.notes = cleanText(body.notes);
+      normalizeGroupSessions(group);
       group.updatedAt = now();
       if (!new Set(["active", "full", "paused", "done"]).has(group.status)) return json(res, 400, { error: "Invalid group status" });
+      await storage.write(state);
+      return json(res, 200, group);
+    }
+
+    const groupSessionsMatch = url.pathname.match(/^\/api\/groups\/([^/]+)\/sessions$/);
+    if (method === "POST" && groupSessionsMatch) {
+      const body = await parseBody(req);
+      const group = state.groups.find((item) => item.id === groupSessionsMatch[1]);
+      if (!group) return json(res, 404, { error: "Group not found" });
+      group.sessions = Array.isArray(body.sessions) ? body.sessions : [];
+      normalizeGroupSessions(group);
+      group.updatedAt = now();
       await storage.write(state);
       return json(res, 200, group);
     }
