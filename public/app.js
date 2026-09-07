@@ -486,8 +486,16 @@ Object.assign(ar, {
   "Heures": "الساعات",
   "Professeur marqué disponible": "تم تعيين الأستاذ كمتوفر",
   "Professeur marqué non disponible": "تم تعيين الأستاذ كغير متوفر",
+  "Formation choisie": "التكوين المختار",
+  "Toutes les formations": "كل التكوينات",
+  "Places disponibles": "الأماكن المتوفرة",
+  "Vert = places libres. Cliquez une séance pour l'assigner.": "أخضر = أماكن متوفرة. انقر على حصة لإسنادها.",
+  "Choisissez une formation pour voir les séances disponibles.": "اختر تكويناً لعرض الحصص المتوفرة.",
+  "Aucune séance pour cette formation. Créez un groupe dans l'assistant planning.": "لا توجد حصص لهذا التكوين. أنشئ فوجاً من مساعد التخطيط.",
+  "Complet": "ممتلئ",
   "Groupe (séance principale)": "الفوج (الحصة الأساسية)",
   "L'étudiant peut assister à n'importe quelle séance de la même formation, même dans un autre groupe.": "يمكن للطالب حضور أي حصة من نفس التكوين، حتى في فوج آخر.",
+  "Choisissez une séance disponible ci-dessus, ou sélectionnez ici. L'étudiant peut assister à n'importe quelle séance de la même formation, même dans un autre groupe.": "اختر حصة متوفرة أعلاه، أو حدّدها هنا. يمكن للطالب حضور أي حصة من نفس التكوين، حتى في فوج آخر.",
   "COMPLET": "ممتلئ",
   "Fermer": "إغلاق",
   "Nom formation": "اسم التكوين",
@@ -1893,7 +1901,9 @@ function renderGroupCards() {
     const training = groupTraining(group);
     const stats = groupStats(group);
     const full = stats.spots === 0;
-    return `<article class="card group-card ${full ? "is-full" : ""}"><div class="group-card-head"><div><span class="status-pill ${full ? "quality-watch" : "quality-strong"}">${full ? "Complet" : `${stats.spots} places libres`}</span><h3>${escapeHtml(group.name)}</h3><p>${escapeHtml(training?.name || "Formation inconnue")} ${group.durationLabel ? `- ${escapeHtml(group.durationLabel)}` : ""}</p></div><strong>${stats.fullness}%</strong></div><div class="capacity-bar" role="img" aria-label="${stats.enrolled} of ${stats.capacity} seats used"><span style="width:${stats.fullness}%"></span></div><div class="group-meta"><span>${escapeHtml(groupSchedule(group))}</span><span>${escapeHtml(group.startDate || "Pas de date début")} ${group.endDate ? `à ${escapeHtml(group.endDate)}` : ""}</span><span>${money(groupPrice(group))} prix par défaut</span></div><div class="group-numbers"><span><strong>${stats.enrolled}</strong> étudiants</span><span><strong>${money(stats.paid)}</strong> payé</span><span><strong>${money(stats.remaining)}</strong> reste</span></div><div class="agent-actions"><button class="button secondary" type="button" data-view-group="${escapeHtml(group.id)}">Voir étudiants</button><button class="button primary" type="button" data-open-student data-group="${escapeHtml(group.id)}">Inscrire</button></div></article>`;
+    const teacherAvailable = groupTeacherAvailable(group);
+    const availabilityPill = teacherAvailable ? "" : '<span class="status-pill quality-weak">Prof non disponible</span>';
+    return `<article class="card group-card ${full ? "is-full" : ""}"><div class="group-card-head"><div><span class="status-pill ${full ? "quality-watch" : "quality-strong"}">${full ? "Complet" : `${stats.spots} places libres`}</span>${availabilityPill}<h3>${escapeHtml(group.name)}</h3><p>${escapeHtml(training?.name || "Formation inconnue")} ${group.durationLabel ? `- ${escapeHtml(group.durationLabel)}` : ""}</p></div><strong>${stats.fullness}%</strong></div><div class="capacity-bar" role="img" aria-label="${stats.enrolled} of ${stats.capacity} seats used"><span style="width:${stats.fullness}%"></span></div><div class="group-meta"><span>${escapeHtml(groupSchedule(group))}</span><span>${escapeHtml(group.startDate || "Pas de date début")} ${group.endDate ? `à ${escapeHtml(group.endDate)}` : ""}</span><span>${money(groupPrice(group))} prix par défaut</span></div><div class="group-numbers"><span><strong>${stats.enrolled}</strong> étudiants</span><span><strong>${money(stats.paid)}</strong> payé</span><span><strong>${money(stats.remaining)}</strong> reste</span></div><div class="agent-actions"><button class="button secondary" type="button" data-view-group="${escapeHtml(group.id)}">Voir étudiants</button><button class="button primary" type="button" data-open-student data-group="${escapeHtml(group.id)}">Inscrire</button></div></article>`;
   }).join("") : '<div class="empty card">Aucun groupe pour le moment. Ajoutez une formation, puis créez le premier groupe planifié.</div>';
 }
 function renderStudentRows() {
@@ -2210,7 +2220,7 @@ function ensureOperationsDialogs() {
   document.body.insertAdjacentHTML("beforeend", `
     <dialog id="trainingDialog" class="modal outcome-modal wide-modal"><form id="trainingForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Formation · تكوين</p><h2 id="trainingDialogTitle">Ajouter formation</h2><p>Nom, durée, rythme des séances et les prix.</p></div><button class="icon-button" type="button" data-close-training aria-label="Fermer">×</button></div><div class="form-grid"><label class="span-2"><span>Nom formation</span><input name="name" required placeholder="Comptabilité" autocomplete="off" /></label><label><span>Durée</span><input name="durationValue" type="number" min="0" step="1" placeholder="5" /></label><label><span>Unité</span><select name="durationUnit"><option value="months">Mois</option><option value="years">Années</option></select></label><label><span>Séances par semaine</span><input name="sessionsPerWeek" type="number" min="0" step="1" placeholder="3" /></label><label><span>Durée d'une séance (heures)</span><input name="sessionHours" type="number" min="0" step="0.5" placeholder="2" /></label></div><section class="payment-agreement-box"><div class="agreement-head"><div><p class="section-kicker">Prix · الأسعار</p><h3>Les trois prix de la formation</h3><p>Le prix mensuel est le prix principal. Le cash est le prix remisé payé en une fois.</p></div></div><div class="form-grid payment-grid"><label class="price-main"><span>Prix mensuel <em>principal</em></span><input name="monthlyPrice" type="number" min="0" step="0.01" placeholder="5000" /></label><label><span>Prix total (une fois)</span><input name="fullPrice" type="number" min="0" step="0.01" placeholder="4000" /></label><label><span>Prix cash / remisé</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="3000" /></label></div></section><label class="switch-field"><input type="checkbox" name="nidamShift" /><span><strong>Nidam shift (matin + soir)</strong><small>La même séance est offerte le matin et le soir, l'étudiant vient quand il veut.</small></span></label><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Ce que la formation inclut"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-training>Annuler</button><button class="button primary" type="submit">Enregistrer formation</button></div></form></dialog>
     <dialog id="groupDialog" class="modal outcome-modal"><form id="groupForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Groupe · فوج</p><h2>Ajouter groupe</h2><p>Créez un créneau avec capacité, prix, et option nidam shift.</p></div><button class="icon-button" type="button" data-close-group aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Formation</span><select id="groupProgram" name="programId" required></select></label><label><span>Nom groupe</span><input name="name" placeholder="Groupe soir A" autocomplete="off" /></label><label><span>Jours</span><input name="days" required placeholder="Monday, Wednesday" /></label><label><span>Début</span><input name="timeStart" type="time" required /></label><label><span>Fin</span><input name="timeEnd" type="time" required /></label><label><span>Mode présence</span><select id="groupAttendanceMode" name="attendanceMode"><option value="fixed">Groupe fixe</option><option value="flexible_shift">Nidam shift matin/soir</option></select></label><label class="shift-field hidden"><span>Jours shift alternatif</span><input name="alternateDays" placeholder="Monday, Wednesday" /></label><label class="shift-field hidden"><span>Début shift alternatif</span><input name="alternateTimeStart" type="time" /></label><label class="shift-field hidden"><span>Fin shift alternatif</span><input name="alternateTimeEnd" type="time" /></label><label><span>Capacité</span><input name="capacity" type="number" min="1" step="1" value="20" required /></label><label><span>Prix groupe</span><input name="price" type="number" min="0" step="0.01" placeholder="Prix formation" /></label><label><span>Prix remisé</span><input name="discountedPrice" type="number" min="0" step="0.01" placeholder="Optionnel" /></label><label><span>Date début</span><input name="startDate" type="date" /></label><label><span>Date fin</span><input name="endDate" type="date" /></label><label><span>Statut</span><select name="status"><option value="active">Actif</option><option value="full">Complet</option><option value="paused">Pause</option><option value="done">Terminé</option></select></label></div><label><span>Notes <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Salle, formateur, timing spécial"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-group>Annuler</button><button class="button primary" type="submit">Enregistrer groupe</button></div></form></dialog>
-    <dialog id="studentDialog" class="modal outcome-modal wide-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Inscription étudiant · تسجيل</p><h2 id="studentDialogTitle">Inscrire étudiant</h2><p>Assignez l'étudiant au groupe et enregistrez l'accord de paiement exact.</p></div><button class="icon-button" type="button" data-close-student aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom étudiant</span><input name="name" required autocomplete="name" placeholder="Nom complet" /></label><label><span>Téléphone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label class="span-2"><span>Groupe (séance principale)</span><select id="studentGroup" name="groupId" required></select><small class="field-note">L'étudiant peut assister à n'importe quelle séance de la même formation, même dans un autre groupe.</small></label><label><span>Agent commercial</span><select id="studentAgent" name="agentId"></select></label><label><span>Date inscription</span><input name="registeredAt" type="date" required /></label><label><span>Statut</span><select name="status"><option value="registered">Inscrit</option><option value="active">Actif</option><option value="completed">Terminé</option><option value="paused">Pause</option><option value="cancelled">Annulé</option></select></label></div><section class="payment-agreement-box"><div class="agreement-head"><div><p class="section-kicker">Accord paiement</p><h3>Comment l'étudiant va payer</h3><p id="paymentPlanHelp">Choisissez cash, mensuel, ou un accord spécial.</p></div></div><div class="payment-choice-grid" role="radiogroup" aria-label="Mode paiement"><label class="payment-choice"><input type="radio" name="paymentPlan" value="paid_full" checked /><span><strong>Payé full / Cash</strong><small>Prix cash quand il paie tout le cours.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="monthly" /><span><strong>Paiement mensuel</strong><small>Total plus élevé, payé chaque mois.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="custom" /><span><strong>Accord spécial</strong><small>Ex: 1500 maintenant, reste le mois prochain.</small></span></label></div><div class="form-grid payment-grid"><label><span>Prix convenu total</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Payé maintenant</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Date départ paiement</span><input name="paymentStartDate" type="date" /></label><label data-payment-field="monthly"><span>Montant chaque mois</span><input name="installmentAmount" type="number" min="0" step="0.01" placeholder="1000" /></label><label data-payment-field="monthly"><span>Nombre de mois</span><input name="installmentsCount" type="number" min="0" step="1" placeholder="5" /></label><label data-payment-field="next"><span>Prochain paiement</span><input name="nextPaymentDate" type="date" /></label></div><label data-payment-field="custom"><span>Accord spécial <em>optionnel</em></span><textarea name="agreementNote" rows="2" placeholder="Ex: total 3000, il paie 1500 maintenant et 1500 le mois prochain"></textarea></label></section><label><span>Notes étudiant <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Documents, remarques, besoin particulier"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Annuler</button><button class="button primary" type="submit">Enregistrer étudiant</button></div></form></dialog>
+    <dialog id="studentDialog" class="modal outcome-modal wide-modal"><form id="studentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Inscription étudiant · تسجيل</p><h2 id="studentDialogTitle">Inscrire étudiant</h2><p>Assignez l'étudiant au groupe et enregistrez l'accord de paiement exact.</p></div><button class="icon-button" type="button" data-close-student aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Nom étudiant</span><input name="name" required autocomplete="name" placeholder="Nom complet" /></label><label><span>Téléphone</span><input name="phone" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label class="span-2"><span>Formation choisie</span><select id="studentTrainingPick"><option value="">Toutes les formations</option></select></label></div><section id="studentSpotsMap" class="spots-map span-2"></section><div class="form-grid"><label class="span-2"><span>Groupe (séance principale)</span><select id="studentGroup" name="groupId" required></select><small class="field-note">Choisissez une séance disponible ci-dessus, ou sélectionnez ici. L'étudiant peut assister à n'importe quelle séance de la même formation, même dans un autre groupe.</small></label><label><span>Agent commercial</span><select id="studentAgent" name="agentId"></select></label><label><span>Date inscription</span><input name="registeredAt" type="date" required /></label><label><span>Statut</span><select name="status"><option value="registered">Inscrit</option><option value="active">Actif</option><option value="completed">Terminé</option><option value="paused">Pause</option><option value="cancelled">Annulé</option></select></label></div><section class="payment-agreement-box"><div class="agreement-head"><div><p class="section-kicker">Accord paiement</p><h3>Comment l'étudiant va payer</h3><p id="paymentPlanHelp">Choisissez cash, mensuel, ou un accord spécial.</p></div></div><div class="payment-choice-grid" role="radiogroup" aria-label="Mode paiement"><label class="payment-choice"><input type="radio" name="paymentPlan" value="paid_full" checked /><span><strong>Payé full / Cash</strong><small>Prix cash quand il paie tout le cours.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="monthly" /><span><strong>Paiement mensuel</strong><small>Total plus élevé, payé chaque mois.</small></span></label><label class="payment-choice"><input type="radio" name="paymentPlan" value="custom" /><span><strong>Accord spécial</strong><small>Ex: 1500 maintenant, reste le mois prochain.</small></span></label></div><div class="form-grid payment-grid"><label><span>Prix convenu total</span><input name="totalDue" type="number" min="0" step="0.01" required /></label><label id="initialPaymentField"><span>Payé maintenant</span><input name="initialPaid" type="number" min="0" step="0.01" placeholder="0" /></label><label><span>Date départ paiement</span><input name="paymentStartDate" type="date" /></label><label data-payment-field="monthly"><span>Montant chaque mois</span><input name="installmentAmount" type="number" min="0" step="0.01" placeholder="1000" /></label><label data-payment-field="monthly"><span>Nombre de mois</span><input name="installmentsCount" type="number" min="0" step="1" placeholder="5" /></label><label data-payment-field="next"><span>Prochain paiement</span><input name="nextPaymentDate" type="date" /></label></div><label data-payment-field="custom"><span>Accord spécial <em>optionnel</em></span><textarea name="agreementNote" rows="2" placeholder="Ex: total 3000, il paie 1500 maintenant et 1500 le mois prochain"></textarea></label></section><label><span>Notes étudiant <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Documents, remarques, besoin particulier"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-student>Annuler</button><button class="button primary" type="submit">Enregistrer étudiant</button></div></form></dialog>
     <dialog id="paymentDialog" class="modal"><form id="paymentForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Paiement · أداء</p><h2>Ajouter paiement</h2><p id="paymentStudentName">Enregistrer un paiement étudiant.</p></div><button class="icon-button" type="button" data-close-payment aria-label="Fermer">×</button></div><div class="form-grid"><label><span>Montant</span><input name="amount" type="number" min="0.01" step="0.01" required /></label><label><span>Date paiement</span><input name="paidAt" type="date" required /></label><label><span>Méthode</span><select name="method"><option value="cash">Espèces</option><option value="transfer">Virement</option><option value="card">Carte</option><option value="other">Autre</option></select></label><label><span>Prochain paiement <em>optionnel</em></span><input name="nextPaymentDate" type="date" /></label></div><label><span>Note <em>optionnel</em></span><textarea name="notes" rows="2" placeholder="Reçu, tranche, rappel"></textarea></label><div class="modal-actions"><button class="button secondary" type="button" data-close-payment>Annuler</button><button class="button primary" type="submit">Enregistrer paiement</button></div></form></dialog>
     <dialog id="studentDetailDialog" class="modal outcome-modal"><div class="modal-content"><div class="modal-head"><div><p class="section-kicker">Historique étudiant · تتبع</p><h2 id="studentDetailTitle">Historique étudiant</h2><p>Inscription, modifications et paiements dans une seule trace.</p></div><button class="icon-button" type="button" data-close-student-detail aria-label="Fermer">×</button></div><div id="studentDetailBody"></div><div class="modal-actions"><button class="button secondary" type="button" data-close-student-detail>Fermer</button><button class="button primary" type="button" data-edit-current-student>Modifier étudiant</button></div></div></dialog>
   `);
@@ -2240,6 +2250,51 @@ function syncGroupShiftFields() {
   }
 }
 
+// True if the teacher is available for a group's main session day/time.
+function groupTeacherAvailable(group) {
+  const days = (group.days?.length ? group.days : []).map(normalizeDayKey);
+  if (!days.length || !group.timeStart || !group.timeEnd) return true;
+  return days.some((day) => isSlotAvailable(day, group.timeStart, group.timeEnd));
+}
+// Visual map of every group/session for the chosen training, with free spots and teacher availability.
+function renderStudentSpotsMap(trainingId = "", selectedGroupId = "") {
+  const container = document.getElementById("studentSpotsMap");
+  if (!container) return;
+  const groups = state.groups
+    .filter((group) => group.status !== "done" && (!trainingId || group.programId === trainingId))
+    .sort((a, b) => (a.timeStart || "").localeCompare(b.timeStart || "") || a.name.localeCompare(b.name));
+  if (!groups.length) {
+    container.innerHTML = trainingId
+      ? '<div class="empty">Aucune séance pour cette formation. Créez un groupe dans l\'assistant planning.</div>'
+      : '<div class="empty">Choisissez une formation pour voir les séances disponibles.</div>';
+    applyLanguage(container);
+    return;
+  }
+  const cards = groups.map((group) => {
+    const stats = groupStats(group);
+    const training = groupTraining(group);
+    const full = stats.spots <= 0;
+    const available = groupTeacherAvailable(group);
+    const blocked = !available;
+    const selected = group.id === selectedGroupId;
+    const statusPill = full
+      ? '<span class="status-pill quality-weak">COMPLET</span>'
+      : blocked
+        ? '<span class="status-pill quality-weak">Prof non disponible</span>'
+        : `<span class="status-pill quality-strong">${stats.spots} places libres</span>`;
+    const disabledClass = full || blocked ? "disabled" : "";
+    const clickAttr = full || blocked ? "" : `data-pick-spot="${escapeHtml(group.id)}"`;
+    return `<button type="button" class="spot-card ${disabledClass} ${selected ? "selected" : ""}" ${clickAttr} ${full || blocked ? "aria-disabled=\"true\"" : ""}>
+      <div class="spot-card-head"><strong>${escapeHtml(group.name)}</strong>${statusPill}</div>
+      <small>${escapeHtml(training?.name || "Formation")}</small>
+      <small class="spot-schedule">${escapeHtml(groupSchedule(group))}</small>
+      <div class="spot-capacity"><span class="capacity-bar"><i style="width:${stats.fullness}%"></i></span><small>${number(stats.enrolled)}/${number(stats.capacity)}</small></div>
+    </button>`;
+  }).join("");
+  container.innerHTML = `<div class="spots-map-head"><p class="section-kicker">Places disponibles</p><small>Vert = places libres. Cliquez une séance pour l'assigner.</small></div><div class="spots-grid">${cards}</div>`;
+  applyLanguage(container);
+}
+
 function hydrateStudentSelects(preferredGroupId = "") {
   const groupSelect = document.getElementById("studentGroup");
   const agentSelect = document.getElementById("studentAgent");
@@ -2267,6 +2322,15 @@ function hydrateStudentSelects(preferredGroupId = "") {
       groupSelect.append(optgroup);
     });
   if (preferredGroupId && state.groups.some((group) => group.id === preferredGroupId)) groupSelect.value = preferredGroupId;
+  // Training picker drives the visual "available spots" map.
+  const trainingPick = document.getElementById("studentTrainingPick");
+  if (trainingPick) {
+    const preferredTrainingId = groupTraining(byId(state.groups, preferredGroupId))?.id || "";
+    trainingPick.replaceChildren(option("Toutes les formations", ""));
+    state.programs.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((program) => trainingPick.append(option(program.name, program.id)));
+    trainingPick.value = preferredTrainingId;
+    renderStudentSpotsMap(preferredTrainingId, groupSelect.value);
+  }
   const agentLabel = agentSelect.closest("label");
   if (currentUser?.role === "sales") {
     agentSelect.replaceChildren(option(currentUser.agentName || currentUser.label || "Agent connecté", currentUser.agentId || ""));
@@ -2634,6 +2698,16 @@ document.addEventListener("click", async (event) => {
   }
   const openStudent = event.target.closest("[data-open-student]");
   if (openStudent) openStudentForm({ groupId: openStudent.dataset.group || "" });
+  const pickSpot = event.target.closest("[data-pick-spot]");
+  if (pickSpot) {
+    const groupSelect = document.getElementById("studentGroup");
+    if (groupSelect) {
+      groupSelect.value = pickSpot.dataset.pickSpot;
+      setStudentDefaultPrice({ resetDefaults: true });
+      renderStudentSpotsMap(document.getElementById("studentTrainingPick")?.value || "", groupSelect.value);
+    }
+    return;
+  }
   if (event.target.closest("[data-close-training]")) document.getElementById("trainingDialog")?.close();
   if (event.target.closest("[data-close-group]")) document.getElementById("groupDialog")?.close();
   if (event.target.closest("[data-close-student]")) { editingStudentId = ""; document.getElementById("studentDialog")?.close(); }
@@ -2712,7 +2786,14 @@ document.addEventListener("change", (event) => {
     render();
     return;
   }
-  if (event.target.id === "studentGroup") setStudentDefaultPrice({ resetDefaults: true });
+  if (event.target.id === "studentGroup") {
+    setStudentDefaultPrice({ resetDefaults: true });
+    const trainingPick = document.getElementById("studentTrainingPick");
+    renderStudentSpotsMap(trainingPick?.value || "", event.target.value);
+  }
+  if (event.target.id === "studentTrainingPick") {
+    renderStudentSpotsMap(event.target.value, document.getElementById("studentGroup")?.value || "");
+  }
   if (event.target.name === "paymentPlan" && event.target.closest("#studentForm")) syncStudentPaymentFields({ resetDefaults: true });
   if ((event.target.name === "registeredAt" || event.target.name === "paymentStartDate") && event.target.closest("#studentForm")) syncStudentPaymentFields({ resetDefaults: !editingStudentId });
   if (event.target.closest("#paymentForm") && event.target.name === "paidAt") syncPaymentFormNextDate();

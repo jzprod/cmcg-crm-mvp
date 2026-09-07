@@ -428,6 +428,22 @@ td { font-size: .8rem; }
 .payment-choice.active span { border-color: var(--green-600); }
 .payment-grid { align-items: end; }
 .span-2 { grid-column: span 2; }
+.spots-map { margin: 8px 0 6px; }
+.spots-map-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.spots-map-head small { color: var(--slate-500); font-size: .74rem; }
+.spots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.spot-card { text-align: left; display: grid; gap: 4px; padding: 12px; border: 1px solid var(--slate-200); border-radius: 13px; background: #fff; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.spot-card:hover:not(.disabled) { border-color: var(--green-600); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.spot-card.selected { border-color: var(--green-600); background: var(--green-50); box-shadow: 0 0 0 2px rgba(22,163,74,.18); }
+.spot-card.disabled { opacity: .6; cursor: not-allowed; background: var(--slate-50); }
+.spot-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.spot-card-head strong { font-size: .86rem; color: var(--navy-900); }
+.spot-card small { color: var(--slate-600); font-size: .72rem; }
+.spot-schedule { color: var(--slate-500); }
+.spot-capacity { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.capacity-bar { flex: 1; height: 6px; border-radius: 999px; background: var(--slate-200); overflow: hidden; }
+.capacity-bar i { display: block; height: 100%; background: var(--green-500); }
+.is-arabic .spots-map, .is-arabic .spot-card { text-align: right; }
 .field-note { display: block; margin-top: 4px; color: var(--slate-500); font-size: .72rem; }
 .price-main input { border-color: var(--green-600); box-shadow: 0 0 0 3px rgba(22,163,74,.1); }
 .price-main span em { color: var(--green-700); font-style: normal; font-weight: 600; }
