@@ -200,12 +200,14 @@ label em { color: var(--slate-500); font-style: normal; font-weight: 400; }
 .goal-chip-figures { font: 800 1.15rem "Fira Code", monospace; color: var(--navy-900); }
 .goal-chip-figures span { font-size: .8rem; color: var(--slate-500); font-weight: 600; }
 .goal-chip small { color: var(--slate-500); font-size: .7rem; }
-.goal-delete { position: absolute; top: 8px; right: 10px; display: none; color: var(--slate-400); font-size: .9rem; }
-.goal-chip:hover .goal-delete { display: block; }
+.goal-actions { position: absolute; top: 8px; right: 10px; display: none; gap: 8px; }
+.goal-chip:hover .goal-actions { display: inline-flex; }
+.goal-edit, .goal-delete { cursor: pointer; color: var(--slate-400); font-size: .95rem; line-height: 1; }
+.goal-edit:hover { color: var(--blue-700, #1d4ed8); }
 .goal-delete:hover { color: #b91c1c; }
 .is-arabic .goal-banner-main strong, .is-arabic .goal-chip, .is-arabic .goal-chip-head { text-align: right; }
 .is-arabic .goal-chip.ahead, .is-arabic .goal-chip.behind, .is-arabic .goal-chip.ontrack { border-left: 0; border-right: 4px solid; }
-.is-arabic .goal-delete { right: auto; left: 10px; }
+.is-arabic .goal-actions { right: auto; left: 10px; }
 .chart-empty { min-height: 230px; display: grid; place-items: center; border: 1px dashed var(--slate-300); border-radius: 12px; }
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr); gap: 13px; }
 .chart-card, .attention-card { padding: 19px; }

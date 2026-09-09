@@ -545,6 +545,7 @@ Object.assign(ar, {
   "Valeurs exactes. Choisissez une métrique dans les cartes, ou fixez un objectif pour voir le rythme.": "قيم دقيقة. اختر مقياساً من البطاقات، أو حدد هدفاً لرؤية الإيقاع.",
   "+ Objectif": "+ هدف",
   "Nouvel objectif": "هدف جديد",
+  "Modifier l'objectif": "تعديل الهدف",
   "Fixez une cible et une période. Le suivi montre si vous êtes en avance ou en retard.": "حدد هدفاً وفترة. تُظهر المتابعة إن كنت متقدماً أو متأخراً.",
   "Titre": "العنوان",
   "Ex: 50 inscrits en septembre": "مثلاً: 50 مسجلاً في شتنبر",
@@ -1537,7 +1538,7 @@ function renderGoals() {
       <div class="goal-chip-figures">${escapeHtml(cur)} <span>/ ${escapeHtml(tgt)}</span></div>
       <div class="goal-progress"><i style="width:${gp.percent}%"></i></div>
       <small>${escapeHtml(goalTypeLabel(goal))} · ${escapeHtml(goal.from)} → ${escapeHtml(goal.to)}</small>
-      <span class="goal-delete" data-delete-goal="${escapeHtml(goal.id)}" role="button" aria-label="Supprimer">✕</span>
+      <span class="goal-actions"><span class="goal-edit" data-edit-goal="${escapeHtml(goal.id)}" role="button" aria-label="Modifier">✎</span><span class="goal-delete" data-delete-goal="${escapeHtml(goal.id)}" role="button" aria-label="Supprimer">✕</span></span>
     </div>`;
   }).join("");
   applyLanguage(container);
@@ -1550,15 +1551,29 @@ function syncGoalFormFields() {
   const label = document.getElementById("goalTargetLabel");
   if (label) label.textContent = type === "revenue" ? "Cible (montant)" : type === "cost_per_registered" ? "Coût max par inscrit" : "Cible (nombre)";
 }
-function openGoalForm() {
+let editingGoalId = "";
+function openGoalForm({ goalId = "" } = {}) {
   const dialog = document.getElementById("goalDialog");
   const form = document.getElementById("goalForm");
   if (!dialog || !form) { toast("Objectif indisponible sur cette page", "error"); return; }
+  const goal = goalId ? byId(state.goals, goalId) : null;
+  editingGoalId = goal?.id || "";
   form.reset();
-  const today = todayInput();
-  const end = new Date(); end.setDate(end.getDate() + 30);
-  if (form.elements.from) form.elements.from.value = today;
-  if (form.elements.to) form.elements.to.value = end.toISOString().slice(0, 10);
+  const heading = dialog.querySelector("h2");
+  if (heading) heading.textContent = goal ? "Modifier l'objectif" : "Nouvel objectif";
+  if (goal) {
+    form.elements.title.value = goal.title || "";
+    form.elements.type.value = goal.type || "registered";
+    if (form.elements.metric) form.elements.metric.value = goal.metric || "registered";
+    form.elements.target.value = goal.target || "";
+    form.elements.from.value = goal.from || todayInput();
+    form.elements.to.value = goal.to || "";
+  } else {
+    const today = todayInput();
+    const end = new Date(); end.setDate(end.getDate() + 30);
+    if (form.elements.from) form.elements.from.value = today;
+    if (form.elements.to) form.elements.to.value = end.toISOString().slice(0, 10);
+  }
   syncGoalFormFields();
   applyLanguage(dialog);
   if (typeof dialog.showModal === "function") dialog.showModal();
@@ -3375,8 +3390,10 @@ document.addEventListener("submit", async (event) => {
       if (document.getElementById("studentDetailDialog")?.open && detailStudentId === paidStudentId) openStudentDetail(paidStudentId);
       toast("Payment saved");
     } else if (form.id === "goalForm") {
-      const goal = await api("/api/goals", { method: "POST", body: JSON.stringify(formPayload(form)) });
+      const route = editingGoalId ? `/api/goals/${editingGoalId}` : "/api/goals";
+      const goal = await api(route, { method: editingGoalId ? "PATCH" : "POST", body: JSON.stringify(formPayload(form)) });
       document.getElementById("goalDialog").close();
+      editingGoalId = "";
       activeGoalId = goal.id; localStorage.setItem("cmcg-active-goal", goal.id);
       await load(); toast("Objectif enregistré");
     } else if (form.id === "manualBudgetForm") {
@@ -3414,6 +3431,8 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-open-goal]")) openGoalForm();
   if (event.target.closest("[data-print-report]")) { if (!reportAgentId) return toast("Choisissez un agent d'abord", "error"); window.print(); return; }
   if (event.target.closest("[data-close-goal]")) document.getElementById("goalDialog")?.close();
+  const editGoal = event.target.closest("[data-edit-goal]");
+  if (editGoal) { event.stopPropagation(); openGoalForm({ goalId: editGoal.dataset.editGoal }); return; }
   const deleteGoal = event.target.closest("[data-delete-goal]");
   if (deleteGoal) {
     event.stopPropagation();
