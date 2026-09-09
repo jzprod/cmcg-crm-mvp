@@ -1481,6 +1481,19 @@ async function handleApi(req, res) {
       return json(res, 200, student);
     }
 
+    if (method === "DELETE" && studentMatch) {
+      const student = state.students.find((item) => item.id === studentMatch[1]);
+      if (!student) return json(res, 404, { error: "Student not found" });
+      if (context.role === "sales" && student.agentId !== context.agentId) return json(res, 403, { error: "This student belongs to another sales agent." });
+      // Remove the student entirely: their record, payments, and timeline events.
+      const removedPayments = state.payments.filter((p) => p.studentId === student.id).length;
+      state.payments = state.payments.filter((p) => p.studentId !== student.id);
+      state.events = state.events.filter((e) => e.studentId !== student.id);
+      state.students = state.students.filter((s) => s.id !== student.id);
+      await storage.write(state);
+      return json(res, 200, { removed: true, student: { id: student.id, name: student.name }, removedPayments });
+    }
+
     if (method === "POST" && url.pathname === "/api/agents") {
       const body = await parseBody(req);
       const item = {

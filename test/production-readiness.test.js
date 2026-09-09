@@ -230,6 +230,34 @@ test("flexible student payment agreements support cash, monthly, and custom spli
   assert.equal(customAfter.nextPaymentDate, "");
 });
 
+test("a registered student can be deleted with their payments and events", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-delete-student-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl, authHeader } = await startApp(dataFile, { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const training = await request("/api/programs", { method: "POST", body: { name: "Compta", monthlyPrice: 5000, discountedPrice: 3000 }, expectedStatus: 201 });
+  const group = await request("/api/groups", { method: "POST", body: { programId: training.id, name: "G1", capacity: 5 }, expectedStatus: 201 });
+  const student = await request("/api/students", { method: "POST", body: { groupId: group.id, name: "Mistake Student", totalDue: 3000, initialPaid: 500 }, expectedStatus: 201 });
+
+  let snapshot = (await request("/api/state")).state;
+  assert.equal(snapshot.students.length, 1);
+  assert.ok(snapshot.payments.some((p) => p.studentId === student.id));
+  assert.ok(snapshot.events.some((e) => e.studentId === student.id));
+
+  const del = await request(`/api/students/${student.id}`, { method: "DELETE", expectedStatus: 200 });
+  assert.equal(del.removed, true);
+  assert.equal(del.removedPayments, 1);
+
+  snapshot = (await request("/api/state")).state;
+  assert.equal(snapshot.students.length, 0);
+  assert.equal(snapshot.payments.filter((p) => p.studentId === student.id).length, 0);
+  assert.equal(snapshot.events.filter((e) => e.studentId === student.id).length, 0);
+
+  await request(`/api/students/${student.id}`, { method: "DELETE", expectedStatus: 404 });
+});
+
 test("trainings store numeric duration, session rhythm, three prices, and nidam flag", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-training-model-test-"));
   const dataFile = path.join(tempDir, "crm.json");
@@ -664,6 +692,12 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /data-open-goal/);
   assert.match(html, /goalForm/);
   assert.match(html, /goalsList/);
+  assert.match(app, /renderReport/);
+  assert.match(app, /data-delete-student/);
+  assert.match(app, /data-print-report/);
+  assert.match(html, /data-tab="reports"/);
+  assert.match(html, /id="reports"/);
+  assert.match(html, /reportAgent/);
   assert.match(app, /data-students-training/);
   assert.match(app, /data-students-filter/);
   assert.match(html, /data-tab="students"/);

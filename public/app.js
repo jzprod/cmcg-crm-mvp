@@ -22,6 +22,7 @@ const pageMeta = {
   groups: ["Groupes & paiements", "Planning, capacité, inscriptions, avances et historique étudiant."],
   students: ["Étudiants", "Filtrez par formation, groupe, statut ou paiement, puis gérez chaque étudiant."],
   agents: ["Agents", "Manage automatic ad-set assignment."],
+  reports: ["Rapports", "Rapport détaillé par agent: publicité, ROI, closing, étudiants et paiements."],
   data: ["Import & data", "Synchronize Meta Ads and protect your CRM data."],
 };
 const outcomeMeta = {
@@ -516,6 +517,29 @@ Object.assign(ar, {
   "Inscrit le": "مسجل بتاريخ",
   "Étudiant transféré": "تم نقل الطالب",
   "Statut mis à jour": "تم تحديث الحالة",
+  "Rapports": "التقارير",
+  "Rapport agent · تقرير المستشار": "تقرير المستشار",
+  "Rapports détaillés par agent": "تقارير مفصلة حسب المستشار",
+  "Choisissez un agent pour voir ses résultats publicité, son ROI, sa qualité de closing, ses étudiants et paiements.": "اختر مستشاراً لرؤية نتائج الإعلانات، العائد، جودة الإغلاق، الطلبة والأداءات.",
+  "Imprimer / PDF": "طباعة / PDF",
+  "Le rapport respecte la période choisie en haut. Modifiez la période pour comparer des semaines ou des mois.": "يعتمد التقرير على الفترة المختارة أعلاه. غيّر الفترة لمقارنة الأسابيع أو الأشهر.",
+  "Choisir un agent…": "اختر مستشاراً…",
+  "Ajoutez un agent, puis choisissez-le pour voir son rapport détaillé.": "أضف مستشاراً ثم اختره لرؤية تقريره المفصل.",
+  "Publicité & ROI": "الإعلانات والعائد",
+  "Qualité de closing": "جودة الإغلاق",
+  "Taux de présence": "نسبة الحضور",
+  "des rendez-vous venus": "من المواعيد التي حضرت",
+  "Taux de conversion": "نسبة التحويل",
+  "visites → inscriptions": "الزيارات ← التسجيلات",
+  "Score closing": "نقطة الإغلاق",
+  "Rendez-vous": "المواعيد",
+  "Visites": "الزيارات",
+  "sur la période": "خلال الفترة",
+  "des étudiants de l'agent": "من طلبة المستشار",
+  "si tout payé · ": "إذا أدى الجميع · ",
+  "Sans WhatsApp": "بدون واتساب",
+  "Supprimer l'étudiant": "حذف الطالب",
+  "Étudiant supprimé": "تم حذف الطالب",
   "Objectif & progression": "الهدف والتقدم",
   "Suivi de l'objectif": "متابعة الهدف",
   "Valeurs exactes. Choisissez une métrique dans les cartes, ou fixez un objectif pour voir le rythme.": "قيم دقيقة. اختر مقياساً من البطاقات، أو حدد هدفاً لرؤية الإيقاع.",
@@ -1807,6 +1831,71 @@ function renderAgents() {
   document.getElementById("unassignedAdSets").innerHTML = unassigned.length ? unassigned.map((adSet) => `<div class="simple-list-row"><div><strong>${escapeHtml(adSet.name)}</strong><small>${escapeHtml(byId(state.campaigns, adSet.campaignId)?.name || "Unknown campaign")}</small></div><span class="status-pill ${adSet.agentMatchStatus === "ambiguous" ? "warning" : ""}">${adSet.agentMatchStatus === "ambiguous" ? "Multiple names found" : "No matching agent"}</span></div>`).join("") : '<div class="empty success-empty">All imported ad sets are assigned.</div>';
 }
 
+// ---- Detailed per-agent report ----
+let reportAgentId = localStorage.getItem("cmcg-report-agent") || "";
+function reportKpi(label, value, detail, tone = "neutral") {
+  return `<article class="kpi ${tone}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`;
+}
+function renderReport() {
+  const select = document.getElementById("reportAgent");
+  const body = document.getElementById("reportBody");
+  if (!select || !body) return;
+  // Hydrate the agent picker.
+  const current = reportAgentId;
+  select.replaceChildren(option("Choisir un agent…", ""));
+  state.agents.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((a) => select.append(option(a.name, a.id)));
+  if (state.agents.some((a) => a.id === current)) select.value = current;
+  else if (state.agents[0]) { reportAgentId = state.agents[0].id; select.value = reportAgentId; }
+
+  const agent = byId(state.agents, reportAgentId);
+  if (!agent) {
+    body.innerHTML = '<div class="empty card">Ajoutez un agent, puis choisissez-le pour voir son rapport détaillé.</div>';
+    applyLanguage(body);
+    return;
+  }
+
+  // Ad results + ROI + closing come from the agent row of the performance engine (period-aware).
+  const row = performanceRows("agent", true).find((r) => r.key === agent.id) || { ...emptyMetrics(), ...agentRevenue(agent.id, true) };
+  const students = state.students.filter((s) => s.agentId === agent.id);
+  const activeStudents = students.filter((s) => s.status !== "cancelled");
+  const collected = row.collected ?? agentRevenue(agent.id, true).collected;
+  const potential = row.potential ?? agentRevenue(agent.id, true).potential;
+  const roi = row.spend > 0 ? collected / row.spend : 0;
+  const potentialRoi = row.spend > 0 ? potential / row.spend : 0;
+  const closing = agentClosingBadge(row);
+
+  const header = `<div class="report-header"><div class="agent-avatar big" aria-hidden="true">${escapeHtml(agent.name.slice(0, 1).toUpperCase())}</div><div><h3>${escapeHtml(agent.name)}</h3><p>${escapeHtml(agent.whatsapp || "Sans WhatsApp")} · période ${escapeHtml(filters.from || "début")} → ${escapeHtml(filters.to || "aujourd'hui")}</p></div></div>`;
+
+  const adKpis = `<div class="report-section"><h4>Publicité & ROI</h4><div class="kpis report-kpis">
+    ${reportKpi("Dépense", money(row.spend || 0), "sur la période", "neutral")}
+    ${reportKpi("Messages", number(row.messages || 0), cost(row.spend, row.messages) + " chacun", "blue")}
+    ${reportKpi("Rendez-vous", number(row.booked || 0), cost(row.spend, row.booked) + " chacun", "amber")}
+    ${reportKpi("Visites", number(row.visits || 0), `${row.showed || 0} sans inscription`, "violet")}
+    ${reportKpi("Inscrits", number(row.registered || 0), cost(row.spend, row.registered) + " chacun", "green")}
+    ${reportKpi("Encaissé", money(collected), "des étudiants de l'agent", "green")}
+    ${reportKpi("ROI", row.spend > 0 ? `${number(roi)}×` : "—", `net ${money(collected - (row.spend || 0))}`, collected - (row.spend || 0) >= 0 ? "green" : "red")}
+    ${reportKpi("ROI potentiel", row.spend > 0 ? `${number(potentialRoi)}×` : "—", `si tout payé · ${money(potential)}`, "violet")}
+  </div></div>`;
+
+  const closingKpis = `<div class="report-section"><h4>Qualité de closing</h4><div class="kpis report-kpis">
+    ${reportKpi("Taux de présence", percent(row.showRate), "des rendez-vous venus", "blue")}
+    ${reportKpi("Taux de conversion", percent(row.closeRate), "visites → inscriptions", "green")}
+    <article class="kpi closing-kpi"><span>Score closing</span><div>${closing}</div></article>
+  </div></div>`;
+
+  const remaining = activeStudents.reduce((sum, s) => sum + studentRemaining(s), 0);
+  const studentRows = students.slice().sort((a, b) => String(b.registeredAt).localeCompare(String(a.registeredAt))).map((student) => {
+    const paid = studentPaid(student); const total = Number(student.totalDue || 0);
+    const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : (paid > 0 ? 100 : 0);
+    const due = paymentDueStatus(student);
+    return `<tr data-student-detail="${escapeHtml(student.id)}" class="clickable-row"><td><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(studentTraining(student)?.name || "")} · ${escapeHtml(studentGroup(student)?.name || "")}</small></td><td>${escapeHtml({ registered: "Inscrit", active: "Actif", paused: "Pause", completed: "Terminé", cancelled: "Annulé" }[student.status] || student.status)}</td><td class="number-cell">${money(paid)} / ${money(total)}<div class="mini-progress"><i style="width:${pct}%"></i></div></td><td class="number-cell"><strong>${money(studentRemaining(student))}</strong></td><td><span class="status-pill ${due.className}">${escapeHtml(due.label)}</span></td></tr>`;
+  }).join("");
+  const studentsSection = `<div class="report-section"><h4>Étudiants de l'agent (${number(students.length)}) · reste ${money(remaining)}</h4><div class="table-wrap flat"><table><thead><tr><th>Étudiant</th><th>Statut</th><th>Payé</th><th>Reste</th><th>Paiement</th></tr></thead><tbody>${studentRows || '<tr><td colspan="5" class="empty">Aucun étudiant pour cet agent.</td></tr>'}</tbody></table></div></div>`;
+
+  body.innerHTML = `${header}${adKpis}${closingKpis}${studentsSection}`;
+  applyLanguage(body);
+}
+
 function groupTraining(group) { return byId(state.programs, group?.programId); }
 function studentGroup(student) { return byId(state.groups, student?.groupId); }
 function studentTraining(student) { return groupTraining(studentGroup(student)); }
@@ -2662,7 +2751,7 @@ function render() {
   hydrateFilters();
   hydrateSortOptions();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
-  renderGoals(); renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderStudentsPage(); renderAgents(); renderImports(); renderManualBudget(); renderStorage(); renderScoringSettings();
+  renderGoals(); renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderStudentsPage(); renderAgents(); renderReport(); renderImports(); renderManualBudget(); renderStorage(); renderScoringSettings();
   applyRoleAccess();
   applyLanguage();
 }
@@ -3195,6 +3284,7 @@ function openStudentDetail(studentId) {
   const actionsBlock = `<div class="student-actions">
     <button class="button primary" type="button" data-add-payment="${escapeHtml(student.id)}" ${fullyPaid ? "disabled" : ""}>+ Ajouter paiement</button>
     <button class="button secondary" type="button" data-edit-current-student>Modifier détails</button>
+    ${currentUser?.role === "admin" ? `<button class="button danger" type="button" data-delete-student="${escapeHtml(student.id)}">Supprimer l'étudiant</button>` : ""}
   </div>
   <div class="student-quick-grid">
     <label><span>Transférer vers un groupe</span><select data-transfer-group="${escapeHtml(student.id)}"><optgroup label="Même formation">${sameTrainingGroups.map(groupOption).join("")}</optgroup>${otherGroups.length ? `<optgroup label="Autres formations">${otherGroups.map(groupOption).join("")}</optgroup>` : ""}</select></label>
@@ -3301,6 +3391,7 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("#openResetData")) document.getElementById("resetDataDialog").showModal();
   if (event.target.closest("[data-open-training]")) openTrainingForm();
   if (event.target.closest("[data-open-goal]")) openGoalForm();
+  if (event.target.closest("[data-print-report]")) { if (!reportAgentId) return toast("Choisissez un agent d'abord", "error"); window.print(); return; }
   if (event.target.closest("[data-close-goal]")) document.getElementById("goalDialog")?.close();
   const deleteGoal = event.target.closest("[data-delete-goal]");
   if (deleteGoal) {
@@ -3423,6 +3514,19 @@ document.addEventListener("click", async (event) => {
   if (addPayment) openPaymentForm(addPayment.dataset.addPayment);
   const editStudent = event.target.closest("[data-edit-student]");
   if (editStudent) openStudentForm({ studentId: editStudent.dataset.editStudent });
+  const deleteStudent = event.target.closest("[data-delete-student]");
+  if (deleteStudent) {
+    const student = byId(state.students, deleteStudent.dataset.deleteStudent);
+    if (student && confirm(`Supprimer définitivement ${student.name} ? Cela efface l'étudiant, ses paiements et son historique. Action irréversible.`)) {
+      try {
+        await api(`/api/students/${student.id}`, { method: "DELETE" });
+        document.getElementById("studentDetailDialog")?.close();
+        detailStudentId = "";
+        await load(); toast("Étudiant supprimé");
+      } catch (error) { toast(error.message, "error"); }
+    }
+    return;
+  }
   const studentsTrainingCard = event.target.closest("[data-students-training]");
   if (studentsTrainingCard) {
     studentsFilters.trainingId = studentsTrainingCard.dataset.studentsTraining;
@@ -3526,6 +3630,7 @@ document.addEventListener("change", (event) => {
     renderPlannerSuggestions();
   }
   if (event.target.id === "plannerMode") renderPlannerSuggestions();
+  if (event.target.id === "reportAgent") { reportAgentId = event.target.value; localStorage.setItem("cmcg-report-agent", reportAgentId); renderReport(); }
   if (event.target.id === "goalType") syncGoalFormFields();
   if (event.target.id === "manualBudgetLevel") hydrateManualBudgetTarget();
   if (event.target.id === "manualBudgetPreset") syncManualBudgetDates();

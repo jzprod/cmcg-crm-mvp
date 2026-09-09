@@ -502,6 +502,28 @@ td { font-size: .8rem; }
 .student-quick-grid label span { font-size: .76rem; color: var(--slate-600); font-weight: 600; }
 .is-arabic .student-progress-remaining { text-align: left; }
 @media (max-width: 640px) { .student-quick-grid { grid-template-columns: 1fr; } }
+.report-body { display: grid; gap: 16px; }
+.report-header { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border: 1px solid var(--slate-200); border-radius: 16px; background: linear-gradient(135deg, #f8fafc, #fff 60%); }
+.report-header h3 { margin: 0; font-size: 1.35rem; }
+.report-header p { margin: 3px 0 0; color: var(--slate-600); font-size: .82rem; }
+.agent-avatar.big { width: 52px; height: 52px; font-size: 1.4rem; }
+.report-section { border: 1px solid var(--slate-200); border-radius: 16px; padding: 16px 18px; background: #fff; }
+.report-section h4 { margin: 0 0 12px; font-size: 1rem; color: var(--navy-900); }
+.report-kpis { margin: 0; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.closing-kpi div { margin-top: 6px; }
+.clickable-row { cursor: pointer; }
+.clickable-row:hover { background: var(--slate-50); }
+.clickable-row td small { display: block; color: var(--slate-500); font-size: .7rem; }
+.mini-progress { height: 5px; margin-top: 5px; border-radius: 999px; background: var(--slate-200); overflow: hidden; }
+.mini-progress i { display: block; height: 100%; background: var(--green-500); }
+.is-arabic .report-header { text-align: right; }
+@media print {
+  .sidebar, .topbar, .period-card, .tab, [data-print-report], [data-open-import], .top-actions { display: none !important; }
+  .panel { display: none !important; }
+  #reports.panel { display: block !important; }
+  .workspace, main { margin: 0 !important; padding: 0 !important; }
+  .report-section, .report-header { break-inside: avoid; box-shadow: none; }
+}
 .roi-cell { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
 .roi-cell strong { font-size: .85rem; }
 .roi-cell small { font-size: .68rem; font-weight: 600; }
