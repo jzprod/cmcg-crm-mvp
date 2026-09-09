@@ -145,21 +145,23 @@ label em { color: var(--slate-500); font-style: normal; font-weight: 400; }
 .kpi span { display: block; color: var(--slate-600); font-size: .62rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .kpi strong { display: block; margin-top: 4px; font: 700 clamp(1rem, 1.6vw, 1.25rem) "Fira Code", monospace; }
 .kpi small { display: block; margin-top: 2px; color: var(--slate-500); font-size: .66rem; }
-.overview-chart-card { margin-bottom: 13px; padding: 19px; }
+.overview-chart-card { margin-bottom: 13px; padding: 22px; }
+.clear-goal-view { margin-left: auto; }
 .overview-chart { margin-top: 14px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .chart-legend-item { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 999px; background: var(--slate-100); font-size: .72rem; }
 .chart-legend-item i { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 999px; background: var(--legend-color); }
 .chart-legend-item small { color: var(--slate-600); }
 .trend-svg { width: 100%; min-height: 260px; display: block; overflow: visible; border-radius: 12px; background: linear-gradient(180deg, #f8fafc, #fff); }
-.trend-svg.exact { min-height: 420px; }
+.trend-svg.exact { min-height: 520px; background: linear-gradient(180deg, #f1f5f9, #fff); }
 .trend-svg line { stroke: #e2e8f0; stroke-width: 1; }
 .trend-svg text { fill: var(--slate-500); font: 600 12px "Fira Sans", sans-serif; }
-.trend-svg.exact text { font-size: 14px; }
+.trend-svg.exact text { fill: var(--slate-600); font: 700 15px "Fira Code", monospace; }
 .trend-lines path { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
-.trend-lines path.trend-main { stroke-width: 5; filter: drop-shadow(0 4px 8px rgba(15,23,42,.18)); }
-.trend-lines path.trend-fill { stroke: none; opacity: .12; }
-.trend-lines circle { fill: white; stroke: currentColor; stroke-width: 3; }
+.trend-lines path.trend-main { stroke-width: 6; filter: drop-shadow(0 6px 12px rgba(15,23,42,.28)); }
+.trend-lines path.trend-fill { stroke: none; opacity: .16; }
+.trend-lines circle { fill: white; stroke: currentColor; stroke-width: 4; }
+.trend-point .point-value { fill: var(--navy-900); font: 800 14px "Fira Code", monospace; }
 .trend-svg .goal-target { stroke: #16a34a; stroke-width: 2.5; stroke-dasharray: 2 6; stroke-linecap: round; }
 .trend-svg .goal-target-label { fill: #15803d; font-weight: 800; font-size: 15px; }
 .trend-svg .goal-pace { stroke: #94a3b8; stroke-width: 2.5; stroke-dasharray: 8 7; }
