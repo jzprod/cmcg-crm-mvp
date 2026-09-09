@@ -78,6 +78,7 @@ function emptyState() {
     centre: { name: "CMCG", city: "Tanger" },
     settings: { currency: "MAD", scoring: { ...DEFAULT_SCORING } },
     availability: { weekly: {}, overrides: {}, updatedAt: null },
+    goals: [],
     adAccounts: [],
     programs: [],
     groups: [],
@@ -108,11 +109,12 @@ function normalizeState(input) {
     targetCloseRate: state.settings.targetCloseRate,
     ...(state.settings.scoring || {}),
   });
-  ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
+  ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events", "goals"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
   state.meta.schemaVersion = 6;
   state.availability = normalizeAvailability(state.availability);
+  state.goals = (Array.isArray(state.goals) ? state.goals : []).map((goal) => normalizeGoal({ ...goal }));
   const usedCodes = new Set(
     (Array.isArray(state.usedCreativeCodes) ? state.usedCreativeCodes : [])
       .map(normalizeCode)
@@ -583,6 +585,19 @@ function normalizeAvailability(input) {
   }
   base.updatedAt = input.updatedAt || null;
   return base;
+}
+
+const GOAL_TYPES = new Set(["registered", "cost_per_registered", "revenue", "custom"]);
+function normalizeGoal(goal) {
+  goal.id = goal.id || null;
+  goal.type = GOAL_TYPES.has(cleanText(goal.type)) ? cleanText(goal.type) : "registered";
+  goal.title = cleanText(goal.title);
+  goal.target = nonNegativeMoney(goal.target);
+  goal.metric = cleanText(goal.metric); // used when type === "custom"
+  goal.from = validDateInput(goal.from) || "";
+  goal.to = validDateInput(goal.to) || "";
+  goal.createdAt = goal.createdAt || now();
+  return goal;
 }
 
 // A group owns a list of sessions: [{ day, timeStart, timeEnd }]. Legacy groups stored a
@@ -1165,6 +1180,37 @@ async function handleApi(req, res) {
         await storage.write(state);
       }
       return json(res, 200, state.availability);
+    }
+
+    if (method === "POST" && url.pathname === "/api/goals") {
+      const body = await parseBody(req);
+      const goal = normalizeGoal({ id: id("goal"), ...body });
+      if (!goal.target) return json(res, 400, { error: "Enter a goal target greater than zero" });
+      if (!goal.from || !goal.to) return json(res, 400, { error: "Choose a start and end date for the goal" });
+      if (goal.type === "custom" && !goal.metric) return json(res, 400, { error: "Choose which metric this custom goal tracks" });
+      state.goals.push(goal);
+      await storage.write(state);
+      return json(res, 201, goal);
+    }
+
+    const goalMatch = url.pathname.match(/^\/api\/goals\/([^/]+)$/);
+    if (method === "PATCH" && goalMatch) {
+      const body = await parseBody(req);
+      const goal = state.goals.find((item) => item.id === goalMatch[1]);
+      if (!goal) return json(res, 404, { error: "Goal not found" });
+      Object.assign(goal, body, { id: goal.id, createdAt: goal.createdAt });
+      normalizeGoal(goal);
+      if (!goal.target) return json(res, 400, { error: "Enter a goal target greater than zero" });
+      goal.updatedAt = now();
+      await storage.write(state);
+      return json(res, 200, goal);
+    }
+    if (method === "DELETE" && goalMatch) {
+      const index = state.goals.findIndex((item) => item.id === goalMatch[1]);
+      if (index === -1) return json(res, 404, { error: "Goal not found" });
+      const [removed] = state.goals.splice(index, 1);
+      await storage.write(state);
+      return json(res, 200, { removed: true, goal: removed });
     }
 
     if (method === "POST" && url.pathname === "/api/programs") {

@@ -132,8 +132,8 @@ label em { color: var(--slate-500); font-style: normal; font-weight: 400; }
 .welcome-state strong { font-size: 1rem; }
 .welcome-state p { margin: 2px 0 0; color: var(--slate-600); }
 
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 11px; margin: 15px 0; }
-.kpi { min-width: 0; position: relative; overflow: hidden; padding: 16px; border: 1px solid var(--slate-200); border-radius: var(--radius); background: white; box-shadow: var(--shadow-sm); text-align: left; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 12px 0; }
+.kpi { min-width: 0; position: relative; overflow: hidden; padding: 10px 12px; border: 1px solid var(--slate-200); border-radius: 12px; background: white; box-shadow: var(--shadow-sm); text-align: left; }
 .kpi::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--slate-300); }
 .kpi.blue::before { background: #3b82f6; }
 .kpi.amber::before { background: #f59e0b; }
@@ -142,9 +142,9 @@ label em { color: var(--slate-500); font-style: normal; font-weight: 400; }
 .kpi.red::before { background: #dc2626; }
 .kpi:hover { border-color: var(--slate-400); transform: translateY(-1px); }
 .kpi.selected { border-color: var(--green-600); box-shadow: 0 0 0 3px rgba(22,163,74,.12), var(--shadow-sm); }
-.kpi span { display: block; color: var(--slate-600); font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.kpi strong { display: block; margin-top: 7px; font: 700 clamp(1.2rem, 2vw, 1.6rem) "Fira Code", monospace; }
-.kpi small { display: block; margin-top: 4px; color: var(--slate-600); font-size: .74rem; }
+.kpi span { display: block; color: var(--slate-600); font-size: .62rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.kpi strong { display: block; margin-top: 4px; font: 700 clamp(1rem, 1.6vw, 1.25rem) "Fira Code", monospace; }
+.kpi small { display: block; margin-top: 2px; color: var(--slate-500); font-size: .66rem; }
 .overview-chart-card { margin-bottom: 13px; padding: 19px; }
 .overview-chart { margin-top: 14px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
@@ -152,11 +152,58 @@ label em { color: var(--slate-500); font-style: normal; font-weight: 400; }
 .chart-legend-item i { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 999px; background: var(--legend-color); }
 .chart-legend-item small { color: var(--slate-600); }
 .trend-svg { width: 100%; min-height: 260px; display: block; overflow: visible; border-radius: 12px; background: linear-gradient(180deg, #f8fafc, #fff); }
+.trend-svg.exact { min-height: 420px; }
 .trend-svg line { stroke: #e2e8f0; stroke-width: 1; }
 .trend-svg text { fill: var(--slate-500); font: 600 12px "Fira Sans", sans-serif; }
+.trend-svg.exact text { font-size: 14px; }
 .trend-lines path { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.trend-lines path.trend-main { stroke-width: 5; filter: drop-shadow(0 4px 8px rgba(15,23,42,.18)); }
+.trend-lines path.trend-fill { stroke: none; opacity: .12; }
 .trend-lines circle { fill: white; stroke: currentColor; stroke-width: 3; }
+.trend-svg .goal-target { stroke: #16a34a; stroke-width: 2.5; stroke-dasharray: 2 6; stroke-linecap: round; }
+.trend-svg .goal-target-label { fill: #15803d; font-weight: 800; font-size: 15px; }
+.trend-svg .goal-pace { stroke: #94a3b8; stroke-width: 2.5; stroke-dasharray: 8 7; }
 .chart-note { margin: 10px 0 0; color: var(--slate-600); font-size: .78rem; }
+.chart-metric-switch { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
+.chart-metric-switch button { padding: 8px 14px; border: 1px solid var(--slate-200); border-radius: 999px; background: #fff; color: var(--slate-600); font-size: .8rem; font-weight: 700; cursor: pointer; transition: all .16s ease; }
+.chart-metric-switch button.active { background: var(--navy-900); color: #fff; border-color: var(--navy-900); }
+/* Goal banner (above the graph) */
+.goal-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 16px 18px; border-radius: 16px; border: 2px solid; }
+.goal-banner.ahead { border-color: #86efac; background: linear-gradient(135deg, #f0fdf4, #fff 70%); }
+.goal-banner.behind { border-color: #fecaca; background: linear-gradient(135deg, #fef2f2, #fff 70%); }
+.goal-banner.ontrack { border-color: #bfdbfe; background: linear-gradient(135deg, #eff6ff, #fff 70%); }
+.goal-kicker { display: block; font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--slate-500); }
+.goal-banner-main strong { display: block; margin-top: 3px; font: 800 2rem "Fira Code", monospace; color: var(--navy-900); }
+.goal-banner-main strong span { font-size: 1.1rem; color: var(--slate-500); }
+.goal-banner-main small { display: block; margin-top: 3px; color: var(--slate-600); font-size: .78rem; }
+.goal-banner-status { min-width: 220px; }
+.goal-status-pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: .78rem; font-weight: 800; }
+.goal-status-pill.ahead { background: #dcfce7; color: #15803d; }
+.goal-status-pill.behind { background: #fee2e2; color: #b91c1c; }
+.goal-status-pill.ontrack { background: #dbeafe; color: #1d4ed8; }
+.goal-progress { height: 10px; margin: 8px 0 4px; border-radius: 999px; background: var(--slate-200); overflow: hidden; }
+.goal-progress i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--green-500), var(--green-600)); transition: width .3s ease; }
+.goal-banner.behind .goal-progress i { background: linear-gradient(90deg, #f87171, #dc2626); }
+.goal-banner-status small { color: var(--slate-600); font-size: .74rem; }
+/* Goal chips (list) */
+.goals-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin: 4px 0 14px; }
+.goal-chip { position: relative; text-align: left; display: grid; gap: 6px; padding: 13px 14px; border: 1px solid var(--slate-200); border-radius: 14px; background: #fff; cursor: pointer; transition: all .16s ease; }
+.goal-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.goal-chip.active { border-color: var(--navy-900); box-shadow: 0 0 0 2px rgba(15,23,42,.12); }
+.goal-chip.ahead { border-left: 4px solid #16a34a; }
+.goal-chip.behind { border-left: 4px solid #dc2626; }
+.goal-chip.ontrack { border-left: 4px solid #3b82f6; }
+.goal-chip-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.goal-chip-head strong { font-size: .86rem; color: var(--navy-900); }
+.goal-chip-figures { font: 800 1.15rem "Fira Code", monospace; color: var(--navy-900); }
+.goal-chip-figures span { font-size: .8rem; color: var(--slate-500); font-weight: 600; }
+.goal-chip small { color: var(--slate-500); font-size: .7rem; }
+.goal-delete { position: absolute; top: 8px; right: 10px; display: none; color: var(--slate-400); font-size: .9rem; }
+.goal-chip:hover .goal-delete { display: block; }
+.goal-delete:hover { color: #b91c1c; }
+.is-arabic .goal-banner-main strong, .is-arabic .goal-chip, .is-arabic .goal-chip-head { text-align: right; }
+.is-arabic .goal-chip.ahead, .is-arabic .goal-chip.behind, .is-arabic .goal-chip.ontrack { border-left: 0; border-right: 4px solid; }
+.is-arabic .goal-delete { right: auto; left: 10px; }
 .chart-empty { min-height: 230px; display: grid; place-items: center; border: 1px dashed var(--slate-300); border-radius: 12px; }
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr); gap: 13px; }
 .chart-card, .attention-card { padding: 19px; }

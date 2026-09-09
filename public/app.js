@@ -516,6 +516,39 @@ Object.assign(ar, {
   "Inscrit le": "مسجل بتاريخ",
   "Étudiant transféré": "تم نقل الطالب",
   "Statut mis à jour": "تم تحديث الحالة",
+  "Objectif & progression": "الهدف والتقدم",
+  "Suivi de l'objectif": "متابعة الهدف",
+  "Valeurs exactes. Choisissez une métrique dans les cartes, ou fixez un objectif pour voir le rythme.": "قيم دقيقة. اختر مقياساً من البطاقات، أو حدد هدفاً لرؤية الإيقاع.",
+  "+ Objectif": "+ هدف",
+  "Nouvel objectif": "هدف جديد",
+  "Fixez une cible et une période. Le suivi montre si vous êtes en avance ou en retard.": "حدد هدفاً وفترة. تُظهر المتابعة إن كنت متقدماً أو متأخراً.",
+  "Titre": "العنوان",
+  "Ex: 50 inscrits en septembre": "مثلاً: 50 مسجلاً في شتنبر",
+  "Type d'objectif": "نوع الهدف",
+  "Étudiants inscrits": "الطلبة المسجلون",
+  "Revenu encaissé": "المداخيل المحصّلة",
+  "Coût par inscrit (max)": "الكلفة لكل مسجل (الأقصى)",
+  "Métrique personnalisée": "مقياس مخصص",
+  "Métrique": "المقياس",
+  "Inscrits": "المسجلون",
+  "Visites": "الزيارات",
+  "Rendez-vous": "المواعيد",
+  "Dépense": "الإنفاق",
+  "Cible (nombre)": "الهدف (عدد)",
+  "Cible (montant)": "الهدف (مبلغ)",
+  "Coût max par inscrit": "الكلفة القصوى لكل مسجل",
+  "Enregistrer l'objectif": "حفظ الهدف",
+  "Objectif enregistré": "تم حفظ الهدف",
+  "Objectif supprimé": "تم حذف الهدف",
+  "Aucun objectif. Cliquez « + Objectif » pour en fixer un (inscrits, revenu, coût par inscrit…).": "لا يوجد هدف. انقر «+ هدف» لتحديد واحد (المسجلون، المداخيل، الكلفة لكل مسجل…).",
+  "Coût par inscrit": "الكلفة لكل مسجل",
+  "Objectif atteint": "تم بلوغ الهدف",
+  "Objectif tenu": "الهدف محقق",
+  "Au-dessus de l'objectif": "أعلى من الهدف",
+  "Dans les temps": "ضمن الوقت",
+  "Valeurs exactes. La ligne pointillée = rythme idéal pour atteindre l'objectif à la date prévue.": "قيم دقيقة. الخط المنقّط = الإيقاع المثالي لبلوغ الهدف في التاريخ المحدد.",
+  "Valeurs exactes. Choisissez une métrique ci-dessus, ou définissez un objectif pour suivre le rythme.": "قيم دقيقة. اختر مقياساً أعلاه، أو حدد هدفاً لمتابعة الإيقاع.",
+  "Importez des rapports ou définissez un objectif pour voir la courbe.": "استورد التقارير أو حدد هدفاً لرؤية المنحنى.",
   "Budget manuel · ميزانية يدوية": "ميزانية يدوية",
   "Ajoutez un budget sans CSV et répartissez-le où vous voulez, sur la période choisie.": "أضف ميزانية دون CSV ووزّعها حيثما شئت على الفترة المختارة.",
   "Montant total": "المبلغ الإجمالي",
@@ -776,6 +809,8 @@ Object.assign(ar, {
 });
 
 arDynamic.push(
+  [/^En avance de (.+)$/, "متقدم بـ $1"],
+  [/^En retard de (.+)$/, "متأخر بـ $1"],
   [/^(.+) étudiant\(s\)$/, "$1 طالب/طلبة"],
   [/^(.+) reste$/, "$1 الباقي"],
   [/^(.+) each month$/, "$1 كل شهر"],
@@ -1351,56 +1386,244 @@ function chartPath(points) {
   return points.map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
 }
 
+// ---- Goals ----
+const GOAL_METRIC = {
+  registered: { metric: "registered", label: "Étudiants inscrits", cumulative: true, lowerIsBetter: false, fmt: (v) => number(v) },
+  revenue: { metric: "revenue", label: "Revenu encaissé", cumulative: true, lowerIsBetter: false, fmt: (v) => money(v) },
+  cost_per_registered: { metric: "costRegisteredEfficiency", label: "Coût par inscrit", cumulative: false, lowerIsBetter: true, fmt: (v) => money(v) },
+};
+function goalMetricKey(goal) {
+  if (goal.type === "custom") return goal.metric || "registered";
+  return GOAL_METRIC[goal.type]?.metric || "registered";
+}
+function goalIsCumulative(goal) {
+  if (goal.type === "custom") return !["costRegisteredEfficiency"].includes(goal.metric);
+  return GOAL_METRIC[goal.type]?.cumulative ?? true;
+}
+function goalLowerIsBetter(goal) {
+  if (goal.type === "custom") return goal.metric === "costRegisteredEfficiency";
+  return GOAL_METRIC[goal.type]?.lowerIsBetter ?? false;
+}
+function goalTypeLabel(goal) {
+  if (goal.type === "custom") return overviewMetricDefinitions[goal.metric]?.label || goal.metric;
+  return GOAL_METRIC[goal.type]?.label || goal.type;
+}
+// Revenue per day from student payments (for revenue goals).
+function revenueOnDate(dateKey) {
+  return state.payments.filter((p) => dateOnly(p.paidAt) === dateKey).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+}
+// Compute a goal's current value, expected-by-now (pace), and status.
+function goalProgress(goal) {
+  const metricKey = goalMetricKey(goal);
+  const cumulative = goalIsCumulative(goal);
+  const lower = goalLowerIsBetter(goal);
+  const today = todayInput();
+  const startMs = new Date(`${goal.from}T00:00:00Z`).getTime();
+  const endMs = new Date(`${goal.to}T00:00:00Z`).getTime();
+  const nowMs = Math.min(Math.max(new Date(`${today}T00:00:00Z`).getTime(), startMs), endMs);
+  const totalDays = Math.max(1, Math.round((endMs - startMs) / 86400000) + 1);
+  const elapsedDays = Math.max(0, Math.round((nowMs - startMs) / 86400000) + 1);
+  // Sum the metric within [from, min(today,to)] for cumulative goals; else take the period value.
+  let current = 0;
+  if (metricKey === "revenue") {
+    current = state.payments
+      .filter((p) => { const d = dateOnly(p.paidAt); return d && d >= goal.from && d <= (today < goal.to ? today : goal.to); })
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  } else {
+    // Aggregate metric across the period using daily rows within range.
+    const rows = goalDailyRows(goal.from, today < goal.to ? today : goal.to);
+    if (cumulative) current = rows.reduce((sum, r) => sum + Number(metricRawValue(metricKey, r) || 0), 0);
+    else {
+      // cost per registered = total spend / total registered across period
+      const spend = rows.reduce((s, r) => s + Number(r.spend || 0), 0);
+      const reg = rows.reduce((s, r) => s + Number(r.registered || 0), 0);
+      current = reg ? spend / reg : 0;
+    }
+  }
+  const expected = lower ? goal.target : (goal.target * elapsedDays) / totalDays;
+  let percent;
+  let status;
+  let delta = 0;
+  if (lower) {
+    // On track if current <= target.
+    percent = goal.target > 0 ? Math.min(100, Math.round((goal.target / Math.max(current, 0.0001)) * 100)) : 0;
+    const ok = current <= goal.target || current === 0;
+    status = ok ? { key: "ahead", label: "Objectif tenu" } : { key: "behind", label: "Au-dessus de l'objectif" };
+    delta = current - goal.target;
+  } else {
+    percent = goal.target > 0 ? Math.min(100, Math.round((current / goal.target) * 100)) : 0;
+    delta = current - expected; // >0 ahead of pace
+    const rounded = Math.round(delta);
+    if (current >= goal.target) status = { key: "done", label: "Objectif atteint" };
+    else if (rounded > 0) status = { key: "ahead", label: `En avance de ${Math.abs(rounded)}` };
+    else if (rounded < 0) status = { key: "behind", label: `En retard de ${Math.abs(rounded)}` };
+    else status = { key: "ontrack", label: "Dans les temps" };
+  }
+  return { metricKey, cumulative, lower, current, expected, percent, status, delta, totalDays, elapsedDays };
+}
+// Daily rows (registered/spend/etc.) between two dates, ignoring the global period filter.
+function goalDailyRows(from, to) {
+  const rows = new Map();
+  const ensure = (date) => {
+    const key = dateOnly(date);
+    if (!key || key < from || key > to) return null;
+    if (!rows.has(key)) rows.set(key, { date: key, ...emptyMetrics(), visited: 0 });
+    return rows.get(key);
+  };
+  state.dailyLogs.forEach((log) => { const r = ensure(log.reportingEnd || log.date || log.reportingStart); if (r) addLogMetrics(r, log); });
+  state.outcomes.forEach((o) => { const r = ensure(o.sourceDate || o.date); if (r) { r[o.type] += 1; if (o.type === "registered" || o.type === "showed") r.visits += 1; r.visited = r.visits; } });
+  return [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+let activeGoalId = localStorage.getItem("cmcg-active-goal") || "";
+function activeGoal() {
+  if (!state.goals?.length) return null;
+  return state.goals.find((g) => g.id === activeGoalId) || state.goals[0];
+}
+function renderGoals() {
+  const container = document.getElementById("goalsList");
+  if (!container) return;
+  const goals = state.goals || [];
+  const current = activeGoal();
+  if (!goals.length) {
+    container.innerHTML = '<div class="empty">Aucun objectif. Cliquez « + Objectif » pour en fixer un (inscrits, revenu, coût par inscrit…).</div>';
+    applyLanguage(container);
+    return;
+  }
+  container.innerHTML = goals.map((goal) => {
+    const gp = goalProgress(goal);
+    const isMoney = gp.metricKey === "revenue" || gp.metricKey === "costRegisteredEfficiency";
+    const cls = gp.status.key === "behind" ? "behind" : (gp.status.key === "done" || gp.status.key === "ahead") ? "ahead" : "ontrack";
+    const active = current && current.id === goal.id;
+    const cur = isMoney ? money(gp.current) : number(Math.round(gp.current));
+    const tgt = isMoney ? money(goal.target) : number(goal.target);
+    return `<div class="goal-chip ${cls} ${active ? "active" : ""}" data-goal="${escapeHtml(goal.id)}" role="button" tabindex="0">
+      <div class="goal-chip-head"><strong>${escapeHtml(goal.title || goalTypeLabel(goal))}</strong><span class="goal-status-pill ${cls}">${escapeHtml(gp.status.label)}</span></div>
+      <div class="goal-chip-figures">${escapeHtml(cur)} <span>/ ${escapeHtml(tgt)}</span></div>
+      <div class="goal-progress"><i style="width:${gp.percent}%"></i></div>
+      <small>${escapeHtml(goalTypeLabel(goal))} · ${escapeHtml(goal.from)} → ${escapeHtml(goal.to)}</small>
+      <span class="goal-delete" data-delete-goal="${escapeHtml(goal.id)}" role="button" aria-label="Supprimer">✕</span>
+    </div>`;
+  }).join("");
+  applyLanguage(container);
+}
+function syncGoalFormFields() {
+  const form = document.getElementById("goalForm");
+  if (!form) return;
+  const type = form.elements.type.value;
+  document.getElementById("goalMetricField")?.classList.toggle("hidden", type !== "custom");
+  const label = document.getElementById("goalTargetLabel");
+  if (label) label.textContent = type === "revenue" ? "Cible (montant)" : type === "cost_per_registered" ? "Coût max par inscrit" : "Cible (nombre)";
+}
+function openGoalForm() {
+  ensureGoalDialog();
+  const form = document.getElementById("goalForm");
+  form.reset();
+  const today = todayInput();
+  const end = new Date(); end.setDate(end.getDate() + 30);
+  form.elements.from.value = today;
+  form.elements.to.value = end.toISOString().slice(0, 10);
+  syncGoalFormFields();
+  applyLanguage(document.getElementById("goalDialog"));
+  document.getElementById("goalDialog").showModal();
+}
+function ensureGoalDialog() { /* dialog is static in index.html */ }
+
+// Exact-value single-metric trend. If a goal is active it drives the metric, adds a target
+// line, an ideal pace line, and cumulative values; otherwise it charts the one selected card.
+let activeChartMetric = localStorage.getItem("cmcg-chart-metric") || "registered";
 function renderOverviewChart() {
   const container = document.getElementById("overviewChart");
   if (!container) return;
-  const rows = overviewDailyRows();
-  const metrics = [...selectedOverviewMetrics].filter((key) => overviewMetricDefinitions[key]);
-  if (!rows.length || !metrics.length) {
-    container.innerHTML = '<div class="empty chart-empty">Click one or more cards above after importing reports to build the trend graph.</div>';
+  const goal = activeGoal();
+  // Choose the metric + whether to accumulate.
+  const metricKey = goal ? goalMetricKey(goal) : activeChartMetric;
+  const cumulative = goal ? goalIsCumulative(goal) : (metricKey !== "costRegisteredEfficiency");
+  const definition = overviewMetricDefinitions[metricKey] || overviewMetricDefinitions.registered;
+
+  // Date range: the goal window, else the reporting period's daily rows.
+  let rows;
+  if (goal) {
+    rows = goalDailyRows(goal.from, goal.to);
+    if (!rows.length) rows = [{ date: goal.from, ...emptyMetrics(), visited: 0 }, { date: goal.to, ...emptyMetrics(), visited: 0 }];
+  } else {
+    rows = overviewDailyRows();
+  }
+  if (!rows.length) {
+    container.innerHTML = '<div class="empty chart-empty">Importez des rapports ou définissez un objectif pour voir la courbe.</div>';
     return;
   }
-  const width = 920;
-  const height = 320;
-  const pad = { left: 38, right: 24, top: 24, bottom: 44 };
+
+  // Build exact values (cumulative running total, or per-day / period cost).
+  let running = 0;
+  const values = rows.map((row) => {
+    if (metricKey === "revenue") { const v = revenueOnDate(row.date); running += v; return cumulative ? running : v; }
+    const raw = metricRawValue(metricKey, row);
+    const num = raw === null || !Number.isFinite(raw) ? 0 : raw;
+    if (cumulative) { running += num; return running; }
+    return raw; // may be null for cost/registered on days with 0 registrations
+  });
+
+  const target = goal ? Number(goal.target) : 0;
+  const finite = values.filter((v) => v !== null && Number.isFinite(v));
+  const dataMax = Math.max(...finite, target, 0);
+  const dataMin = Math.min(...finite, goalLowerIsBetter(goal || {}) && target ? target : 0);
+  const yMax = goal && goalLowerIsBetter(goal) ? Math.max(dataMax, target * 1.2) : Math.max(dataMax * 1.1, target || 1);
+  const yMin = Math.min(0, dataMin);
+
+  const width = 1000;
+  const height = 460;
+  const pad = { left: 64, right: 28, top: 28, bottom: 52 };
   const innerWidth = width - pad.left - pad.right;
   const innerHeight = height - pad.top - pad.bottom;
   const xFor = (index) => pad.left + (rows.length === 1 ? innerWidth / 2 : (index / (rows.length - 1)) * innerWidth);
-  const yFor = (score) => pad.top + innerHeight - (Math.max(0, Math.min(100, score)) / 100) * innerHeight;
+  const yFor = (value) => pad.top + innerHeight - ((value - yMin) / ((yMax - yMin) || 1)) * innerHeight;
 
-  const series = metrics.map((key) => {
-    const raw = rows.map((row) => metricRawValue(key, row));
-    const usable = raw.filter((value) => value !== null && Number.isFinite(value));
-    const max = Math.max(...usable, 0);
-    const min = Math.min(...usable);
-    const points = raw.map((value, index) => {
-      if (value === null || !Number.isFinite(value)) return null;
-      let score = 0;
-      if (key === "costRegisteredEfficiency") {
-        score = usable.length <= 1 || max === min ? 100 : ((max - value) / (max - min)) * 100;
-      } else {
-        score = max ? (value / max) * 100 : 0;
-      }
-      return { x: xFor(index), y: yFor(score), raw: value, row: rows[index] };
-    }).filter(Boolean);
-    return { key, points, definition: overviewMetricDefinitions[key], latest: rows.at(-1) };
-  });
-
-  const grid = [0, 25, 50, 75, 100].map((value) => {
+  // Nice exact ticks (real numbers, not 0-100).
+  const isMoney = metricKey === "revenue" || metricKey === "costRegisteredEfficiency";
+  const tickCount = 5;
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => yMin + ((yMax - yMin) * i) / tickCount);
+  const grid = ticks.map((value) => {
     const y = yFor(value);
-    return `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" /><text x="10" y="${y + 4}">${value}</text>`;
+    const label = isMoney ? money(value) : number(Math.round(value));
+    return `<line x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}" /><text x="${pad.left - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end">${escapeHtml(label)}</text>`;
   }).join("");
-  const xLabels = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % Math.ceil(rows.length / 6) === 0).map((row, index, labels) => {
-    const rowIndex = rows.indexOf(row);
-    return `<text x="${xFor(rowIndex)}" y="${height - 14}" text-anchor="${index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"}">${escapeHtml(row.date.slice(5))}</text>`;
-  }).join("");
-  const lines = series.map(({ key, points, definition }) => {
-    if (!points.length) return "";
-    const pathPoints = points.length === 1 ? [{ ...points[0], x: pad.left }, { ...points[0], x: width - pad.right }] : points;
-    return `<path d="${chartPath(pathPoints)}" stroke="${definition.color}" /><g>${points.map((point) => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" stroke="${definition.color}"><title>${escapeHtml(definition.label)} - ${escapeHtml(point.row.date)} - ${escapeHtml(metricDisplayValue(key, point.row))}</title></circle>`).join("")}</g>`;
-  }).join("");
-  const legend = series.map(({ key, definition, latest }) => `<span class="chart-legend-item" style="--legend-color:${definition.color}"><i></i><strong>${escapeHtml(definition.label)}</strong><small>${escapeHtml(metricDisplayValue(key, latest))}${definition.inverted ? " · up means cheaper" : ""}</small></span>`).join("");
-  container.innerHTML = `<div class="chart-legend">${legend}</div><svg class="trend-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Overview trend graph">${grid}<g class="trend-lines">${lines}</g><g class="trend-axis">${xLabels}</g></svg><p class="chart-note">Lines are scaled 0-100 so different metrics can sit on one graph. For cost per registered, the line is reversed: higher means the cost is lower.</p>`;
+
+  const step = Math.max(1, Math.ceil(rows.length / 8));
+  const xLabels = rows.map((row, index) => ({ row, index })).filter(({ index }) => index === 0 || index === rows.length - 1 || index % step === 0)
+    .map(({ row, index }, i, labels) => `<text x="${xFor(index).toFixed(1)}" y="${height - 16}" text-anchor="${i === 0 ? "start" : i === labels.length - 1 ? "end" : "middle"}">${escapeHtml(row.date.slice(5))}</text>`).join("");
+
+  // Main data line (skip null gaps for cost/registered).
+  const points = values.map((v, i) => (v === null || !Number.isFinite(v)) ? null : { x: xFor(i), y: yFor(v), raw: v, row: rows[i] }).filter(Boolean);
+  const pathPoints = points.length === 1 ? [{ ...points[0], x: pad.left }, { ...points[0], x: width - pad.right }] : points;
+  const dataPath = points.length ? `<path class="trend-main" d="${chartPath(pathPoints)}" stroke="${definition.color}" /><path class="trend-fill" d="${chartPath(pathPoints)} L ${xFor(points.length - 1).toFixed(1)} ${yFor(yMin).toFixed(1)} L ${pathPoints[0].x.toFixed(1)} ${yFor(yMin).toFixed(1)} Z" fill="${definition.color}" />` : "";
+  const dots = points.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" stroke="${definition.color}"><title>${escapeHtml(p.row.date)} · ${escapeHtml(isMoney ? money(p.raw) : number(p.raw))}</title></circle>`).join("");
+
+  // Goal overlays: target line + ideal pace line (start 0 -> target across the window).
+  let goalLayer = "";
+  let banner = "";
+  if (goal) {
+    const gp = goalProgress(goal);
+    const targetY = yFor(target);
+    goalLayer += `<line class="goal-target" x1="${pad.left}" y1="${targetY.toFixed(1)}" x2="${width - pad.right}" y2="${targetY.toFixed(1)}" /><text class="goal-target-label" x="${width - pad.right}" y="${(targetY - 8).toFixed(1)}" text-anchor="end">🎯 ${escapeHtml(isMoney ? money(target) : number(target))}</text>`;
+    if (!goalLowerIsBetter(goal) && cumulative) {
+      // Ideal diagonal pace line from (start,0) to (end,target).
+      const x0 = xFor(0); const y0 = yFor(0); const x1 = xFor(rows.length - 1); const y1 = yFor(target);
+      goalLayer += `<line class="goal-pace" x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" />`;
+    }
+    const cls = gp.status.key === "behind" ? "behind" : (gp.status.key === "done" || gp.status.key === "ahead") ? "ahead" : "ontrack";
+    const currentTxt = isMoney ? money(gp.current) : number(Math.round(gp.current));
+    const targetTxt = isMoney ? money(target) : number(target);
+    banner = `<div class="goal-banner ${cls}">
+      <div class="goal-banner-main"><span class="goal-kicker">${escapeHtml(goal.title || goalTypeLabel(goal))}</span><strong>${escapeHtml(currentTxt)} <span>/ ${escapeHtml(targetTxt)}</span></strong><small>${escapeHtml(goal.from)} → ${escapeHtml(goal.to)} · jour ${gp.elapsedDays}/${gp.totalDays}</small></div>
+      <div class="goal-banner-status"><span class="goal-status-pill ${cls}">${escapeHtml(gp.status.label)}</span><div class="goal-progress"><i style="width:${gp.percent}%"></i></div><small>${gp.percent}%${goalLowerIsBetter(goal) ? "" : ` · rythme attendu ${escapeHtml(isMoney ? money(gp.expected) : number(Math.round(gp.expected)))}`}</small></div>
+    </div>`;
+  }
+
+  const headline = goal
+    ? ""
+    : `<div class="chart-metric-switch">${["registered", "visited", "booked", "messages", "spend", "costRegisteredEfficiency"].map((key) => `<button type="button" class="${key === metricKey ? "active" : ""}" data-chart-metric="${key}">${escapeHtml(overviewMetricDefinitions[key].label)}</button>`).join("")}</div>`;
+
+  container.innerHTML = `${banner}${headline}<svg class="trend-svg exact" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Trend graph">${grid}${goalLayer}<g class="trend-lines">${dataPath}${dots}</g><g class="trend-axis">${xLabels}</g></svg><p class="chart-note">${goal ? "Valeurs exactes. La ligne pointillée = rythme idéal pour atteindre l'objectif à la date prévue." : "Valeurs exactes. Choisissez une métrique ci-dessus, ou définissez un objectif pour suivre le rythme."}</p>`;
 }
 
 function renderKpis() {
@@ -1413,7 +1636,8 @@ function renderKpis() {
     ["Registered", number(values.registered), cost(values.spend, values.registered) + " each", "green", "registered"],
     ["Cost / registered", cost(values.spend, values.registered), "graph rises when cost falls", "red", "costRegisteredEfficiency"],
   ];
-  document.getElementById("kpis").innerHTML = items.map(([label, value, detail, style, metric]) => `<button class="kpi ${style} ${selectedOverviewMetrics.has(metric) ? "selected" : ""}" type="button" data-kpi-metric="${metric}" aria-pressed="${selectedOverviewMetrics.has(metric)}"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></button>`).join("");
+  const highlight = activeGoal() ? "" : activeChartMetric;
+  document.getElementById("kpis").innerHTML = items.map(([label, value, detail, style, metric]) => `<button class="kpi ${style} ${highlight === metric ? "selected" : ""}" type="button" data-kpi-metric="${metric}" aria-pressed="${highlight === metric}"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></button>`).join("");
   renderOverviewChart();
   const welcome = document.getElementById("welcomeState");
   welcome.classList.toggle("hidden", state.imports.length > 0);
@@ -2439,7 +2663,7 @@ function render() {
   hydrateFilters();
   hydrateSortOptions();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
-  renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderStudentsPage(); renderAgents(); renderImports(); renderManualBudget(); renderStorage(); renderScoringSettings();
+  renderGoals(); renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderStudentsPage(); renderAgents(); renderImports(); renderManualBudget(); renderStorage(); renderScoringSettings();
   applyRoleAccess();
   applyLanguage();
 }
@@ -3040,6 +3264,11 @@ document.addEventListener("submit", async (event) => {
       // If the student management view is open for this student, refresh it in place.
       if (document.getElementById("studentDetailDialog")?.open && detailStudentId === paidStudentId) openStudentDetail(paidStudentId);
       toast("Payment saved");
+    } else if (form.id === "goalForm") {
+      const goal = await api("/api/goals", { method: "POST", body: JSON.stringify(formPayload(form)) });
+      document.getElementById("goalDialog").close();
+      activeGoalId = goal.id; localStorage.setItem("cmcg-active-goal", goal.id);
+      await load(); toast("Objectif enregistré");
     } else if (form.id === "manualBudgetForm") {
       const payload = formPayload(form);
       const range = manualBudgetPresetRange(document.getElementById("manualBudgetPreset")?.value || "today");
@@ -3072,6 +3301,24 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-go-performance]")) showPanel("performance");
   if (event.target.closest("#openResetData")) document.getElementById("resetDataDialog").showModal();
   if (event.target.closest("[data-open-training]")) openTrainingForm();
+  if (event.target.closest("[data-open-goal]")) openGoalForm();
+  if (event.target.closest("[data-close-goal]")) document.getElementById("goalDialog")?.close();
+  const deleteGoal = event.target.closest("[data-delete-goal]");
+  if (deleteGoal) {
+    event.stopPropagation();
+    if (confirm("Supprimer cet objectif ?")) {
+      try { await api(`/api/goals/${deleteGoal.dataset.deleteGoal}`, { method: "DELETE" }); if (activeGoalId === deleteGoal.dataset.deleteGoal) { activeGoalId = ""; localStorage.setItem("cmcg-active-goal", ""); } await load(); toast("Objectif supprimé"); }
+      catch (error) { toast(error.message, "error"); }
+    }
+    return;
+  }
+  const goalChip = event.target.closest("[data-goal]");
+  if (goalChip) {
+    activeGoalId = goalChip.dataset.goal;
+    localStorage.setItem("cmcg-active-goal", activeGoalId);
+    renderGoals(); renderOverviewChart(); renderKpis();
+    return;
+  }
   if (event.target.closest("[data-open-group]")) openGroupForm();
   const plannerViewBtn = event.target.closest("[data-planner-view]");
   if (plannerViewBtn) {
@@ -3190,13 +3437,21 @@ document.addEventListener("click", async (event) => {
     document.getElementById("studentDetailDialog")?.close();
     openStudentForm({ studentId: detailStudentId });
   }
+  const chartMetric = event.target.closest("[data-chart-metric]");
+  if (chartMetric) {
+    activeChartMetric = chartMetric.dataset.chartMetric;
+    localStorage.setItem("cmcg-chart-metric", activeChartMetric);
+    renderOverviewChart(); renderKpis();
+    return;
+  }
   const kpiMetric = event.target.closest("[data-kpi-metric]");
   if (kpiMetric) {
-    const metric = kpiMetric.dataset.kpiMetric;
-    if (selectedOverviewMetrics.has(metric)) selectedOverviewMetrics.delete(metric); else selectedOverviewMetrics.add(metric);
-    if (!selectedOverviewMetrics.size) selectedOverviewMetrics.add(metric);
-    localStorage.setItem("cmcg-overview-metrics", JSON.stringify([...selectedOverviewMetrics]));
-    renderKpis();
+    // A KPI card selects the metric shown on the exact-value graph.
+    activeChartMetric = kpiMetric.dataset.kpiMetric;
+    localStorage.setItem("cmcg-chart-metric", activeChartMetric);
+    activeGoalId = ""; // switching to a raw metric clears the active-goal override
+    localStorage.setItem("cmcg-active-goal", "");
+    renderOverviewChart(); renderKpis();
   }
   const add = event.target.closest("[data-add-outcome]");
   if (add) openOutcome({ level: add.dataset.level || "ad", targetId: add.dataset.target || "" });
@@ -3272,6 +3527,7 @@ document.addEventListener("change", (event) => {
     renderPlannerSuggestions();
   }
   if (event.target.id === "plannerMode") renderPlannerSuggestions();
+  if (event.target.id === "goalType") syncGoalFormFields();
   if (event.target.id === "manualBudgetLevel") hydrateManualBudgetTarget();
   if (event.target.id === "manualBudgetPreset") syncManualBudgetDates();
   if (event.target.id === "sessionsGroupPick") { sessionsGroupId = event.target.value; renderPlannerSuggestions(); }

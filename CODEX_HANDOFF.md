@@ -50,6 +50,8 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - Outcomes are limited to `booked`, `showed`, and `registered`, and can target an ad, ad set, campaign, or agent.
 - Ad-level outcome entry must use the hierarchy Campaign -> Ad set -> Ad so duplicate ad names under different campaigns/ad sets remain separated.
 - `showed` means visited without registering. Total visits equal `showed + registered`.
+- The Overview trend graph shows one metric at a time on an exact-value Y axis (real numbers, not a 0-100 scale). A KPI card or the metric switch selects the metric; cost/registered is per-period, other metrics accumulate.
+- Goals are persisted in `state.goals` (admin only). Types: `registered`, `revenue`, `cost_per_registered`, and `custom` (any Overview metric). Each has a numeric `target` and a `from`/`to` window. `POST/PATCH/DELETE /api/goals` manage them. The active goal drives the graph: it draws a 🎯 target line and, for count/revenue goals, an ideal straight pace line from (start,0) to (end,target); a banner and chips show current vs target, percent, and an ahead/behind-by-N status computed from elapsed-days pace (for cost goals: met when current ≤ target).
 - Reporting defaults to Last 7 days. Date presets include Today, Yesterday, This week, This month, This year, Lifetime, and Custom; changing From/To manually switches to Custom.
 - Agent ROI links the two sides: for the agent grouping in Performance, revenue is derived from `student.agentId` → that agent's students → their payments. `collected` (payments in the reporting window) gives ROI = collected/spend (multiple + net); `potential` (sum of the agent's active students' `totalDue`) gives potential ROI. Manual budget spend feeds this because `relationForLog` resolves a manual log's explicit `agentId`/`campaignId`/`adSetId`.
 - Business quality is automatic and learns benchmarks from gathered Meta spend plus manual outcomes. It rewards low cost per registration, low cost per visit, low cost per booked appointment, strong outcome volume, and healthy close rate.
@@ -79,6 +81,7 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - `POST /api/groups/:id/sessions` - replaces a group's session list (`[{ day, timeStart, timeEnd }]`); normalizes days and de-duplicates.
 - `POST /api/manual-budget` - adds spend without a CSV. Splits `amount` evenly across the `from`..`to` day range (one `source: "manual"` daily log per day, rounding remainder on the last day), attached to `level` = center/agent/campaign/adset (+ `targetId`). Manual logs carry `batchId` and are never touched by CSV imports (which only update `source: "meta_csv"` rows).
 - `DELETE /api/daily-logs/:id` - removes a single manual log or a whole manual batch (matches `id` or `batchId`); only deletes `source: "manual"` logs.
+- `POST /api/goals`, `PATCH /api/goals/:id`, `DELETE /api/goals/:id` - manage goals (type, target, from, to, optional metric/title).
 - `POST /api/groups` - creates a scheduled training group with days, time, capacity, pricing, and optional nidam-shift alternate timing.
 - `PATCH /api/groups/:id` - updates a group without allowing capacity below current enrollment.
 - `POST /api/students` - registers a student into a group with a flexible payment agreement and can record an initial payment.

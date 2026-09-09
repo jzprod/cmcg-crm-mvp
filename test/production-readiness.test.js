@@ -342,6 +342,36 @@ test("groups are name-only containers; sessions are managed on the calendar", as
   assert.deepEqual(legacy.sessions, [{ day: "tuesday", timeStart: "18:00", timeEnd: "20:00" }]);
 });
 
+test("goals persist with type, target, and period and are editable/deletable", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-goals-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const { child, baseUrl, authHeader } = await startApp(dataFile, { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const goal = await request("/api/goals", { method: "POST", body: { type: "registered", target: 50, from: "2026-09-01", to: "2026-09-30", title: "50 en septembre" }, expectedStatus: 201 });
+  assert.equal(goal.type, "registered");
+  assert.equal(goal.target, 50);
+  assert.equal(goal.from, "2026-09-01");
+
+  // Cost-per-registered and custom goals are accepted.
+  await request("/api/goals", { method: "POST", body: { type: "cost_per_registered", target: 200, from: "2026-09-01", to: "2026-09-30" }, expectedStatus: 201 });
+  await request("/api/goals", { method: "POST", body: { type: "custom", metric: "visited", target: 100, from: "2026-09-01", to: "2026-09-30" }, expectedStatus: 201 });
+
+  // Validation: target and dates required; custom needs a metric.
+  await request("/api/goals", { method: "POST", body: { type: "registered", target: 10 }, expectedStatus: 400 });
+  await request("/api/goals", { method: "POST", body: { type: "registered", target: 0, from: "2026-09-01", to: "2026-09-30" }, expectedStatus: 400 });
+  await request("/api/goals", { method: "POST", body: { type: "custom", target: 10, from: "2026-09-01", to: "2026-09-30" }, expectedStatus: 400 });
+
+  const edited = await request(`/api/goals/${goal.id}`, { method: "PATCH", body: { target: 60 }, expectedStatus: 200 });
+  assert.equal(edited.target, 60);
+
+  await request(`/api/goals/${goal.id}`, { method: "DELETE", expectedStatus: 200 });
+  const snapshot = (await request("/api/state")).state;
+  assert.equal(snapshot.goals.length, 2);
+  assert.ok(!snapshot.goals.some((g) => g.id === goal.id));
+});
+
 test("manual budget splits across days, attaches to a level, and is deletable", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-manual-budget-test-"));
   const dataFile = path.join(tempDir, "crm.json");
@@ -628,6 +658,12 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /renderManualBudget/);
   assert.match(app, /data-delete-budget/);
   assert.match(html, /manualBudgetForm/);
+  assert.match(app, /goalProgress/);
+  assert.match(app, /renderGoals/);
+  assert.match(app, /goal-pace/);
+  assert.match(app, /data-open-goal/);
+  assert.match(html, /goalForm/);
+  assert.match(html, /goalsList/);
   assert.match(app, /data-students-training/);
   assert.match(app, /data-students-filter/);
   assert.match(html, /data-tab="students"/);
