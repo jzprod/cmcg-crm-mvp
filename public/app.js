@@ -1485,6 +1485,18 @@ function goalProgress(goal) {
   }
   return { metricKey, cumulative, lower, current, expected, percent, status, delta, totalDays, elapsedDays };
 }
+// Every calendar date string from `from` to `to` inclusive (used to span the full goal window).
+function eachDay(from, to) {
+  const days = [];
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return from ? [from] : [];
+  for (let d = start; d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    days.push(d.toISOString().slice(0, 10));
+    if (days.length > 400) break;
+  }
+  return days;
+}
 // Daily rows (registered/spend/etc.) between two dates, ignoring the global period filter.
 function goalDailyRows(from, to) {
   const rows = new Map();
@@ -1575,17 +1587,26 @@ function renderOverviewChart() {
   const cumulative = Boolean(goal) && goalIsCumulative(goal);
   const lower = Boolean(goal) && goalLowerIsBetter(goal);
 
-  // Rows = days in the goal window (goal active) or the selected reporting period.
-  let rows = goal ? goalDailyRows(goal.from, goal.to) : overviewDailyRows();
-  if (goal && !rows.length) rows = [{ date: goal.from, ...emptyMetrics(), visited: 0 }, { date: goal.to, ...emptyMetrics(), visited: 0 }];
+  // Rows. For a goal, the X-axis MUST span the whole goal window (every day from -> to),
+  // even future days with no data, so the pace line and the data line share the same scale.
+  const today = todayInput();
+  let rows;
+  if (goal) {
+    const dataByDate = new Map(goalDailyRows(goal.from, goal.to).map((r) => [r.date, r]));
+    rows = eachDay(goal.from, goal.to).map((date) => dataByDate.get(date) || { date, ...emptyMetrics(), visited: 0 });
+  } else {
+    rows = overviewDailyRows();
+  }
   if (!rows.length) {
     container.innerHTML = '<div class="empty chart-empty">Importez des rapports ou choisissez une période pour voir la courbe.</div>';
     return;
   }
 
   // Exact values per day; goals accumulate (running total) so the pace line makes sense.
+  // For a goal we stop the data line at "today" (future days = null, not drawn).
   let running = 0;
   const values = rows.map((row) => {
+    if (goal && row.date > today) return null; // don't draw the future
     const perDay = metricKey === "revenue" ? revenueOnDate(row.date) : metricRawValue(metricKey, row);
     if (cumulative) { running += (perDay === null || !Number.isFinite(perDay)) ? 0 : perDay; return running; }
     return perDay; // exact daily value (may be null for cost/registered on 0-registration days)
