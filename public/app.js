@@ -831,7 +831,63 @@ Object.assign(ar, {
   "This replaces current CRM records after confirmation.": "هذا يستبدل سجلات النظام الحالية بعد التأكيد.",
   "Choose JSON backup": "اختيار نسخة JSON احتياطية",
   "Clear old imports, spend, ads, outcomes, leads, and used creative codes before starting with real data.": "امسح الاستيرادات والصرف والإعلانات والنتائج والعملاء المحتملين وأكواد الإبداع القديمة قبل البدء ببيانات حقيقية.",
+  // Ads Manager (Overview)
+  "Ads Manager": "مدير الإعلانات",
+  "Open a campaign to see its ad sets, then open an ad set to see its ads. Press + on any row to record a result at that level.": "افتح حملة لرؤية مجموعاتها الإعلانية، ثم افتح مجموعة لرؤية إعلاناتها. اضغط + على أي سطر لتسجيل نتيجة في ذلك المستوى.",
+  "Ad": "الإعلان",
+  "Delivery": "حالة العرض",
+  "Amount spent": "المبلغ المصروف",
+  "Unassigned": "غير معين",
+  "Search by name or code": "ابحث بالاسم أو الرمز",
+  "Report period": "فترة التقرير",
+  "Same as report period": "نفس فترة التقرير",
+  "Today and yesterday": "اليوم وأمس",
+  "Last 14 days": "آخر 14 يوماً",
+  "Last 28 days": "آخر 28 يوماً",
+  "Last 30 days": "آخر 30 يوماً",
+  "Last week": "الأسبوع الماضي",
+  "Last month": "الشهر الماضي",
+  "Maximum": "الحد الأقصى",
+  "Date range": "نطاق التاريخ",
+  "Date presets": "فترات جاهزة",
+  "Start date": "تاريخ البدء",
+  "End date": "تاريخ الانتهاء",
+  "Previous month": "الشهر السابق",
+  "Next month": "الشهر التالي",
+  "Only this table changes. The report period at the top stays as it is.": "يتغير هذا الجدول فقط. فترة التقرير في الأعلى تبقى كما هي.",
+  "Update": "تحديث",
+  "Show Maximum": "عرض الحد الأقصى",
+  "Total spent": "إجمالي الصرف",
+  "Total": "الإجمالي",
+  "Per registration": "لكل تسجيل",
+  "Show ad sets": "عرض المجموعات الإعلانية",
+  "Hide ad sets": "إخفاء المجموعات الإعلانية",
+  "Show ads": "عرض الإعلانات",
+  "Hide ads": "إخفاء الإعلانات",
+  "Active": "نشط",
+  "Inactive": "غير نشط",
+  "Off": "متوقف",
+  "Completed": "مكتمل",
+  "Not delivering": "لا يتم العرض",
+  "No campaigns had activity in this period.": "لا توجد حملات بنشاط في هذه الفترة.",
+  "No ad sets had activity in this period.": "لا توجد مجموعات إعلانية بنشاط في هذه الفترة.",
+  "No ads had activity in this period.": "لا توجد إعلانات بنشاط في هذه الفترة.",
+  "No campaigns match this search.": "لا توجد حملات مطابقة لهذا البحث.",
+  "No ad sets match this search.": "لا توجد مجموعات إعلانية مطابقة لهذا البحث.",
+  "No ads match this search.": "لا توجد إعلانات مطابقة لهذا البحث.",
+  "Import a Meta Ads report to see campaigns, ad sets, and ads.": "استورد تقرير Meta Ads لرؤية الحملات والمجموعات والإعلانات.",
+  "Mo": "ن", "Tu": "ث", "We": "ر", "Th": "خ", "Fr": "ج", "Sa": "س", "Su": "ح",
 });
+
+arDynamic.push(
+  [/^Results from (\d+) campaigns?$/, "نتائج $1 حملة"],
+  [/^Results from (\d+) ad sets?$/, "نتائج $1 مجموعة إعلانية"],
+  [/^Results from (\d+) ads?$/, "نتائج $1 إعلان"],
+  [/^(\d+) ad set$/, "$1 مجموعة إعلانية"],
+  [/^(\d+) ad$/, "$1 إعلان"],
+  [/^(\d+) campaign$/, "$1 حملة"],
+  [/^Code (.+)$/, "الرمز $1"],
+);
 
 arDynamic.push(
   [/^En avance de (.+)$/, "متقدم بـ $1"],
@@ -1226,8 +1282,9 @@ function relationForOutcome(outcome) {
   return { ad, adSet, campaign, agent, objective: adSet?.objective || campaign?.objective || "" };
 }
 
-function overlapsRange(start, end) {
-  return (!filters.from || (end || start) >= filters.from) && (!filters.to || start <= filters.to);
+// range defaults to the global reporting period; the Ads Manager table passes its own.
+function overlapsRange(start, end, range = filters) {
+  return (!range.from || (end || start) >= range.from) && (!range.to || start <= range.to);
 }
 
 function relationMatches(relation, text = "") {
@@ -1241,16 +1298,16 @@ function relationMatches(relation, text = "") {
   return true;
 }
 
-function filteredLogs() {
+function filteredLogs(range = filters) {
   return state.dailyLogs.filter((log) => {
     const start = log.reportingStart || log.date || "";
     const end = log.reportingEnd || log.date || start;
-    return overlapsRange(start, end) && relationMatches(relationForLog(log));
+    return overlapsRange(start, end, range) && relationMatches(relationForLog(log));
   });
 }
 
-function filteredOutcomes() {
-  return state.outcomes.filter((outcome) => overlapsRange(outcome.sourceDate || outcome.date, outcome.date)
+function filteredOutcomes(range = filters) {
+  return state.outcomes.filter((outcome) => overlapsRange(outcome.sourceDate || outcome.date, outcome.date, range)
     && relationMatches(relationForOutcome(outcome), [outcome.personName, outcome.phone, outcome.notes].join(" ")));
 }
 
@@ -1303,26 +1360,26 @@ function groupDescriptor(key, type) {
 // Money linked to an agent from the school side, for ROI against ad spend.
 // collected = payments received (optionally within the reporting window);
 // potential = full agreed price of the agent's non-cancelled students (best case if all pay).
-function agentRevenue(agentId, useFilters = true) {
+function agentRevenue(agentId, useFilters = true, range = filters) {
   if (!agentId) return { collected: 0, potential: 0 };
   const students = state.students.filter((s) => s.agentId === agentId && s.status !== "cancelled");
   const studentIds = new Set(students.map((s) => s.id));
   const potential = students.reduce((sum, s) => sum + Number(s.totalDue || 0), 0);
   const collected = state.payments
-    .filter((p) => studentIds.has(p.studentId) && (!useFilters || overlapsRange(p.paidAt, p.paidAt)))
+    .filter((p) => studentIds.has(p.studentId) && (!useFilters || overlapsRange(p.paidAt, p.paidAt, range)))
     .reduce((sum, p) => sum + Number(p.amount || 0), 0);
   return { collected, potential };
 }
 
-function performanceRows(type = groupBy, useFilters = true, criterion = sortBy) {
+function performanceRows(type = groupBy, useFilters = true, criterion = sortBy, range = filters) {
   const rows = new Map();
   function ensure(key) {
     if (!key) return null;
     if (!rows.has(key)) rows.set(key, { ...groupDescriptor(key, type), ...emptyMetrics(), latestLog: null });
     return rows.get(key);
   }
-  const logs = useFilters ? filteredLogs() : state.dailyLogs;
-  const outcomes = useFilters ? filteredOutcomes() : state.outcomes;
+  const logs = useFilters ? filteredLogs(range) : state.dailyLogs;
+  const outcomes = useFilters ? filteredOutcomes(range) : state.outcomes;
   logs.forEach((log) => {
     const relation = relationForLog(log);
     const row = ensure(groupKeyForRelation(relation, type));
@@ -1347,7 +1404,7 @@ function performanceRows(type = groupBy, useFilters = true, criterion = sortBy) 
   });
   if (type === "agent") {
     rows.forEach((row) => {
-      const revenue = agentRevenue(row.targetId, useFilters);
+      const revenue = agentRevenue(row.targetId, useFilters, range);
       row.collected = revenue.collected;
       row.potential = revenue.potential;
       row.roi = row.spend > 0 ? revenue.collected / row.spend : 0;
@@ -1754,9 +1811,420 @@ function qualityRowClass(row) {
   return `quality-row-${CmcgQuality.qualityBand(row).key}`;
 }
 
+// ---------------------------------------------------------------------------
+// Ads Manager (Overview): Facebook-style Campaign -> Ad set -> Ad tree with its
+// own date range. Every visible row carries a "+" that records an outcome at
+// that exact level, so a collapsed tree only offers campaign-level "+".
+// ---------------------------------------------------------------------------
+const AM_LEVELS = ["campaign", "adSet", "ad"];
+const AM_CHILD = { campaign: "adSet", adSet: "ad", ad: "" };
+const AM_TABS = { campaign: "Campaigns", adSet: "Ad sets", ad: "Ads" };
+const AM_NAME_HEADERS = { campaign: "Campaign", adSet: "Ad set", ad: "Ad" };
+const AM_NOUNS = { campaign: ["campaign", "campaigns"], adSet: ["ad set", "ad sets"], ad: ["ad", "ads"] };
+const AM_ICONS = {
+  campaign: '<path d="M3 6a2 2 0 0 1 2-2h4.2l2 2H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z"/>',
+  adSet: '<path d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"/>',
+  ad: '<path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1 2v8.6l3.5-3.5 2.5 2.5 4-4 4 4V7H5Z"/>',
+};
+const AM_PRESETS = [
+  ["report", "Same as report period"],
+  ["today", "Today"],
+  ["yesterday", "Yesterday"],
+  ["todayYesterday", "Today and yesterday"],
+  ["last7", "Last 7 days"],
+  ["last14", "Last 14 days"],
+  ["last28", "Last 28 days"],
+  ["last30", "Last 30 days"],
+  ["thisWeek", "This week"],
+  ["lastWeek", "Last week"],
+  ["thisMonth", "This month"],
+  ["lastMonth", "Last month"],
+  ["thisYear", "This year"],
+  ["lifetime", "Maximum"],
+  ["custom", "Custom"],
+];
+const AM_COLUMNS = [
+  { key: "delivery", label: "Delivery" },
+  { key: "quality", label: "Quality" },
+  { key: "agent", label: "Agent" },
+  { key: "spend", label: "Amount spent", numeric: true, total: "Total spent" },
+  { key: "messages", label: "Messages", numeric: true, total: "Total" },
+  { key: "booked", label: "Booked", numeric: true, total: "Total" },
+  { key: "visits", label: "Visited", numeric: true, total: "Total" },
+  { key: "registered", label: "Registered", numeric: true, total: "Total" },
+  { key: "costRegistered", label: "Cost / registration", numeric: true, total: "Per registration" },
+];
+const AM_ASC_FIRST = new Set(["name", "delivery", "agent", "costRegistered"]);
+
+function readStoredJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key));
+    return value && typeof value === "object" ? value : fallback;
+  } catch { return fallback; }
+}
+
+let amLevel = AM_LEVELS.includes(localStorage.getItem("cmcg-am-level")) ? localStorage.getItem("cmcg-am-level") : "campaign";
+const amOpen = new Set([readStoredJson("cmcg-am-open", [])].flat().filter((key) => typeof key === "string"));
+let amPeriod = { preset: "report", from: "", to: "", ...readStoredJson("cmcg-am-period", {}) };
+if (!AM_PRESETS.some(([key]) => key === amPeriod.preset)) amPeriod.preset = "report";
+let amSort = { key: "quality", dir: "desc", ...readStoredJson("cmcg-am-sort", {}) };
+if (amSort.key !== "name" && !AM_COLUMNS.some((column) => column.key === amSort.key)) amSort = { key: "quality", dir: "desc" };
+let amSearch = "";
+let amPicker = null; // draft while the date picker is open: { preset, from, to, month, picking }
+
+function amPresetRange(preset, custom = amPeriod) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const day = (offset) => dateInputValue(addDays(today, offset));
+  if (preset === "report") return { from: filters.from || "", to: filters.to || "" };
+  if (preset === "custom") return { from: custom.from || "", to: custom.to || custom.from || "" };
+  if (preset === "todayYesterday") return { from: day(-1), to: day(0) };
+  if (preset === "last14") return { from: day(-13), to: day(0) };
+  if (preset === "last28") return { from: day(-27), to: day(0) };
+  if (preset === "last30") return { from: day(-29), to: day(0) };
+  if (preset === "lastWeek") {
+    const weekday = today.getDay() || 7;
+    return { from: day(1 - weekday - 7), to: day(-weekday) };
+  }
+  if (preset === "lastMonth") return { from: dateInputValue(new Date(today.getFullYear(), today.getMonth() - 1, 1)), to: dateInputValue(new Date(today.getFullYear(), today.getMonth(), 0)) };
+  return periodRange(preset);
+}
+
+function amLocale() { return currentLanguage === "ar" ? "ar-MA" : "en-US"; }
+function amDateLabel(value) {
+  const date = parseInputDate(value);
+  return date ? date.toLocaleDateString(amLocale(), { month: "short", day: "numeric", year: "numeric" }) : "";
+}
+function amRangeText(range) {
+  if (!range.from && !range.to) return "All dates";
+  if (range.from === range.to) return amDateLabel(range.from);
+  return `${amDateLabel(range.from) || "Start"} – ${amDateLabel(range.to) || "Today"}`;
+}
+function amPresetLabel(preset) { return (AM_PRESETS.find(([key]) => key === preset) || [])[1] || "Custom"; }
+function amNoun(level, count) { return AM_NOUNS[level][count === 1 ? 0 : 1]; }
+function amIcon(level, className = "fbam-level-icon") { return `<svg class="${className}" aria-hidden="true" viewBox="0 0 24 24">${AM_ICONS[level]}</svg>`; }
+function amRoot() { return document.getElementById("adsManager"); }
+
+function amSavePrefs() {
+  try {
+    localStorage.setItem("cmcg-am-level", amLevel);
+    localStorage.setItem("cmcg-am-open", JSON.stringify([...amOpen]));
+    localStorage.setItem("cmcg-am-period", JSON.stringify(amPeriod));
+    localStorage.setItem("cmcg-am-sort", JSON.stringify(amSort));
+  } catch {}
+}
+
+function amBuildData(range) {
+  const rows = {};
+  AM_LEVELS.forEach((level) => { rows[level] = performanceRows(level, true, "quality", range); });
+  const children = { campaign: new Map(), adSet: new Map() };
+  const attach = (map, parentId, row) => {
+    if (!parentId) return;
+    if (!map.has(parentId)) map.set(parentId, []);
+    map.get(parentId).push(row);
+  };
+  rows.adSet.forEach((row) => attach(children.campaign, row.relation.campaign?.id, row));
+  rows.ad.forEach((row) => attach(children.adSet, row.relation.adSet?.id, row));
+  // A campaign has no single agent: list the agents of its ad sets.
+  rows.campaign.forEach((row) => {
+    const names = [...new Set((children.campaign.get(row.key) || []).map((adSet) => adSet.relation.agent?.name).filter(Boolean))];
+    row.amAgent = names.length > 2 ? `${names.length} agents` : names.join(", ");
+  });
+  return { rows, children };
+}
+
+function amChildren(data, level, row) {
+  return AM_CHILD[level] ? data.children[level].get(row.key) || [] : [];
+}
+
+function amAgentName(row, level) {
+  if (level === "campaign") return row.amAgent || "—";
+  return row.relation.agent?.name || "Unassigned";
+}
+
+function amDelivery(row, level) {
+  const entity = level === "campaign" ? row.relation.campaign : level === "adSet" ? row.relation.adSet : row.relation.ad;
+  const value = String(entity?.deliveryStatus || "").trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (!value) return { tone: "none", label: "—" };
+  let tone = "off";
+  if (/^(active|learning)/.test(value)) tone = "on";
+  else if (/complete/.test(value)) tone = "done";
+  else if (/error|reject|disapprove|issue/.test(value)) tone = "error";
+  return { tone, label: value.charAt(0).toUpperCase() + value.slice(1) };
+}
+
+function amSortValue(row, level, key) {
+  if (key === "name") return String(row.name || "").toLocaleLowerCase();
+  if (key === "delivery") return amDelivery(row, level).label.toLocaleLowerCase();
+  if (key === "agent") return amAgentName(row, level).toLocaleLowerCase();
+  if (key === "quality") return Number.isFinite(row.qualityScore) ? row.qualityScore : null;
+  if (key === "costRegistered") return row.registered ? row.spend / row.registered : null;
+  return Number(row[key] || 0);
+}
+
+function amSortRows(rows, level) {
+  const sign = amSort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const left = amSortValue(a, level, amSort.key);
+    const right = amSortValue(b, level, amSort.key);
+    const byName = String(a.name || "").localeCompare(String(b.name || ""));
+    if (left === null || right === null) return left === right ? byName : left === null ? 1 : -1; // blanks always last
+    const result = typeof left === "string" ? left.localeCompare(right) : left - right;
+    return result * sign || byName;
+  });
+}
+
+function amMatches(row, query) {
+  return [row.name, row.relation?.ad?.code].join(" ").toLocaleLowerCase().includes(query);
+}
+
+function amBranchMatches(data, level, row, query) {
+  if (amMatches(row, query)) return true;
+  return amChildren(data, level, row).some((child) => amBranchMatches(data, AM_CHILD[level], child, query));
+}
+
+function amRowHtml(data, level, row, depth, open) {
+  const key = `${level}:${row.key}`;
+  const childLevel = AM_CHILD[level];
+  const childCount = amChildren(data, level, row).length;
+  const toggleLabel = `${open ? "Hide" : "Show"} ${childLevel ? AM_NOUNS[childLevel][1] : ""} · ${row.name}`;
+  const toggle = childCount
+    ? `<button class="fbam-toggle" type="button" data-am-toggle="${escapeHtml(key)}" aria-expanded="${open}" aria-label="${escapeHtml(toggleLabel)}"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9.4 6 6 6-6 6L8 16.6l4.6-4.6L8 7.4 9.4 6Z"/></svg></button>`
+    : '<span class="fbam-toggle-spacer" aria-hidden="true"></span>';
+  const name = childCount
+    ? `<button class="fbam-name-link" type="button" data-am-toggle="${escapeHtml(key)}" aria-expanded="${open}" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</button>`
+    : `<span class="fbam-name-plain" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</span>`;
+  // Separate text nodes so each part translates on its own (e.g. "Sales" objective vs "2 ad sets").
+  const contextParts = level === "ad"
+    ? [row.relation.ad?.code ? `Code ${row.relation.ad.code}` : "Ad"]
+    : [level === "campaign" ? row.relation.objective : "", `${childCount} ${amNoun(childLevel, childCount)}`].filter(Boolean);
+  const context = contextParts.map((part) => `<span>${escapeHtml(part)}</span>`).join('<span aria-hidden="true"> · </span>');
+  const delivery = amDelivery(row, level);
+  const cells = {
+    delivery: `<span class="fbam-delivery"><span class="fbam-dot ${delivery.tone}" aria-hidden="true"></span>${escapeHtml(delivery.label)}</span>`,
+    quality: qualityBadge(row),
+    agent: escapeHtml(amAgentName(row, level)),
+    spend: money(row.spend),
+    messages: number(row.messages),
+    booked: number(row.booked),
+    visits: number(row.visits),
+    registered: `<strong>${number(row.registered)}</strong>`,
+    costRegistered: cost(row.spend, row.registered),
+  };
+  return `<tr class="fbam-row fbam-${level}${open ? " is-open" : ""}" data-am-row="${escapeHtml(key)}"><td class="fbam-name-cell"><div class="fbam-name" style="--depth:${depth}">${toggle}${amIcon(level)}<div class="fbam-name-text">${name}<small>${context}</small></div>${addOutcomeButton(level, row.targetId, row.name)}</div></td>${AM_COLUMNS.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cells[column.key]}</td>`).join("")}</tr>`;
+}
+
+function amCollectRows(data, level, rows, depth, query, out) {
+  amSortRows(rows, level).forEach((row) => {
+    const children = amChildren(data, level, row);
+    const selfMatch = !query || amMatches(row, query);
+    const childMatch = !selfMatch && children.some((child) => amBranchMatches(data, AM_CHILD[level], child, query));
+    if (!selfMatch && !childMatch) return;
+    // While searching, branches that only match through a child open automatically.
+    const open = children.length > 0 && (childMatch || amOpen.has(`${level}:${row.key}`));
+    out.push(amRowHtml(data, level, row, depth, open));
+    if (open) amCollectRows(data, AM_CHILD[level], children, depth + 1, selfMatch ? "" : query, out);
+  });
+}
+
+function amSortHeader(key, label, numeric = false, extraClass = "") {
+  const active = amSort.key === key;
+  const ariaSort = active ? (amSort.dir === "asc" ? "ascending" : "descending") : "none";
+  const arrow = active && amSort.dir === "asc" ? "▲" : "▼";
+  return `<th class="${[numeric ? "number-cell" : "", extraClass].filter(Boolean).join(" ")}" aria-sort="${ariaSort}"><button class="fbam-sort${active ? " active" : ""}" type="button" data-am-sort="${key}"><span>${escapeHtml(label)}</span><span class="fbam-sort-arrow" aria-hidden="true">${arrow}</span></button></th>`;
+}
+
+function amShellHtml() {
+  const tabs = AM_LEVELS.map((level) => `<button class="fbam-tab" type="button" role="tab" data-am-level="${level}">${amIcon(level, "fbam-tab-icon")}<span>${AM_TABS[level]}</span></button>`).join("");
+  return `<div class="fbam-toolbar"><label class="fbam-search"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/></svg><span class="sr-only">Search by name or code</span><input type="search" data-am-search placeholder="Search by name or code" autocomplete="off" /></label><div class="fbam-date"><button class="fbam-date-button" type="button" data-am-date aria-haspopup="dialog" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v17H4V4h3V2Zm11 7H6v10h12V9Zm-9 2v2H7v-2h2Zm4 0v2h-2v-2h2Zm4 0v2h-2v-2h2Zm-8 4v2H7v-2h2Zm4 0v2h-2v-2h2Z"/></svg><span class="fbam-date-text"><strong data-am-date-preset></strong><span data-am-date-range></span></span><svg class="fbam-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5H7Z"/></svg></button><div class="fbam-picker hidden" data-am-picker role="dialog" aria-label="Date range"></div></div></div><div class="fbam-tabs" role="tablist" aria-label="Level">${tabs}</div><div class="fbam-grid"><table class="fbam-table"></table></div>`;
+}
+
+function amMonthHtml(year, month, draft, todayKey) {
+  const first = new Date(year, month, 1);
+  const offset = (first.getDay() + 6) % 7; // weeks start on Monday
+  const days = new Date(year, month + 1, 0).getDate();
+  const weekdays = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map((label) => `<span class="fbam-weekday">${label}</span>`).join("");
+  const cells = Array.from({ length: offset }, () => '<span class="fbam-day-blank"></span>');
+  for (let dayNumber = 1; dayNumber <= days; dayNumber += 1) {
+    const key = dateInputValue(new Date(year, month, dayNumber));
+    const classes = ["fbam-day"];
+    if (draft.from && draft.to && key >= draft.from && key <= draft.to) classes.push("in-range");
+    if (key === draft.from) classes.push("is-start");
+    if (key === draft.to) classes.push("is-end");
+    if (key === todayKey) classes.push("is-today");
+    cells.push(`<button class="${classes.join(" ")}" type="button" data-am-day="${key}" ${key > todayKey ? "disabled" : ""} aria-label="${escapeHtml(amDateLabel(key))}">${dayNumber}</button>`);
+  }
+  return `<div class="fbam-month"><div class="fbam-month-title">${escapeHtml(first.toLocaleDateString(amLocale(), { month: "long", year: "numeric" }))}</div><div class="fbam-month-grid">${weekdays}${cells.join("")}</div></div>`;
+}
+
+function amShowDraftMonth() {
+  const anchor = parseInputDate(amPicker.to) || new Date();
+  amPicker.month = new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1); // end month sits on the right
+}
+
+function amOpenPicker() {
+  const range = amPresetRange(amPeriod.preset);
+  amPicker = { preset: amPeriod.preset, from: range.from, to: range.to, picking: "start" };
+  amShowDraftMonth();
+}
+
+function amCalendarsHtml() {
+  const todayKey = dateInputValue(new Date());
+  const left = amPicker.month;
+  const right = new Date(left.getFullYear(), left.getMonth() + 1, 1);
+  return `<button class="fbam-cal-nav prev" type="button" data-am-month="-1" aria-label="Previous month"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14.6 6 16 7.4 11.4 12l4.6 4.6-1.4 1.4-6-6 6-6Z"/></svg></button>${amMonthHtml(left.getFullYear(), left.getMonth(), amPicker, todayKey)}${amMonthHtml(right.getFullYear(), right.getMonth(), amPicker, todayKey)}<button class="fbam-cal-nav next" type="button" data-am-month="1" aria-label="Next month"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9.4 6 6 6-6 6L8 16.6l4.6-4.6L8 7.4 9.4 6Z"/></svg></button>`;
+}
+
+function renderAdsManagerPicker(root) {
+  const picker = root.querySelector("[data-am-picker]");
+  root.querySelector("[data-am-date]").setAttribute("aria-expanded", String(Boolean(amPicker)));
+  picker.classList.toggle("hidden", !amPicker);
+  if (!amPicker) { picker.innerHTML = ""; return; }
+  const todayKey = dateInputValue(new Date());
+  const presets = AM_PRESETS.map(([key, label]) => `<label class="fbam-preset"><input type="radio" name="amPreset" value="${key}" data-am-preset ${amPicker.preset === key ? "checked" : ""} /><span>${escapeHtml(label)}${key === "report" ? `<small>${escapeHtml(periodLabels[selectedPeriod] || "")}</small>` : ""}</span></label>`).join("");
+  picker.innerHTML = `<div class="fbam-picker-body"><div class="fbam-presets" role="radiogroup" aria-label="Date presets">${presets}</div><div class="fbam-cal-area"><div class="fbam-cals">${amCalendarsHtml()}</div><div class="fbam-cal-inputs"><label><span>Start date</span><input type="date" data-am-draft="from" value="${escapeHtml(amPicker.from)}" max="${todayKey}" /></label><span class="fbam-cal-dash" aria-hidden="true">–</span><label><span>End date</span><input type="date" data-am-draft="to" value="${escapeHtml(amPicker.to)}" max="${todayKey}" /></label></div></div></div><div class="fbam-picker-foot"><span class="fbam-note">Only this table changes. The report period at the top stays as it is.</span><div class="fbam-picker-actions"><button class="fbam-btn" type="button" data-am-cancel>Cancel</button><button class="fbam-btn primary" type="button" data-am-apply>Update</button></div></div>`;
+}
+
+function renderAdsManagerTable(root, range) {
+  const data = amBuildData(range);
+  const query = amSearch.trim().toLocaleLowerCase();
+  const roots = data.rows[amLevel].filter((row) => !query || amBranchMatches(data, amLevel, row, query));
+  const out = [];
+  amCollectRows(data, amLevel, data.rows[amLevel], 0, query, out);
+  const totals = roots.reduce((sum, row) => {
+    ["spend", "messages", "booked", "visits", "registered"].forEach((key) => { sum[key] += Number(row[key] || 0); });
+    return sum;
+  }, { spend: 0, messages: 0, booked: 0, visits: 0, registered: 0 });
+  const totalValues = { spend: money(totals.spend), messages: number(totals.messages), booked: number(totals.booked), visits: number(totals.visits), registered: number(totals.registered), costRegistered: cost(totals.spend, totals.registered) };
+  let empty = "";
+  if (!out.length) {
+    if (query) empty = `<span>No ${AM_NOUNS[amLevel][1]} match this search.</span>`;
+    else if (!state.dailyLogs.length && !state.outcomes.length) empty = "<span>Import a Meta Ads report to see campaigns, ad sets, and ads.</span>";
+    else empty = `<span>No ${AM_NOUNS[amLevel][1]} had activity in this period.</span>${amPeriod.preset === "lifetime" ? "" : ' <button class="fbam-btn" type="button" data-am-quick="lifetime">Show Maximum</button>'}`;
+  }
+  const head = `<thead><tr>${amSortHeader("name", AM_NAME_HEADERS[amLevel], false, "fbam-name-cell")}${AM_COLUMNS.map((column) => amSortHeader(column.key, column.label, column.numeric)).join("")}</tr></thead>`;
+  const body = `<tbody>${out.length ? out.join("") : `<tr><td colspan="${AM_COLUMNS.length + 1}" class="empty fbam-empty">${empty}</td></tr>`}</tbody>`;
+  const foot = roots.length ? `<tfoot><tr class="fbam-total"><td class="fbam-name-cell"><div class="fbam-name"><div class="fbam-name-text"><strong>Results from ${roots.length} ${amNoun(amLevel, roots.length)}</strong><small>${escapeHtml(amRangeText(range))}</small></div></div></td>${AM_COLUMNS.map((column) => column.total ? `<td class="number-cell"><strong>${totalValues[column.key]}</strong><small>${escapeHtml(column.total)}</small></td>` : "<td></td>").join("")}</tr></tfoot>` : "";
+  root.querySelector(".fbam-table").innerHTML = head + body + foot;
+}
+
+function renderAdsManager() {
+  const root = amRoot();
+  if (!root || !state) return;
+  if (!root.dataset.ready) {
+    root.innerHTML = amShellHtml();
+    root.dataset.ready = "1";
+  }
+  const range = amPresetRange(amPeriod.preset);
+  root.querySelectorAll("[data-am-level]").forEach((tab) => {
+    const active = tab.dataset.amLevel === amLevel;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+  });
+  root.querySelector("[data-am-date-preset]").textContent = amPeriod.preset === "report" ? periodLabels[selectedPeriod] || "Custom" : amPresetLabel(amPeriod.preset);
+  root.querySelector("[data-am-date]").title = amPeriod.preset === "report" ? "Same as report period" : "Only this table changes. The report period at the top stays as it is.";
+  root.querySelector("[data-am-date-range]").textContent = amRangeText(range);
+  root.querySelector("[data-am-date]").classList.toggle("is-override", amPeriod.preset !== "report");
+  renderAdsManagerPicker(root);
+  renderAdsManagerTable(root, range);
+  applyLanguage(root);
+}
+
+function amRenderPickerOnly() {
+  const root = amRoot();
+  renderAdsManagerPicker(root);
+  applyLanguage(root);
+}
+
+// Typed dates only redraw the calendars, so the date inputs keep focus while typing.
+function amRenderCalendarsOnly() {
+  const root = amRoot();
+  root.querySelector(".fbam-cals").innerHTML = amCalendarsHtml();
+  const radio = root.querySelector(`[data-am-preset][value="${amPicker.preset}"]`);
+  if (radio) radio.checked = true;
+  applyLanguage(root.querySelector(".fbam-cals"));
+}
+
+function amApplyPeriod(next) {
+  amPeriod = { preset: next.preset, from: next.from || "", to: next.to || next.from || "" };
+  if (amPeriod.from && amPeriod.to && amPeriod.from > amPeriod.to) [amPeriod.from, amPeriod.to] = [amPeriod.to, amPeriod.from];
+  amPicker = null;
+  amSavePrefs();
+  renderAdsManager();
+}
+
+function handleAdsManagerClick(event) {
+  const toggle = event.target.closest("[data-am-toggle]");
+  if (toggle) {
+    const key = toggle.dataset.amToggle;
+    if (amOpen.has(key)) amOpen.delete(key); else amOpen.add(key);
+    amSavePrefs(); renderAdsManager();
+    return;
+  }
+  const tab = event.target.closest("[data-am-level]");
+  if (tab) { amLevel = tab.dataset.amLevel; amSavePrefs(); renderAdsManager(); return; }
+  const sort = event.target.closest("[data-am-sort]");
+  if (sort) {
+    const key = sort.dataset.amSort;
+    amSort = amSort.key === key ? { key, dir: amSort.dir === "asc" ? "desc" : "asc" } : { key, dir: AM_ASC_FIRST.has(key) ? "asc" : "desc" };
+    amSavePrefs(); renderAdsManager();
+    return;
+  }
+  const quick = event.target.closest("[data-am-quick]");
+  if (quick) { amApplyPeriod({ preset: quick.dataset.amQuick }); return; }
+  if (event.target.closest("[data-am-date]")) {
+    if (amPicker) amPicker = null; else amOpenPicker();
+    amRenderPickerOnly();
+    return;
+  }
+  if (!amPicker) return;
+  const monthStep = event.target.closest("[data-am-month]");
+  if (monthStep) {
+    amPicker.month = new Date(amPicker.month.getFullYear(), amPicker.month.getMonth() + Number(monthStep.dataset.amMonth), 1);
+    amRenderCalendarsOnly();
+    return;
+  }
+  const day = event.target.closest("[data-am-day]");
+  if (day) {
+    // First click picks the start day, the second click closes the range.
+    const key = day.dataset.amDay;
+    amPicker.preset = "custom";
+    if (amPicker.picking === "end" && amPicker.from) {
+      if (key < amPicker.from) { amPicker.to = amPicker.from; amPicker.from = key; } else amPicker.to = key;
+      amPicker.picking = "start";
+    } else {
+      amPicker.from = key; amPicker.to = key; amPicker.picking = "end";
+    }
+    amRenderPickerOnly();
+    return;
+  }
+  if (event.target.closest("[data-am-cancel]")) { amPicker = null; amRenderPickerOnly(); return; }
+  if (event.target.closest("[data-am-apply]")) amApplyPeriod(amPicker);
+}
+
+function handleAdsManagerChange(event) {
+  const preset = event.target.closest("[data-am-preset]");
+  if (preset && amPicker) {
+    amPicker.preset = preset.value;
+    if (preset.value !== "custom") Object.assign(amPicker, amPresetRange(preset.value, amPicker));
+    else if (!amPicker.from) Object.assign(amPicker, { from: dateInputValue(new Date()), to: dateInputValue(new Date()) });
+    amPicker.picking = "start";
+    amShowDraftMonth();
+    amRenderPickerOnly();
+    return;
+  }
+  const draft = event.target.closest("[data-am-draft]");
+  if (draft && amPicker) {
+    amPicker[draft.dataset.amDraft] = draft.value;
+    amPicker.preset = "custom";
+    if (amPicker.from && amPicker.to && amPicker.from > amPicker.to) [amPicker.from, amPicker.to] = [amPicker.to, amPicker.from];
+    amShowDraftMonth();
+    amRenderCalendarsOnly();
+  }
+}
+
 function renderOverviewTables() {
-  const ads = performanceRows("ad", true, "quality").slice(0, 7);
-  document.getElementById("overviewRows").innerHTML = ads.length ? ads.map((row) => `<tr class="${qualityRowClass(row)}"><td>${entityCell(row, "ad")}</td><td>${qualityBadge(row)}</td><td>${escapeHtml(row.relation.agent?.name || "Unassigned")}</td><td class="number-cell">${money(row.spend)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.visits}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td><td>${addOutcomeButton("ad", row.targetId, row.name)}</td></tr>`).join("") : '<tr><td colspan="10" class="empty">Import a Meta Ads report to see performance.</td></tr>';
+  renderAdsManager();
   const agents = performanceRows("agent", true, "quality").filter((row) => row.key !== "__unassigned");
   document.getElementById("agentRows").innerHTML = agents.length ? agents.map((row) => `<tr class="${qualityRowClass(row)}"><td><strong>${escapeHtml(row.name)}</strong></td><td>${qualityBadge(row)}</td><td>${agentClosingBadge(row)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.visits}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td></tr>`).join("") : '<tr><td colspan="8" class="empty">Add agents to compare their results.</td></tr>';
 }
@@ -3636,6 +4104,7 @@ document.addEventListener("change", (event) => {
     currentLanguage = event.target.value === "ar" ? "ar" : "base";
     localStorage.setItem("cmcg-language", currentLanguage);
     applyLanguage();
+    renderAdsManager(); // dates are formatted in the chosen language
     return;
   }
   const transferGroup = event.target.closest("[data-transfer-group]");
@@ -3729,6 +4198,23 @@ on("clearFilters", "click", () => {
 on("assignmentLevel", "change", () => fillOutcomeTargets());
 on("outcomeTarget", "change", (event) => { ensureOutcomeTargetId().value = event.target.value; });
 on("outcomeSearch", "input", renderOutcomes);
+on("adsManager", "click", handleAdsManagerClick);
+on("adsManager", "change", handleAdsManagerChange);
+on("adsManager", "input", (event) => {
+  if (!event.target.matches("[data-am-search]")) return;
+  amSearch = event.target.value;
+  renderAdsManager();
+});
+// pointerdown (not click) so re-rendered picker contents never count as an outside click.
+document.addEventListener("pointerdown", (event) => {
+  if (amPicker && !event.target.closest(".fbam-date")) { amPicker = null; amRenderPickerOnly(); }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !amPicker) return;
+  amPicker = null;
+  amRenderPickerOnly();
+  amRoot()?.querySelector("[data-am-date]")?.focus();
+});
 on("outcomeTypeFilter", "change", renderOutcomes);
 on("refreshBtn", "click", async (event) => {
   const button = event.currentTarget; button.disabled = true;
