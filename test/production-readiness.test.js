@@ -230,6 +230,21 @@ test("flexible student payment agreements support cash, monthly, and custom spli
   assert.equal(customAfter.nextPaymentDate, "");
 });
 
+test("the page loads app assets through content-versioned URLs", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-asset-version-test-"));
+  const { child, baseUrl } = await startApp(path.join(tempDir, "crm.json"));
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const html = await (await fetch(`${baseUrl}/`)).text();
+  const version = html.match(/src="\/app\.js\?v=([0-9a-f]{12})"/)?.[1];
+  assert.ok(version, "app.js is requested with a version query");
+  assert.match(html, new RegExp(`src="/quality\\.js\\?v=${version}"`));
+  assert.match(html, new RegExp(`href="/styles\\.css\\?v=${version}"`));
+  const script = await fetch(`${baseUrl}/app.js?v=${version}`);
+  assert.equal(script.status, 200);
+  assert.match(await script.text(), /renderAdsManager/);
+});
+
 test("a registered student can be deleted with their payments and events", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-delete-student-test-"));
   const dataFile = path.join(tempDir, "crm.json");
