@@ -1766,6 +1766,23 @@ function openGoalForm({ goalId = "" } = {}) {
 // line, an ideal pace line, and cumulative values; otherwise it charts the one selected card.
 let activeChartMetric = localStorage.getItem("cmcg-chart-metric") || "registered";
 // Round a max up to a clean axis value (e.g. 57 -> 60, 1234 -> 1500) so ticks read nicely.
+// Chart axis top: with a goal/break-even the axis stops exactly at it (0 → 60 uses the full height)
+// and only grows, in quarter-goal steps, when a value goes past it.
+function axisTop(peak, target) {
+  if (!(target > 0)) return niceCeil(peak) || 1;
+  if (!(peak > target)) return target;
+  const step = target / 4;
+  return Math.ceil(peak / step) * step;
+}
+
+function axisTicks(top, target) {
+  let step = target > 0 ? target / 4 : top / 5;
+  while (top / step > 8) step *= 2;
+  const ticks = [];
+  for (let value = 0; value <= top + step * 1e-6; value += step) ticks.push(value);
+  return ticks;
+}
+
 function niceCeil(value) {
   if (!Number.isFinite(value) || value <= 0) return 1;
   const pow = Math.pow(10, Math.floor(Math.log10(value)));
@@ -1811,9 +1828,9 @@ function renderOverviewChart() {
 
   const target = goal ? Number(goal.target) : 0;
   const finite = values.filter((v) => v !== null && Number.isFinite(v));
-  // Axis top = clean rounding of the real data max (and target if higher). Never the 0-100 fake scale.
-  const rawTop = Math.max(...finite, lower ? target : (cumulative ? target : 0), 1);
-  const yMax = niceCeil(rawTop);
+  // Axis top = the goal itself (full height from 0 to target), growing only if the data goes past it.
+  const axisTarget = lower || cumulative ? target : 0;
+  const yMax = axisTop(Math.max(...finite, 1), axisTarget);
   const yMin = 0;
 
   const width = 1000;
@@ -1824,15 +1841,15 @@ function renderOverviewChart() {
   const xFor = (index) => pad.left + (rows.length === 1 ? innerWidth / 2 : (index / (rows.length - 1)) * innerWidth);
   const yFor = (value) => pad.top + innerHeight - ((value - yMin) / ((yMax - yMin) || 1)) * innerHeight;
 
-  const tickCount = 5;
-  const grid = Array.from({ length: tickCount + 1 }, (_, i) => (yMax / tickCount) * i).map((value) => {
+  const grid = axisTicks(yMax, axisTarget).map((value) => {
     const y = yFor(value);
-    const label = isMoney ? money(value) : number(Math.round(value));
+    const label = isMoney ? money(value) : number(Math.round(value * 10) / 10);
     return `<line x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}" /><text x="${pad.left - 12}" y="${(y + 5).toFixed(1)}" text-anchor="end">${escapeHtml(label)}</text>`;
   }).join("");
 
   const step = Math.max(1, Math.ceil(rows.length / 8));
-  const xLabels = rows.map((row, index) => ({ row, index })).filter(({ index }) => index === 0 || index === rows.length - 1 || index % step === 0)
+  // Skip a regular label that would collide with the last date.
+  const xLabels = rows.map((row, index) => ({ row, index })).filter(({ index }) => index === 0 || index === rows.length - 1 || (index % step === 0 && rows.length - 1 - index >= step / 2))
     .map(({ row, index }, i, labels) => `<text x="${xFor(index).toFixed(1)}" y="${height - 18}" text-anchor="${i === 0 ? "start" : i === labels.length - 1 ? "end" : "middle"}">${escapeHtml(row.date.slice(5))}</text>`).join("");
 
   const points = values.map((v, i) => (v === null || !Number.isFinite(v)) ? null : { x: xFor(i), y: yFor(v), raw: v, row: rows[i] }).filter(Boolean);
@@ -2745,9 +2762,9 @@ function pfChartSvg(series, metric, target) {
     : series.map((day, index) => { const slice = series.slice(Math.max(0, index - 6), index + 1); return slice.reduce((sum, item) => sum + item[metric.count], 0) / slice.length; });
   const bars = series.map((day) => Number(isCost ? day[metric.result] : day[metric.count]) || 0);
   const finite = line.filter((value) => Number.isFinite(value));
-  const max = niceCeil(Math.max(...finite, isCost ? 0 : Math.max(...bars), target ? target * 1.3 : 0)) || 1;
+  const max = axisTop(Math.max(0, ...finite, isCost ? 0 : Math.max(...bars)), isCost ? target : 0);
   const y = (value) => top + plotHeight * (1 - Math.min(value, max) / max);
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((step) => max * step);
+  const ticks = axisTicks(max, isCost ? target : 0);
   const grid = ticks.map((value) => `<line class="pf-grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text class="pf-axis" x="${left - 8}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${escapeHtml(format(value))}</text>`).join("");
   const zones = isCost && target ? `<rect class="pf-zone-bad" x="${left}" y="${top}" width="${plotWidth}" height="${Math.max(0, y(target) - top).toFixed(1)}"/><rect class="pf-zone-good" x="${left}" y="${y(target).toFixed(1)}" width="${plotWidth}" height="${Math.max(0, top + plotHeight - y(target)).toFixed(1)}"/><line class="pf-be-line" x1="${left}" x2="${width - right}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}"/><text class="pf-be-label" x="${width - right - 4}" y="${(y(target) - 6).toFixed(1)}" text-anchor="end">Break-even ${escapeHtml(money(target))}</text>` : "";
   const barMax = Math.max(1, ...bars);
@@ -3050,13 +3067,13 @@ function abChartSvg(series, buckets, target) {
   const metric = AB_METRICS[abMetric];
   const format = (value) => (metric.kind === "count" ? number(value) : money(value));
   const values = series.flatMap((item) => item.values).filter((value) => Number.isFinite(value));
-  const max = niceCeil(Math.max(0, ...values, target ? target * 1.2 : 0)) || 1;
+  const max = axisTop(Math.max(0, ...values), target || 0);
   const x = (index) => left + (count <= 1 ? plotWidth / 2 : (index * plotWidth) / (count - 1));
   const y = (value) => top + plotHeight * (1 - Math.min(value, max) / max);
-  const grid = [0, 0.25, 0.5, 0.75, 1].map((step) => max * step).map((value) => `<line class="pf-grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text class="pf-axis" x="${left - 8}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${escapeHtml(format(value))}</text>`).join("");
+  const grid = axisTicks(max, target || 0).map((value) => `<line class="pf-grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text class="pf-axis" x="${left - 8}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${escapeHtml(format(value))}</text>`).join("");
   const targetLine = target ? `<rect class="pf-zone-bad" x="${left}" y="${top}" width="${plotWidth}" height="${Math.max(0, y(target) - top).toFixed(1)}"/><rect class="pf-zone-good" x="${left}" y="${y(target).toFixed(1)}" width="${plotWidth}" height="${Math.max(0, top + plotHeight - y(target)).toFixed(1)}"/><line class="pf-be-line" x1="${left}" x2="${width - right}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}"/><text class="pf-be-label" x="${left + 6}" y="${(y(target) - 6).toFixed(1)}">Break-even ${escapeHtml(money(target))}</text>` : "";
   const step = Math.max(1, Math.ceil(count / 7));
-  const xLabels = buckets.map((bucket, index) => (index % step === 0 || index === count - 1) ? `<text class="pf-axis" x="${x(index).toFixed(1)}" y="${height - 12}" text-anchor="middle">${escapeHtml(pfShortDate(bucket.from))}</text>` : "").join("");
+  const xLabels = buckets.map((bucket, index) => ((index % step === 0 && count - 1 - index >= step / 2) || index === count - 1) ? `<text class="pf-axis" x="${x(index).toFixed(1)}" y="${height - 12}" text-anchor="middle">${escapeHtml(pfShortDate(bucket.from))}</text>` : "").join("");
   let marks = "";
   if (abChartType === "bars") {
     const slot = plotWidth / Math.max(1, count);
