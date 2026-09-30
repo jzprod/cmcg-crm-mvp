@@ -953,6 +953,18 @@ Object.assign(ar, {
   "7-day rolling cost / registration": "تكلفة التسجيل (متوسط 7 أيام)",
   "7-day rolling cost / rdv": "تكلفة الموعد (متوسط 7 أيام)",
   "7-day rolling cost / message": "تكلفة الرسالة (متوسط 7 أيام)",
+  "Manage agents": "إدارة المستشارين",
+  "Other spellings": "كتابات أخرى",
+  "comma-separated": "مفصولة بفواصل",
+  "Active (matched to ad sets)": "نشط (يُطابق مع المجموعات)",
+  "Delete agent": "حذف المستشار",
+  "Also:": "أيضاً:",
+  "Count ad data from": "احتساب بيانات الإعلانات من",
+  "earlier data stays hidden": "البيانات الأقدم تبقى مخفية",
+  "Settings saved": "تم حفظ الإعدادات",
+  "Data from": "البيانات من",
+  "Saving rematches every imported ad set and campaign to its agent.": "الحفظ يعيد ربط كل مجموعة إعلانية وحملة بمستشارها.",
+  "Earlier ad data is kept in the database but hidden here, even on Maximum.": "بيانات الإعلانات الأقدم محفوظة في قاعدة البيانات لكنها مخفية هنا، حتى في الحد الأقصى.",
   "Mo": "ن", "Tu": "ث", "We": "ر", "Th": "خ", "Fr": "ج", "Sa": "س", "Su": "ح",
 });
 
@@ -968,6 +980,10 @@ arDynamic.push(
   [/^(\d+)% over break-even$/, "$1% فوق نقطة التعادل"],
   [/^(\d+)% of break-even spent$/, "صُرف $1% من نقطة التعادل"],
   [/^(\d+)% of spend at this level$/, "$1% من الصرف في هذا المستوى"],
+  [/^Data from (.+)$/, "البيانات من $1"],
+  [/^No data before (.+)$/, "لا بيانات قبل $1"],
+  [/^"(.+)" is not an agent yet$/, "«$1» ليس مستشاراً بعد"],
+  [/^Ad data counts from (.+)\. Earlier data is kept but hidden here\.$/, "تُحتسب بيانات الإعلانات من $1. البيانات الأقدم محفوظة لكنها مخفية هنا."],
 );
 
 arDynamic.push(
@@ -2001,6 +2017,7 @@ function amDateLabel(value) {
   return date ? date.toLocaleDateString(amLocale(), { month: "short", day: "numeric", year: "numeric" }) : "";
 }
 function amRangeText(range) {
+  if (amRangeIsEmpty(range)) return `No data before ${amDateLabel(range.from)}`;
   if (!range.from && !range.to) return "All dates";
   if (range.from === range.to) return amDateLabel(range.from);
   return `${amDateLabel(range.from) || "Start"} – ${amDateLabel(range.to) || "Today"}`;
@@ -2051,6 +2068,13 @@ function amChildren(data, level, row) {
 function amAgentName(row, level) {
   if (level === "campaign") return row.amAgent || "—";
   return row.relation.agent?.name || "Unassigned";
+}
+
+function amAgentCell(row, level) {
+  const agent = level === "campaign" ? null : row.relation.agent;
+  if (!agent) return escapeHtml(amAgentName(row, level));
+  const source = row.relation.adSet?.agentMatchSource === "campaign" ? "Matched from the campaign name" : "Matched from the ad set name";
+  return `<button class="fbam-agent-link" type="button" data-edit-agent="${escapeHtml(agent.id)}" title="${escapeHtml(`${source} · click to edit`)}">${escapeHtml(agent.name)}</button>`;
 }
 
 function amDelivery(row, level) {
@@ -2129,7 +2153,7 @@ function amRowHtml(data, level, row, depth, open) {
   const cells = {
     delivery: `<span class="fbam-delivery"><span class="fbam-dot ${delivery.tone}" aria-hidden="true"></span>${escapeHtml(delivery.label)}</span>`,
     quality: qualityBadge(row),
-    agent: escapeHtml(amAgentName(row, level)),
+    agent: amAgentCell(row, level),
     spend: money(row.spend),
     messages: number(row.messages),
     booked: number(row.booked),
@@ -2142,6 +2166,23 @@ function amRowHtml(data, level, row, depth, open) {
 
 // ---- Analyze mode: profitability against the break-even cost per registration ----
 function amBreakEven() { return Number(state.settings?.profit?.breakEvenCostPerRegistered) || 60; }
+
+// Ad data before this day is kept in the database but hidden from the Ads Manager, even on "Maximum".
+function amDataStart() { return state?.settings?.profit?.dataStartDate || ""; }
+function amClampRange(range) {
+  const start = amDataStart();
+  return start && (!range.from || range.from < start) ? { from: start, to: range.to } : range;
+}
+function amRangeIsEmpty(range) { return Boolean(range.from && range.to && range.from > range.to); }
+
+// Conversion totals since the data start date, for the derived RDV / message break-evens.
+function amConversionTotals() {
+  const start = amDataStart();
+  const totals = { messages: 0, booked: 0, registered: 0 };
+  state.dailyLogs.forEach((log) => { if (!start || dateOnly(log.reportingEnd || log.date || log.reportingStart) >= start) totals.messages += Number(log.messages || 0); });
+  state.outcomes.forEach((outcome) => { if ((!start || dateOnly(outcome.date) >= start) && outcome.type in totals) totals[outcome.type] += 1; });
+  return totals;
+}
 
 // Per-entity daily spend/messages/RDV/registrations, attributed like performanceRows.
 function amDailyBuckets(range) {
@@ -2178,10 +2219,10 @@ function amDaySeries(buckets, key, days) {
 function amAnalysisContext(range) {
   const breakEven = amBreakEven();
   const end = range.to || dateInputValue(new Date());
-  const from = dateInputValue(addDays(parseInputDate(end), -41));
+  const from = [dateInputValue(addDays(parseInputDate(end), -41)), amDataStart()].sort().pop();
   return {
     breakEven,
-    targets: CmcgProfit.derivedBreakEvens(overallMetrics(false), breakEven),
+    targets: CmcgProfit.derivedBreakEvens(amConversionTotals(), breakEven),
     trendDays: eachDay(from, end),
     trendBuckets: amDailyBuckets({ from, to: end }),
     levelSpend: {},
@@ -2309,8 +2350,8 @@ function amSummaryHtml(ctx, rows, totals) {
   const margin = totals.registered * breakEven - totals.spend;
   const canEdit = currentUser?.role !== "sales";
   const breakEvenBlock = amEditingBreakEven
-    ? `<form class="pf-be-form" data-pf-be-form><label><span>Break-even cost per registration</span><input name="breakEven" type="number" min="1" step="0.01" value="${breakEven}" required /></label><div class="pf-be-actions"><button class="fbam-btn primary" type="submit">Save</button><button class="fbam-btn" type="button" data-pf-be-cancel>Cancel</button></div></form>`
-    : `<div class="pf-be-value"><span class="pf-kicker">Break-even</span><div><strong>${money(breakEven)}</strong><small>per registration</small></div>${canEdit ? '<button class="fbam-btn pf-be-edit" type="button" data-pf-edit-be>Edit</button>' : ""}</div>`;
+    ? `<form class="pf-be-form" data-pf-be-form><label><span>Break-even cost per registration</span><input name="breakEven" type="number" min="1" step="0.01" value="${breakEven}" required /></label><label><span>Count ad data from <em>earlier data stays hidden</em></span><input name="dataStartDate" type="date" value="${escapeHtml(amDataStart())}" /></label><div class="pf-be-actions"><button class="fbam-btn primary" type="submit">Save</button><button class="fbam-btn" type="button" data-pf-be-cancel>Cancel</button></div></form>`
+    : `<div class="pf-be-value"><span class="pf-kicker">Break-even</span><div><strong>${money(breakEven)}</strong><small>per registration</small></div>${amDataStart() ? `<small class="pf-start-note"><span>Data from</span> ${escapeHtml(amDateLabel(amDataStart()))}</small>` : ""}${canEdit ? '<button class="fbam-btn pf-be-edit" type="button" data-pf-edit-be>Edit</button>' : ""}</div>`;
   const derived = [targets.booked ? `<strong>${money(targets.booked)}</strong> <span>per RDV</span>` : "", targets.message ? `<strong>${money(targets.message)}</strong> <span>per message</span>` : ""].filter(Boolean).join(' <span aria-hidden="true">·</span> ');
   const rates = [targets.bookedToRegistered ? `${percent(targets.bookedToRegistered)} <span>of RDVs register</span>` : "", targets.messageToRegistered ? `${percent(targets.messageToRegistered)} <span>of messages register</span>` : ""].filter(Boolean).join(' <span aria-hidden="true">·</span> ');
   const kpi = (label, verdict, value, detail) => `<div class="pf-kpi pf-${verdict ? verdict.key : "neutral"}"><span>${escapeHtml(label)}</span><strong>${value}</strong><small>${detail}</small></div>`;
@@ -2353,7 +2394,7 @@ function amSortHeader(key, label, numeric = false, extraClass = "") {
 function amShellHtml() {
   const tabs = AM_LEVELS.map((level) => `<button class="fbam-tab" type="button" role="tab" data-am-level="${level}">${amIcon(level, "fbam-tab-icon")}<span>${AM_TABS[level]}</span></button>`).join("");
   const modes = `<div class="fbam-mode" role="tablist" aria-label="Mode"><button type="button" role="tab" data-am-mode="enter"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg><span>Record results</span></button><button type="button" role="tab" data-am-mode="analyze"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19h16v2H2V3h2v16Zm3-3-1.5-1.3 4.2-4.8 3.1 2.7L18 6.7 19.5 8l-6.6 7.6-3-2.6L7 16Z"/></svg><span>Analyze</span></button></div>`;
-  return `<div class="fbam-toolbar">${modes}<label class="fbam-search"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/></svg><span class="sr-only">Search by name or code</span><input type="search" data-am-search placeholder="Search by name or code" autocomplete="off" /></label><div class="fbam-date"><button class="fbam-date-button" type="button" data-am-date aria-haspopup="dialog" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v17H4V4h3V2Zm11 7H6v10h12V9Zm-9 2v2H7v-2h2Zm4 0v2h-2v-2h2Zm4 0v2h-2v-2h2Zm-8 4v2H7v-2h2Zm4 0v2h-2v-2h2Z"/></svg><span class="fbam-date-text"><strong data-am-date-preset></strong><span data-am-date-range></span></span><svg class="fbam-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5H7Z"/></svg></button><div class="fbam-picker hidden" data-am-picker role="dialog" aria-label="Date range"></div></div></div><div data-am-summary></div><div class="fbam-tabs" role="tablist" aria-label="Level">${tabs}</div><div class="fbam-grid"><table class="fbam-table"></table></div>`;
+  return `<div class="fbam-toolbar">${modes}<label class="fbam-search"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/></svg><span class="sr-only">Search by name or code</span><input type="search" data-am-search placeholder="Search by name or code" autocomplete="off" /></label><div class="fbam-date"><button class="fbam-date-button" type="button" data-am-date aria-haspopup="dialog" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v17H4V4h3V2Zm11 7H6v10h12V9Zm-9 2v2H7v-2h2Zm4 0v2h-2v-2h2Zm4 0v2h-2v-2h2Zm-8 4v2H7v-2h2Zm4 0v2h-2v-2h2Z"/></svg><span class="fbam-date-text"><strong data-am-date-preset></strong><span data-am-date-range></span></span><svg class="fbam-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5H7Z"/></svg></button><div class="fbam-picker hidden" data-am-picker role="dialog" aria-label="Date range"></div></div><span class="fbam-start hidden" data-am-start></span></div><div data-am-summary></div><div class="fbam-tabs" role="tablist" aria-label="Level">${tabs}</div><div class="fbam-grid"><table class="fbam-table"></table></div>`;
 }
 
 function amMonthHtml(year, month, draft, todayKey) {
@@ -2369,7 +2410,7 @@ function amMonthHtml(year, month, draft, todayKey) {
     if (key === draft.from) classes.push("is-start");
     if (key === draft.to) classes.push("is-end");
     if (key === todayKey) classes.push("is-today");
-    cells.push(`<button class="${classes.join(" ")}" type="button" data-am-day="${key}" ${key > todayKey ? "disabled" : ""} aria-label="${escapeHtml(amDateLabel(key))}">${dayNumber}</button>`);
+    cells.push(`<button class="${classes.join(" ")}" type="button" data-am-day="${key}" ${key > todayKey || (amDataStart() && key < amDataStart()) ? "disabled" : ""} aria-label="${escapeHtml(amDateLabel(key))}">${dayNumber}</button>`);
   }
   return `<div class="fbam-month"><div class="fbam-month-title">${escapeHtml(first.toLocaleDateString(amLocale(), { month: "long", year: "numeric" }))}</div><div class="fbam-month-grid">${weekdays}${cells.join("")}</div></div>`;
 }
@@ -2417,6 +2458,7 @@ function renderAdsManagerTable(root, range) {
   let empty = "";
   if (!out.length) {
     if (query) empty = `<span>No ${AM_NOUNS[amLevel][1]} match this search.</span>`;
+    else if (amRangeIsEmpty(range)) empty = `<span>Ad data counts from ${escapeHtml(amDateLabel(amDataStart()))}. Earlier data is kept but hidden here.</span>`;
     else if (!state.dailyLogs.length && !state.outcomes.length) empty = "<span>Import a Meta Ads report to see campaigns, ad sets, and ads.</span>";
     else empty = `<span>No ${AM_NOUNS[amLevel][1]} had activity in this period.</span>${amPeriod.preset === "lifetime" ? "" : ' <button class="fbam-btn" type="button" data-am-quick="lifetime">Show Maximum</button>'}`;
   }
@@ -2457,7 +2499,7 @@ function renderAdsManager() {
     root.innerHTML = amShellHtml();
     root.dataset.ready = "1";
   }
-  const range = amPresetRange(amPeriod.preset);
+  const range = amClampRange(amPresetRange(amPeriod.preset));
   root.classList.toggle("is-analyze", amMode === "analyze");
   root.querySelectorAll("[data-am-mode]").forEach((button) => {
     const active = button.dataset.amMode === amMode;
@@ -2473,6 +2515,10 @@ function renderAdsManager() {
   root.querySelector("[data-am-date]").title = amPeriod.preset === "report" ? "Same as report period" : "Only this table changes. The report period at the top stays as it is.";
   root.querySelector("[data-am-date-range]").textContent = amRangeText(range);
   root.querySelector("[data-am-date]").classList.toggle("is-override", amPeriod.preset !== "report");
+  const startBadge = root.querySelector("[data-am-start]");
+  startBadge.classList.toggle("hidden", !amDataStart());
+  startBadge.textContent = amDataStart() ? `Data from ${amDateLabel(amDataStart())}` : "";
+  startBadge.title = "Earlier ad data is kept in the database but hidden here, even on Maximum.";
   renderAdsManagerPicker(root);
   renderAdsManagerTable(root, range);
   applyLanguage(root);
@@ -2598,11 +2644,11 @@ async function handleAdsManagerSubmit(event) {
   event.preventDefault();
   const breakEven = Number(form.elements.breakEven.value);
   try {
-    const result = await api("/api/settings/profit", { method: "POST", body: JSON.stringify({ breakEvenCostPerRegistered: breakEven }) });
+    const result = await api("/api/settings/profit", { method: "POST", body: JSON.stringify({ breakEvenCostPerRegistered: breakEven, dataStartDate: form.elements.dataStartDate.value }) });
     state.settings = result.settings;
     amEditingBreakEven = false;
     renderAdsManager();
-    toast("Break-even saved");
+    toast("Settings saved");
   } catch (error) { toast(error.message, "error"); }
 }
 
@@ -2625,7 +2671,8 @@ function amEntity(level, id) {
 
 function pfWindowRange(windowKey) {
   const to = dateInputValue(new Date());
-  if (windowKey !== "all") return { from: dateInputValue(addDays(new Date(), 1 - (Number(windowKey) || 30))), to };
+  if (windowKey !== "all") return amClampRange({ from: dateInputValue(addDays(new Date(), 1 - (Number(windowKey) || 30))), to });
+  if (amDataStart()) return amClampRange({ from: "", to });
   const floor = dateInputValue(addDays(new Date(), -399));
   const first = state.dailyLogs.reduce((min, log) => { const date = dateOnly(log.reportingStart || log.date); return date && (!min || date < min) ? date : min; }, "");
   return { from: first && first > floor ? first : first ? floor : dateInputValue(addDays(new Date(), -29)), to };
@@ -2735,7 +2782,7 @@ function renderPfDrawer() {
   const series = amDaySeries(amDailyBuckets(range), amChart.key, eachDay(range.from, range.to));
   const row = performanceRows(level, true, "quality", range).find((item) => item.key === id) || { ...emptyMetrics(), key: id, name: entity?.name || "Unknown", relation: {} };
   const breakEven = amBreakEven();
-  const targets = CmcgProfit.derivedBreakEvens(overallMetrics(false), breakEven);
+  const targets = CmcgProfit.derivedBreakEvens(amConversionTotals(), breakEven);
   const metricTargets = { registered: breakEven, booked: targets.booked, message: targets.message };
   const reg = CmcgProfit.verdict(row.spend, row.registered, breakEven);
   const booked = CmcgProfit.verdict(row.spend, row.booked, targets.booked);
@@ -2896,10 +2943,10 @@ function renderAgents() {
   document.getElementById("agentCards").innerHTML = state.agents.length ? state.agents.map((agent) => {
     const adSets = state.adSets.filter((adSet) => adSet.agentId === agent.id);
     const metrics = rows.find((row) => row.key === agent.id) || emptyMetrics();
-    return `<article class="card agent-card"><div class="agent-avatar" aria-hidden="true">${escapeHtml(agent.name.slice(0, 1).toUpperCase())}</div><div class="agent-main"><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.whatsapp || "No WhatsApp number")}</small></div><div class="agent-stat"><strong>${adSets.length}</strong><span>matched ad sets</span></div><div class="agent-stat"><strong>${metrics.registered || 0}</strong><span>registrations</span></div><div class="agent-stat closing-stat">${agentClosingBadge(metrics)}</div><div class="agent-actions"><button class="row-add" type="button" data-add-outcome data-level="agent" data-target="${escapeHtml(agent.id)}" aria-label="Add outcome for ${escapeHtml(agent.name)}">+</button><button class="icon-button small" type="button" data-edit-agent="${escapeHtml(agent.id)}" aria-label="Edit ${escapeHtml(agent.name)}" title="Edit agent"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 16.6 10.9-10.9 2.4 2.4L7.4 19H5v-2.4ZM17.1 4.5l1.1-1.1c.6-.6 1.6-.6 2.2 0l.2.2c.6.6.6 1.6 0 2.2l-1.1 1.1-2.4-2.4Z"/></svg></button><button class="delete-button small" type="button" data-delete-agent="${escapeHtml(agent.id)}" aria-label="Delete ${escapeHtml(agent.name)}" title="Delete agent"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 21a2 2 0 0 1-2-2V6h14v13a2 2 0 0 1-2 2H7ZM9 9v8h2V9H9Zm4 0v8h2V9h-2ZM8 3h8l1 1h4v2H3V4h4l1-1Z"/></svg></button></div></article>`;
+    return `<article class="card agent-card"><div class="agent-avatar" aria-hidden="true">${escapeHtml(agent.name.slice(0, 1).toUpperCase())}</div><div class="agent-main"><strong>${escapeHtml(agent.name)}${agent.active === false ? ' <span class="status-pill">Inactive</span>' : ""}</strong><small>${escapeHtml(agent.whatsapp || "No WhatsApp number")}</small>${agent.aliases?.length ? `<small class="agent-aliases"><span>Also:</span> ${escapeHtml(agent.aliases.join(", "))}</small>` : ""}</div><div class="agent-stat"><strong>${adSets.length}</strong><span>matched ad sets</span></div><div class="agent-stat"><strong>${metrics.registered || 0}</strong><span>registrations</span></div><div class="agent-stat closing-stat">${agentClosingBadge(metrics)}</div><div class="agent-actions"><button class="row-add" type="button" data-add-outcome data-level="agent" data-target="${escapeHtml(agent.id)}" aria-label="Add outcome for ${escapeHtml(agent.name)}">+</button><button class="icon-button small" type="button" data-edit-agent="${escapeHtml(agent.id)}" aria-label="Edit ${escapeHtml(agent.name)}" title="Edit agent"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 16.6 10.9-10.9 2.4 2.4L7.4 19H5v-2.4ZM17.1 4.5l1.1-1.1c.6-.6 1.6-.6 2.2 0l.2.2c.6.6.6 1.6 0 2.2l-1.1 1.1-2.4-2.4Z"/></svg></button><button class="delete-button small" type="button" data-delete-agent="${escapeHtml(agent.id)}" aria-label="Delete ${escapeHtml(agent.name)}" title="Delete agent"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 21a2 2 0 0 1-2-2V6h14v13a2 2 0 0 1-2 2H7ZM9 9v8h2V9H9Zm4 0v8h2V9h-2ZM8 3h8l1 1h4v2H3V4h4l1-1Z"/></svg></button></div></article>`;
   }).join("") : '<div class="empty card">Add your first sales agent. Existing imported ad sets will be matched immediately.</div>';
   const unassigned = state.adSets.filter((adSet) => adSet.metaAdSetId && !adSet.agentId);
-  document.getElementById("unassignedAdSets").innerHTML = unassigned.length ? unassigned.map((adSet) => `<div class="simple-list-row"><div><strong>${escapeHtml(adSet.name)}</strong><small>${escapeHtml(byId(state.campaigns, adSet.campaignId)?.name || "Unknown campaign")}</small></div><span class="status-pill ${adSet.agentMatchStatus === "ambiguous" ? "warning" : ""}">${adSet.agentMatchStatus === "ambiguous" ? "Multiple names found" : "No matching agent"}</span></div>`).join("") : '<div class="empty success-empty">All imported ad sets are assigned.</div>';
+  document.getElementById("unassignedAdSets").innerHTML = unassigned.length ? unassigned.map((adSet) => `<div class="simple-list-row"><div><strong>${escapeHtml(adSet.name)}</strong><small>${escapeHtml(byId(state.campaigns, adSet.campaignId)?.name || "Unknown campaign")}</small></div><span class="status-pill ${adSet.agentMatchStatus === "ambiguous" ? "warning" : ""}">${adSet.agentMatchStatus === "ambiguous" ? "Multiple names found" : adSet.agentMatchHint ? `"${escapeHtml(adSet.agentMatchHint)}" is not an agent yet` : "No matching agent"}</span></div>`).join("") : '<div class="empty success-empty">All imported ad sets are assigned.</div>';
 }
 
 // ---- Detailed per-agent report ----
@@ -3969,7 +4016,7 @@ function ensureAgentDialog() {
   dialog = document.createElement("dialog");
   dialog.id = "agentDialog";
   dialog.className = "modal";
-  dialog.innerHTML = `<form id="agentEditForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Sales agent</p><h2>Edit agent</h2><p>Renaming an agent rematches imported ad sets by name, ignoring uppercase/lowercase.</p></div><button class="icon-button" type="button" data-close-agent aria-label="Close agent form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Agent name</span><input name="name" required placeholder="Souad" autocomplete="off" /></label><label><span>WhatsApp <em>optional</em></span><input name="whatsapp" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label></div><p class="form-hint">If this exact name appears in campaign, ad set, or ad names, those rows will be assigned to the agent automatically.</p><div class="modal-actions"><button class="button secondary" type="button" data-close-agent>Cancel</button><button class="button primary" type="submit">Save agent</button></div></form>`;
+  dialog.innerHTML = `<form id="agentEditForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Sales agent</p><h2>Edit agent</h2><p>Saving rematches every imported ad set and campaign to its agent.</p></div><button class="icon-button" type="button" data-close-agent aria-label="Close agent form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Agent name</span><input name="name" required placeholder="Souad" autocomplete="off" /></label><label><span>WhatsApp <em>optional</em></span><input name="whatsapp" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label class="span-2"><span>Other spellings <em>comma-separated</em></span><input name="aliases" autocomplete="off" placeholder="Ex: hasan, hassane, حسن" /></label><label class="agent-active-toggle"><input type="hidden" name="active" value="false" /><input type="checkbox" name="active" value="true" /><span>Active (matched to ad sets)</span></label></div><p class="form-hint">Write the agent between quotes in the ad set or campaign name, for example <strong>Motion "hassan"</strong>. Spelling slips like "hasan" or "Hassane" still match. Without quotes, the name must appear as a word.</p><div class="modal-actions agent-modal-actions"><button class="button danger agent-delete" type="button" data-delete-agent="">Delete agent</button><button class="button secondary" type="button" data-close-agent>Cancel</button><button class="button primary" type="submit">Save agent</button></div></form>`;
   document.body.append(dialog);
   applyLanguage(dialog);
   return dialog;
@@ -3984,6 +4031,9 @@ function openAgentEditor(agentId) {
   form.reset();
   form.elements.name.value = agent.name || "";
   form.elements.whatsapp.value = agent.whatsapp || "";
+  form.elements.aliases.value = (agent.aliases || []).join(", ");
+  form.querySelector('input[type="checkbox"][name="active"]').checked = agent.active !== false;
+  form.querySelector("[data-delete-agent]").dataset.deleteAgent = agent.id;
   applyLanguage(dialog);
   dialog.showModal();
   form.elements.name.focus();
@@ -4649,7 +4699,7 @@ document.addEventListener("click", async (event) => {
   if (deleteAgent) {
     const agent = byId(state.agents, deleteAgent.dataset.deleteAgent);
     if (agent && confirm(`Delete ${agent.name}? This removes the agent and clears old links, but keeps your imported ad data and outcomes.`)) {
-      try { await api(`/api/agents/${agent.id}`, { method: "DELETE" }); await load(); toast("Agent deleted and ad sets rematched"); }
+      try { await api(`/api/agents/${agent.id}`, { method: "DELETE" }); document.getElementById("agentDialog")?.close(); await load(); toast("Agent deleted and ad sets rematched"); }
       catch (error) { toast(error.message, "error"); }
     }
   }

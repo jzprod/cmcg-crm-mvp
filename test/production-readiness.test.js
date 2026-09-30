@@ -259,6 +259,51 @@ test("break-even cost per registration defaults to 60, saves, and survives a dat
   assert.equal((await request("/api/state")).state.settings.profit.breakEvenCostPerRegistered, 45.5);
 });
 
+test("agents match quoted names with spelling slips, aliases, and the campaign as fallback", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-agent-match-test-"));
+  const { child, baseUrl } = await startApp(path.join(tempDir, "crm.json"));
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const hassan = await jsonRequest(baseUrl, "/api/agents", { method: "POST", body: { name: "Hassan" }, expectedStatus: 201 });
+  const souad = await jsonRequest(baseUrl, "/api/agents", { method: "POST", body: { name: "Souad" }, expectedStatus: 201 });
+  const headers = ["Campaign name", "Ad set name", "Ad name", "Amount spent (USD)", "Objective", "Account ID", "Ad ID", "Ad set ID", "Campaign ID", "Messaging conversations started", "Reporting starts", "Reporting ends"];
+  const rows = [
+    ["Traffic", 'Motion "hasan"', "Ad 1", "5", "Traffic", "a1", "ad1", "set1", "c1", "3", "2026-10-01", "2026-10-01"],
+    ["Traffic", "UGC Hasan woman", "Ad 2", "5", "Traffic", "a1", "ad2", "set2", "c1", "3", "2026-10-01", "2026-10-01"],
+    ['Sales "souad"', "Broad women", "Ad 3", "5", "Sales", "a1", "ad3", "set3", "c2", "3", "2026-10-01", "2026-10-01"],
+    ["Traffic", 'Test "hsn"', "Ad 4", "5", "Traffic", "a1", "ad4", "set4", "c1", "3", "2026-10-01", "2026-10-01"],
+  ];
+  const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
+  await jsonRequest(baseUrl, "/api/meta-import", { method: "POST", body: { filename: "meta.csv", csv } });
+  let snapshot = (await jsonRequest(baseUrl, "/api/state")).state;
+  const adSet = (metaId) => snapshot.adSets.find((item) => item.metaAdSetId === metaId);
+  assert.equal(adSet("set1").agentId, hassan.id); // quoted, one "s" missing
+  assert.equal(adSet("set2").agentId, hassan.id); // unquoted word, one "s" missing
+  assert.equal(adSet("set3").agentId, souad.id);
+  assert.equal(adSet("set3").agentMatchSource, "campaign");
+  assert.equal(adSet("set4").agentId, "");
+  assert.equal(adSet("set4").agentMatchHint, "hsn");
+
+  await jsonRequest(baseUrl, `/api/agents/${hassan.id}`, { method: "PATCH", body: { name: "Hassan", aliases: "hsn, حسن" } });
+  snapshot = (await jsonRequest(baseUrl, "/api/state")).state;
+  assert.equal(adSet("set4").agentId, hassan.id);
+  assert.deepEqual(snapshot.agents.find((agent) => agent.id === hassan.id).aliases, ["hsn", "حسن"]);
+});
+
+test("the Ads Manager data start date defaults to October 2026 and can be changed or cleared", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-data-start-test-"));
+  const { child, baseUrl } = await startApp(path.join(tempDir, "crm.json"));
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  assert.equal((await jsonRequest(baseUrl, "/api/state")).state.settings.profit.dataStartDate, "2026-10-01");
+  await jsonRequest(baseUrl, "/api/settings/profit", { method: "POST", body: { dataStartDate: "not-a-date" }, expectedStatus: 400 });
+  let saved = await jsonRequest(baseUrl, "/api/settings/profit", { method: "POST", body: { dataStartDate: "2026-11-01" } });
+  assert.equal(saved.settings.profit.dataStartDate, "2026-11-01");
+  assert.equal(saved.settings.profit.breakEvenCostPerRegistered, 60);
+  saved = await jsonRequest(baseUrl, "/api/settings/profit", { method: "POST", body: { dataStartDate: "" } });
+  assert.equal(saved.settings.profit.dataStartDate, "");
+});
+
 test("a registered student can be deleted with their payments and events", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-delete-student-test-"));
   const dataFile = path.join(tempDir, "crm.json");

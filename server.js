@@ -72,12 +72,17 @@ function normalizeScoringSettings(input = {}) {
   };
 }
 
-const DEFAULT_PROFIT = { breakEvenCostPerRegistered: 60 };
+// dataStartDate: ad data before this day is kept but hidden from the Ads Manager ("" shows everything).
+const DEFAULT_PROFIT = { breakEvenCostPerRegistered: 60, dataStartDate: "2026-10-01" };
 
 // Break-even = the most one registration may cost before an ad loses money.
 function normalizeProfitSettings(input = {}) {
   const breakEven = finiteNumber(input.breakEvenCostPerRegistered);
-  return { breakEvenCostPerRegistered: breakEven > 0 ? Math.round(breakEven * 100) / 100 : DEFAULT_PROFIT.breakEvenCostPerRegistered };
+  const start = input.dataStartDate === undefined ? DEFAULT_PROFIT.dataStartDate : String(input.dataStartDate || "");
+  return {
+    breakEvenCostPerRegistered: breakEven > 0 ? Math.round(breakEven * 100) / 100 : DEFAULT_PROFIT.breakEvenCostPerRegistered,
+    dataStartDate: /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : "",
+  };
 }
 
 function emptyState() {
@@ -148,6 +153,8 @@ function normalizeState(input) {
     student.nextPaymentDate = validDateInput(student.nextPaymentDate) || "";
     student.agreementNote = cleanText(student.agreementNote);
   });
+  state.agents.forEach((agent) => { agent.aliases = cleanAliases(agent.aliases); });
+  rematchImportedAdSets(state); // keeps assignments in step with the current matching rules
   return state;
 }
 
@@ -818,15 +825,83 @@ function agentMatchesAdSet(agentName, adSetName) {
   return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}([^\\p{L}\\p{N}]|$)`, "iu").test(haystack);
 }
 
-function matchAgent(state, adSetName) {
-  const matches = state.agents.filter((agent) => agent.active !== false && agentMatchesAdSet(agent.name, adSetName));
-  if (matches.length === 1) return { agentId: matches[0].id, agentMatchStatus: "matched", agentMatchCandidates: [] };
-  if (matches.length > 1) return { agentId: "", agentMatchStatus: "ambiguous", agentMatchCandidates: matches.map((agent) => agent.id) };
-  return { agentId: "", agentMatchStatus: "unassigned", agentMatchCandidates: [] };
+// Spelling-tolerant key: no accents, no punctuation, doubled letters collapsed ("Hassan" -> "hasan").
+function agentKey(value) {
+  return normalizeForMatch(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\p{L}\p{N}]+/gu, "").replace(/(.)\1+/gu, "$1");
+}
+
+function editDistance(a, b) {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = previous[0];
+    previous[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const above = previous[j];
+      previous[j] = Math.min(previous[j] + 1, previous[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diagonal = above;
+    }
+  }
+  return previous[b.length];
+}
+
+// "hasan", "Hassan", "hassane" all name the same agent; one typo is forgiven on names of 4+ letters.
+function namesMatch(candidate, agentName) {
+  const a = agentKey(candidate);
+  const b = agentKey(agentName);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return Math.min(a.length, b.length) >= 4 && editDistance(a, b) <= 1;
+}
+
+function quotedNames(text) {
+  return [...String(text || "").matchAll(/["“”«»„]\s*([^"“”«»„]+?)\s*["“”«»„]/g)].map((match) => match[1]).filter(Boolean);
+}
+
+function agentNames(agent) {
+  return [agent.name, ...(Array.isArray(agent.aliases) ? agent.aliases : [])].filter(Boolean);
+}
+
+// Without quotes: the whole name (or an alias) must appear as words, allowing the same spelling tolerance.
+function nameAppearsIn(agentName, text) {
+  if (agentMatchesAdSet(agentName, text)) return true;
+  const words = normalizeForMatch(text).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const size = normalizeForMatch(agentName).split(/[^\p{L}\p{N}]+/u).filter(Boolean).length || 1;
+  for (let index = 0; index + size <= words.length; index += 1) {
+    if (namesMatch(words.slice(index, index + size).join(" "), agentName)) return true;
+  }
+  return false;
+}
+
+function agentsNamedIn(state, text) {
+  const active = state.agents.filter((agent) => agent.active !== false);
+  const quoted = quotedNames(text);
+  if (quoted.length) return { quoted, matches: active.filter((agent) => quoted.some((name) => agentNames(agent).some((agentName) => namesMatch(name, agentName)))) };
+  return { quoted, matches: active.filter((agent) => agentNames(agent).some((agentName) => nameAppearsIn(agentName, text))) };
+}
+
+// The agent is named in the ad set name, or else in the campaign name. Text between quotes
+// ("hassan") is always read as the agent's name.
+function matchAgent(state, adSetName, campaignName = "") {
+  let hint = "";
+  for (const [text, source] of [[adSetName, "adSet"], [campaignName, "campaign"]]) {
+    const { quoted, matches } = agentsNamedIn(state, text);
+    if (!hint && quoted.length) hint = quoted[0];
+    if (matches.length === 1) return { agentId: matches[0].id, agentMatchStatus: "matched", agentMatchSource: source, agentMatchCandidates: [], agentMatchHint: "" };
+    if (matches.length > 1) return { agentId: "", agentMatchStatus: "ambiguous", agentMatchSource: source, agentMatchCandidates: matches.map((agent) => agent.id), agentMatchHint: "" };
+  }
+  return { agentId: "", agentMatchStatus: "unassigned", agentMatchSource: "", agentMatchCandidates: [], agentMatchHint: hint };
 }
 
 function rematchImportedAdSets(state) {
-  state.adSets.filter((adSet) => adSet.metaAdSetId).forEach((adSet) => Object.assign(adSet, matchAgent(state, adSet.name)));
+  state.adSets.filter((adSet) => adSet.metaAdSetId).forEach((adSet) => {
+    const campaign = state.campaigns.find((item) => item.id === adSet.campaignId);
+    Object.assign(adSet, matchAgent(state, adSet.name, campaign?.name || ""));
+  });
+}
+
+function cleanAliases(value) {
+  const list = Array.isArray(value) ? value : String(value || "").split(/[,;\n]/);
+  return [...new Set(list.map((item) => cleanText(item).replace(/^["“”«»]+|["“”«»]+$/g, "")).filter(Boolean))].slice(0, 20);
 }
 
 function getOrCreateByExternalId(items, externalField, externalId, prefix, defaults) {
@@ -923,7 +998,7 @@ function importMetaCsv(state, csv, filename) {
       deliveryStatus: cleanText(row["Ad Set delivery"] || row["Delivery status"]),
       updatedAt: importedAt,
       lastSeenAt: importedAt,
-      ...matchAgent(state, row["Ad set name"]),
+      ...matchAgent(state, row["Ad set name"], row["Campaign name"]),
     });
 
     const creativeResult = getOrCreateByExternalId(state.creatives, "metaAdId", adExternalId, "crt", { code: "" });
@@ -1115,8 +1190,10 @@ async function handleApi(req, res) {
 
     if (method === "POST" && url.pathname === "/api/settings/profit") {
       const body = await parseBody(req);
-      if (!(finiteNumber(body.breakEvenCostPerRegistered) > 0)) return json(res, 400, { error: "Break-even cost per registration must be greater than 0" });
-      state.settings.profit = normalizeProfitSettings(body);
+      const next = { ...state.settings.profit, ...body };
+      if (!(finiteNumber(next.breakEvenCostPerRegistered) > 0)) return json(res, 400, { error: "Break-even cost per registration must be greater than 0" });
+      if (next.dataStartDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(next.dataStartDate))) return json(res, 400, { error: "Choose a valid start date" });
+      state.settings.profit = normalizeProfitSettings(next);
       await storage.write(state);
       return json(res, 200, { settings: state.settings });
     }
@@ -1530,6 +1607,7 @@ async function handleApi(req, res) {
         id: id("agt"),
         name: cleanText(body.name),
         whatsapp: cleanText(body.whatsapp),
+        aliases: cleanAliases(body.aliases),
         active: body.active !== false,
         createdAt: now(),
       };
@@ -1554,7 +1632,8 @@ async function handleApi(req, res) {
         }
         agent.name = nextName;
         agent.whatsapp = cleanText(body.whatsapp);
-        agent.active = body.active !== false;
+        if (body.aliases !== undefined) agent.aliases = cleanAliases(body.aliases);
+        agent.active = body.active !== false && body.active !== "false";
         agent.updatedAt = now();
         rematchImportedAdSets(state);
         await storage.write(state);
