@@ -245,6 +245,20 @@ test("the page loads app assets through content-versioned URLs", async (t) => {
   assert.match(await script.text(), /renderAdsManager/);
 });
 
+test("break-even cost per registration defaults to 60, saves, and survives a data reset", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-profit-test-"));
+  const { child, baseUrl, authHeader } = await startApp(path.join(tempDir, "crm.json"), { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  assert.equal((await request("/api/state")).state.settings.profit.breakEvenCostPerRegistered, 60);
+  await request("/api/settings/profit", { method: "POST", body: { breakEvenCostPerRegistered: 0 }, expectedStatus: 400 });
+  const saved = await request("/api/settings/profit", { method: "POST", body: { breakEvenCostPerRegistered: 45.5 } });
+  assert.equal(saved.settings.profit.breakEvenCostPerRegistered, 45.5);
+  await request("/api/reset-data", { method: "POST", body: {} });
+  assert.equal((await request("/api/state")).state.settings.profit.breakEvenCostPerRegistered, 45.5);
+});
+
 test("a registered student can be deleted with their payments and events", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-delete-student-test-"));
   const dataFile = path.join(tempDir, "crm.json");

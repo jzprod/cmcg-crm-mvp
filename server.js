@@ -72,11 +72,19 @@ function normalizeScoringSettings(input = {}) {
   };
 }
 
+const DEFAULT_PROFIT = { breakEvenCostPerRegistered: 60 };
+
+// Break-even = the most one registration may cost before an ad loses money.
+function normalizeProfitSettings(input = {}) {
+  const breakEven = finiteNumber(input.breakEvenCostPerRegistered);
+  return { breakEvenCostPerRegistered: breakEven > 0 ? Math.round(breakEven * 100) / 100 : DEFAULT_PROFIT.breakEvenCostPerRegistered };
+}
+
 function emptyState() {
   return {
     meta: { schemaVersion: 6, updatedAt: null },
     centre: { name: "CMCG", city: "Tanger" },
-    settings: { currency: "MAD", scoring: { ...DEFAULT_SCORING } },
+    settings: { currency: "MAD", scoring: { ...DEFAULT_SCORING }, profit: { ...DEFAULT_PROFIT } },
     availability: { weekly: {}, overrides: {}, updatedAt: null },
     goals: [],
     adAccounts: [],
@@ -109,6 +117,7 @@ function normalizeState(input) {
     targetCloseRate: state.settings.targetCloseRate,
     ...(state.settings.scoring || {}),
   });
+  state.settings.profit = normalizeProfitSettings(state.settings.profit || {});
   ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events", "goals"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
@@ -374,7 +383,7 @@ function sendOperationsLockedPage(res) {
   res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG CRM locked</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0f172a;color:#fff;display:grid;min-height:100vh;place-items:center"><main style="max-width:640px;padding:28px"><p style="color:#86efac;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Secure area locked</p><h1>Student operations need CRM login first.</h1><p style="color:#cbd5e1;line-height:1.6">Add <strong>CRM_USER</strong>/<strong>CRM_PASSWORD</strong> for admin, or <strong>CRM_SALES_USER</strong>/<strong>CRM_SALES_PASSWORD</strong>/<strong>CRM_SALES_AGENT</strong> for a restricted sales login. Restart the app, then open this page again.</p></main></body></html>`);
 }
 
-const VERSIONED_ASSETS = ["app.js", "quality.js", "styles.css"];
+const VERSIONED_ASSETS = ["app.js", "quality.js", "profit.js", "styles.css"];
 
 // Stamp asset URLs in the page with a hash of their contents, so a CDN or browser
 // cache can never pair a freshly deployed index.html with an old app.js.
@@ -384,7 +393,7 @@ function versionAssetUrls(html) {
     try { hash.update(fs.readFileSync(path.join(PUBLIC_DIR, name))); } catch {}
   });
   const version = hash.digest("hex").slice(0, 12);
-  return html.replace(/(src|href)="\/(app\.js|quality\.js|styles\.css)"/g, `$1="/$2?v=${version}"`);
+  return html.replace(/(src|href)="\/(app\.js|quality\.js|profit\.js|styles\.css)"/g, `$1="/$2?v=${version}"`);
 }
 
 function serveStatic(req, res) {
@@ -1104,10 +1113,18 @@ async function handleApi(req, res) {
       return json(res, 200, { settings: state.settings });
     }
 
+    if (method === "POST" && url.pathname === "/api/settings/profit") {
+      const body = await parseBody(req);
+      if (!(finiteNumber(body.breakEvenCostPerRegistered) > 0)) return json(res, 400, { error: "Break-even cost per registration must be greater than 0" });
+      state.settings.profit = normalizeProfitSettings(body);
+      await storage.write(state);
+      return json(res, 200, { settings: state.settings });
+    }
+
     if (method === "POST" && url.pathname === "/api/reset-data") {
       const reset = emptyState();
       reset.centre = { ...reset.centre, ...(state.centre || {}) };
-      reset.settings = { ...reset.settings, currency: state.settings?.currency || reset.settings.currency };
+      reset.settings = { ...reset.settings, currency: state.settings?.currency || reset.settings.currency, profit: normalizeProfitSettings(state.settings?.profit || {}) };
       reset.meta.resetAt = now();
       await storage.write(reset);
       return json(res, 200, { reset: true, state: reset });

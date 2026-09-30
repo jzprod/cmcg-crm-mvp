@@ -10,7 +10,7 @@
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="brand"><span class="brand-mark" aria-hidden="true">C</span><div><strong>CMCG CRM</strong><small>Ads to enrollment</small></div></div>
+        <div class="brand"><span class="brand-mark" aria-hidden="true">C</span><div><strong>CMCG CRM</strong><small>Ads to enrollment</small></div><button id="navCollapse" class="nav-collapse" type="button" aria-expanded="true" aria-label="Collapse menu" title="Collapse menu"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14.6 6 16 7.4 11.4 12l4.6 4.6-1.4 1.4-6-6 6-6Z"/></svg></button></div>
         <nav class="tabs" aria-label="CRM sections">
           <button class="tab active" data-tab="dashboard" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z"/></svg><span>Overview</span></button>
           <button class="tab" data-tab="performance" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19h16v2H2V3h2v16Zm3-3-1.5-1.3 4.2-4.8 3.1 2.7L18 6.7 19.5 8l-6.6 7.6-3-2.6L7 16Z"/></svg><span>Performance</span></button>
@@ -42,7 +42,7 @@
               <article class="card chart-card"><div class="card-head"><div><p class="section-kicker">Conversion</p><h3>Outcome flow</h3><p>Registered students are included in total visits.</p></div></div><div id="funnel" class="funnel"></div></article>
               <article class="card attention-card"><div class="card-head"><div><p class="section-kicker">Needs attention</p><h3>Assignment health</h3></div></div><div id="attentionList" class="attention-list"></div></article>
             </div>
-            <div class="section-head"><div><h3>Ads Manager</h3><p>Open a campaign to see its ad sets, then open an ad set to see its ads. Press + on any row to record a result at that level.</p></div><button class="button secondary" type="button" data-go-performance>View all performance</button></div>
+            <div class="section-head"><div><h3>Ads Manager</h3><p>Open a campaign to see its ad sets, then its ads. Record mode: press + on any row to add a result. Analyze mode: see what makes money against your break-even.</p></div><button class="button secondary" type="button" data-go-performance>View all performance</button></div>
             <div id="adsManager" class="fbam"></div>
             <div class="section-head"><div><h3>Agent results</h3><p>Outcomes credited to each agent and their matched ad sets.</p></div></div>
             <div class="table-wrap"><table class="compact-table"><thead><tr><th>Agent</th><th>Business quality</th><th>Agent closing</th><th>Messages</th><th>Booked</th><th>Total visits</th><th>Registered</th><th>Cost / registration</th></tr></thead><tbody id="agentRows"></tbody></table></div>
@@ -126,6 +126,7 @@
     <dialog id="restoreDialog" class="modal"><form method="dialog" class="modal-content"><p class="section-kicker">Confirm recovery</p><h2>Replace current CRM data?</h2><p id="restoreSummary">The selected backup will replace the current records. A safety backup is created first.</p><div class="modal-actions"><button class="button secondary" value="cancel">Cancel</button><button id="confirmRestore" class="button danger" value="default">Restore backup</button></div></form></dialog>
     <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
     <script src="/quality.js"></script>
+    <script src="/profit.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

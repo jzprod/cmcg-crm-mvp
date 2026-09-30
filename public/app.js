@@ -876,6 +876,83 @@ Object.assign(ar, {
   "No ad sets match this search.": "لا توجد مجموعات إعلانية مطابقة لهذا البحث.",
   "No ads match this search.": "لا توجد إعلانات مطابقة لهذا البحث.",
   "Import a Meta Ads report to see campaigns, ad sets, and ads.": "استورد تقرير Meta Ads لرؤية الحملات والمجموعات والإعلانات.",
+  "Record results": "تسجيل النتائج",
+  "Analyze": "التحليل",
+  "Verdict": "الحكم",
+  "Margin vs break-even": "الهامش مقابل نقطة التعادل",
+  "Cost / RDV": "تكلفة الموعد",
+  "RDV": "المواعيد",
+  "Cost / message": "تكلفة الرسالة",
+  "Trend · 6 weeks": "الاتجاه · 6 أسابيع",
+  "Per RDV": "لكل موعد",
+  "Per message": "لكل رسالة",
+  "Total margin": "إجمالي الهامش",
+  "Very profitable": "مربح جداً",
+  "Profitable": "مربح",
+  "Slightly profitable": "مربح قليلاً",
+  "Break-even": "نقطة التعادل",
+  "Slight loss": "خسارة طفيفة",
+  "Losing": "خاسر",
+  "Heavy loss": "خسارة كبيرة",
+  "Not spending": "لا يصرف",
+  "Scale budget": "زد الميزانية",
+  "Scale gradually": "زد تدريجياً",
+  "Keep running": "استمر",
+  "Optimize": "حسّن",
+  "Let it spend": "اتركه يصرف",
+  "Fix creative / follow-up": "أصلح الإعلان / المتابعة",
+  "Cut budget": "قلّص الميزانية",
+  "Stop": "أوقف",
+  "No registration": "بدون تسجيل",
+  "At break-even": "عند نقطة التعادل",
+  "low data": "بيانات قليلة",
+  "Where the money goes": "أين يذهب المال",
+  "profitable": "مربح",
+  "break-even": "تعادل",
+  "losing": "خاسر",
+  "learning": "قيد التعلم",
+  "Show all": "عرض الكل",
+  "per registration": "لكل تسجيل",
+  "Edit": "تعديل",
+  "Break-even cost per registration": "تكلفة التعادل لكل تسجيل",
+  "Same limit for leading metrics:": "نفس الحد للمؤشرات المبكرة:",
+  "per RDV": "لكل موعد",
+  "per message": "لكل رسالة",
+  "From your real conversion:": "حسب تحويلك الفعلي:",
+  "of RDVs register": "من المواعيد تسجل",
+  "of messages register": "من الرسائل تسجل",
+  "Record RDVs and registrations to derive break-even costs per RDV and per message.": "سجّل المواعيد والتسجيلات لحساب تكلفة التعادل لكل موعد ولكل رسالة.",
+  "Spend by verdict": "الصرف حسب الحكم",
+  "View charts": "عرض الرسوم",
+  "Stable": "مستقر",
+  "14 days": "14 يوماً",
+  "30 days": "30 يوماً",
+  "90 days": "90 يوماً",
+  "Window": "المدة",
+  "Metric": "المؤشر",
+  "Parents": "المستويات الأعلى",
+  "Per day": "في اليوم",
+  "7-day average": "متوسط 7 أيام",
+  "Break-even saved": "تم حفظ نقطة التعادل",
+  "Not enough data": "بيانات غير كافية",
+  "improving": "يتحسن",
+  "getting worse": "يسوء",
+  "stable": "مستقر",
+  "Collapse menu": "طي القائمة",
+  "No data in this window": "لا بيانات في هذه المدة",
+  "reg.": "تسجيل",
+  "Started converting": "بدأ يحقق تسجيلات",
+  "No result lately": "لا نتائج مؤخراً",
+  "last 7 days vs the 7 before:": "آخر 7 أيام مقابل 7 قبلها:",
+  "2nd half vs 1st half of the window:": "النصف الثاني مقابل الأول من المدة:",
+  "0 RDV": "0 موعد",
+  "0 messages": "0 رسالة",
+  "registrations per day": "تسجيلات في اليوم",
+  "RDV per day": "مواعيد في اليوم",
+  "messages per day": "رسائل في اليوم",
+  "7-day rolling cost / registration": "تكلفة التسجيل (متوسط 7 أيام)",
+  "7-day rolling cost / rdv": "تكلفة الموعد (متوسط 7 أيام)",
+  "7-day rolling cost / message": "تكلفة الرسالة (متوسط 7 أيام)",
   "Mo": "ن", "Tu": "ث", "We": "ر", "Th": "خ", "Fr": "ج", "Sa": "س", "Su": "ح",
 });
 
@@ -887,6 +964,10 @@ arDynamic.push(
   [/^(\d+) ad$/, "$1 إعلان"],
   [/^(\d+) campaign$/, "$1 حملة"],
   [/^Code (.+)$/, "الرمز $1"],
+  [/^(\d+)% under break-even$/, "$1% تحت نقطة التعادل"],
+  [/^(\d+)% over break-even$/, "$1% فوق نقطة التعادل"],
+  [/^(\d+)% of break-even spent$/, "صُرف $1% من نقطة التعادل"],
+  [/^(\d+)% of spend at this level$/, "$1% من الصرف في هذا المستوى"],
 );
 
 arDynamic.push(
@@ -1854,7 +1935,21 @@ const AM_COLUMNS = [
   { key: "registered", label: "Registered", numeric: true, total: "Total" },
   { key: "costRegistered", label: "Cost / registration", numeric: true, total: "Per registration" },
 ];
-const AM_ASC_FIRST = new Set(["name", "delivery", "agent", "costRegistered"]);
+// Analyze mode: every cost is judged against the break-even cost per registration.
+const AM_ANALYZE_COLUMNS = [
+  { key: "verdict", label: "Verdict" },
+  { key: "costRegistered", label: "Cost / registration", numeric: true, total: "Per registration" },
+  { key: "margin", label: "Margin vs break-even", numeric: true, total: "Total margin" },
+  { key: "registered", label: "Registered", numeric: true, total: "Total" },
+  { key: "costBooked", label: "Cost / RDV", numeric: true, total: "Per RDV" },
+  { key: "booked", label: "RDV", numeric: true, total: "Total" },
+  { key: "costMessage", label: "Cost / message", numeric: true, total: "Per message" },
+  { key: "messages", label: "Messages", numeric: true, total: "Total" },
+  { key: "spend", label: "Amount spent", numeric: true, total: "Total spent" },
+  { key: "trend", label: "Trend · 6 weeks" },
+];
+const AM_ASC_FIRST = new Set(["name", "delivery", "agent", "costRegistered", "verdict", "costBooked", "costMessage", "trend"]);
+const PF_TIER_ORDER = ["scale", "profit", "edge", "even", "learning", "loss", "losing", "heavy", "idle"];
 
 function readStoredJson(key, fallback) {
   try {
@@ -1867,8 +1962,18 @@ let amLevel = AM_LEVELS.includes(localStorage.getItem("cmcg-am-level")) ? localS
 const amOpen = new Set([readStoredJson("cmcg-am-open", [])].flat().filter((key) => typeof key === "string"));
 let amPeriod = { preset: "report", from: "", to: "", ...readStoredJson("cmcg-am-period", {}) };
 if (!AM_PRESETS.some(([key]) => key === amPeriod.preset)) amPeriod.preset = "report";
-let amSort = { key: "quality", dir: "desc", ...readStoredJson("cmcg-am-sort", {}) };
-if (amSort.key !== "name" && !AM_COLUMNS.some((column) => column.key === amSort.key)) amSort = { key: "quality", dir: "desc" };
+let amMode = localStorage.getItem("cmcg-am-mode") === "analyze" ? "analyze" : "enter";
+const AM_DEFAULT_SORT = { enter: { key: "quality", dir: "desc" }, analyze: { key: "spend", dir: "desc" } };
+function amValidSort(mode, sort) {
+  const columns = mode === "analyze" ? AM_ANALYZE_COLUMNS : AM_COLUMNS;
+  return sort && (sort.key === "name" || columns.some((column) => column.key === sort.key)) && ["asc", "desc"].includes(sort.dir) ? { key: sort.key, dir: sort.dir } : { ...AM_DEFAULT_SORT[mode] };
+}
+const storedSorts = readStoredJson("cmcg-am-sorts", {});
+const amSorts = { enter: amValidSort("enter", storedSorts.enter || readStoredJson("cmcg-am-sort", null)), analyze: amValidSort("analyze", storedSorts.analyze) };
+let amSort = amSorts[amMode];
+let amTierFilter = ""; // Analyze mode: show only top-level rows with this verdict
+let amChart = null; // drill-down drawer: { key: "level:id", window, metric }
+let amEditingBreakEven = false;
 let amSearch = "";
 let amPicker = null; // draft while the date picker is open: { preset, from, to, month, picking }
 
@@ -1910,13 +2015,19 @@ function amSavePrefs() {
     localStorage.setItem("cmcg-am-level", amLevel);
     localStorage.setItem("cmcg-am-open", JSON.stringify([...amOpen]));
     localStorage.setItem("cmcg-am-period", JSON.stringify(amPeriod));
-    localStorage.setItem("cmcg-am-sort", JSON.stringify(amSort));
+    amSorts[amMode] = amSort;
+    localStorage.setItem("cmcg-am-sorts", JSON.stringify(amSorts));
+    localStorage.setItem("cmcg-am-mode", amMode);
   } catch {}
 }
 
-function amBuildData(range) {
+function amBuildData(range, ctx = null) {
   const rows = {};
   AM_LEVELS.forEach((level) => { rows[level] = performanceRows(level, true, "quality", range); });
+  if (ctx) {
+    AM_LEVELS.forEach((level) => { ctx.levelSpend[level] = rows[level].reduce((sum, row) => sum + Number(row.spend || 0), 0); });
+    AM_LEVELS.forEach((level) => rows[level].forEach((row) => { row.pf = amProfile(row, level, ctx); }));
+  }
   const children = { campaign: new Map(), adSet: new Map() };
   const attach = (map, parentId, row) => {
     if (!parentId) return;
@@ -1959,6 +2070,15 @@ function amSortValue(row, level, key) {
   if (key === "agent") return amAgentName(row, level).toLocaleLowerCase();
   if (key === "quality") return Number.isFinite(row.qualityScore) ? row.qualityScore : null;
   if (key === "costRegistered") return row.registered ? row.spend / row.registered : null;
+  if (key === "costBooked") return row.booked ? row.spend / row.booked : null;
+  if (key === "costMessage") return row.messages ? row.spend / row.messages : null;
+  if (key === "verdict") return !row.pf || row.pf.reg.key === "idle" ? null : row.pf.reg.rank * 10 + Math.min(row.pf.reg.ratio ?? 0, 9.99);
+  if (key === "margin") return !row.pf || row.pf.reg.key === "idle" ? null : row.pf.margin;
+  if (key === "trend") {
+    const trend = row.pf?.trend;
+    if (!trend) return null;
+    return Number.isFinite(trend.change) ? trend.change : trend.good ? -1 : 1;
+  }
   return Number(row[key] || 0);
 }
 
@@ -1991,14 +2111,20 @@ function amRowHtml(data, level, row, depth, open) {
   const toggle = childCount
     ? `<button class="fbam-toggle" type="button" data-am-toggle="${escapeHtml(key)}" aria-expanded="${open}" aria-label="${escapeHtml(toggleLabel)}"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9.4 6 6 6-6 6L8 16.6l4.6-4.6L8 7.4 9.4 6Z"/></svg></button>`
     : '<span class="fbam-toggle-spacer" aria-hidden="true"></span>';
-  const name = childCount
-    ? `<button class="fbam-name-link" type="button" data-am-toggle="${escapeHtml(key)}" aria-expanded="${open}" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</button>`
-    : `<span class="fbam-name-plain" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</span>`;
+  const analyze = amMode === "analyze";
+  let name = `<span class="fbam-name-plain" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</span>`;
+  if (childCount) name = `<button class="fbam-name-link" type="button" data-am-toggle="${escapeHtml(key)}" aria-expanded="${open}" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</button>`;
+  else if (analyze) name = `<button class="fbam-name-link" type="button" data-am-chart="${escapeHtml(key)}" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</button>`;
   // Separate text nodes so each part translates on its own (e.g. "Sales" objective vs "2 ad sets").
   const contextParts = level === "ad"
     ? [row.relation.ad?.code ? `Code ${row.relation.ad.code}` : "Ad"]
     : [level === "campaign" ? row.relation.objective : "", `${childCount} ${amNoun(childLevel, childCount)}`].filter(Boolean);
   const context = contextParts.map((part) => `<span>${escapeHtml(part)}</span>`).join('<span aria-hidden="true"> · </span>');
+  const identity = `<td class="fbam-name-cell"><div class="fbam-name" style="--depth:${depth}">${toggle}${amIcon(level)}<div class="fbam-name-text">${name}<small>${context}</small></div>${analyze ? amChartButton(key, row.name) : addOutcomeButton(level, row.targetId, row.name)}</div></td>`;
+  if (analyze) {
+    const cells = amAnalyzeCells(row, level);
+    return `<tr class="fbam-row fbam-${level} pf-row pf-row-${row.pf.reg.key}${open ? " is-open" : ""}" data-am-row="${escapeHtml(key)}">${identity}${AM_ANALYZE_COLUMNS.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cells[column.key]}</td>`).join("")}</tr>`;
+  }
   const delivery = amDelivery(row, level);
   const cells = {
     delivery: `<span class="fbam-delivery"><span class="fbam-dot ${delivery.tone}" aria-hidden="true"></span>${escapeHtml(delivery.label)}</span>`,
@@ -2011,7 +2137,197 @@ function amRowHtml(data, level, row, depth, open) {
     registered: `<strong>${number(row.registered)}</strong>`,
     costRegistered: cost(row.spend, row.registered),
   };
-  return `<tr class="fbam-row fbam-${level}${open ? " is-open" : ""}" data-am-row="${escapeHtml(key)}"><td class="fbam-name-cell"><div class="fbam-name" style="--depth:${depth}">${toggle}${amIcon(level)}<div class="fbam-name-text">${name}<small>${context}</small></div>${addOutcomeButton(level, row.targetId, row.name)}</div></td>${AM_COLUMNS.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cells[column.key]}</td>`).join("")}</tr>`;
+  return `<tr class="fbam-row fbam-${level}${open ? " is-open" : ""}" data-am-row="${escapeHtml(key)}">${identity}${AM_COLUMNS.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cells[column.key]}</td>`).join("")}</tr>`;
+}
+
+// ---- Analyze mode: profitability against the break-even cost per registration ----
+function amBreakEven() { return Number(state.settings?.profit?.breakEvenCostPerRegistered) || 60; }
+
+// Per-entity daily spend/messages/RDV/registrations, attributed like performanceRows.
+function amDailyBuckets(range) {
+  const buckets = new Map();
+  const add = (key, date, field, value) => {
+    if (!key || !date) return;
+    if (!buckets.has(key)) buckets.set(key, new Map());
+    const days = buckets.get(key);
+    if (!days.has(date)) days.set(date, { spend: 0, messages: 0, booked: 0, registered: 0 });
+    days.get(date)[field] += value;
+  };
+  filteredLogs(range).forEach((log) => {
+    const relation = relationForLog(log);
+    const date = dateOnly(log.reportingEnd || log.date || log.reportingStart);
+    [relation.ad && `ad:${relation.ad.id}`, relation.adSet && `adSet:${relation.adSet.id}`, relation.campaign && `campaign:${relation.campaign.id}`].forEach((key) => {
+      add(key, date, "spend", Number(log.spend || 0));
+      add(key, date, "messages", Number(log.messages || 0));
+    });
+  });
+  filteredOutcomes(range).forEach((outcome) => {
+    if (outcome.type !== "booked" && outcome.type !== "registered") return;
+    const date = dateOnly(outcome.sourceDate || outcome.date);
+    [outcome.assignmentLevel === "ad" && outcome.creativeId && `ad:${outcome.creativeId}`, outcome.adSetId && `adSet:${outcome.adSetId}`, outcome.campaignId && `campaign:${outcome.campaignId}`]
+      .forEach((key) => add(key, date, outcome.type, 1));
+  });
+  return buckets;
+}
+
+function amDaySeries(buckets, key, days) {
+  const map = buckets.get(key) || new Map();
+  return days.map((date) => ({ date, spend: 0, messages: 0, booked: 0, registered: 0, ...(map.get(date) || {}) }));
+}
+
+function amAnalysisContext(range) {
+  const breakEven = amBreakEven();
+  const end = range.to || dateInputValue(new Date());
+  const from = dateInputValue(addDays(parseInputDate(end), -41));
+  return {
+    breakEven,
+    targets: CmcgProfit.derivedBreakEvens(overallMetrics(false), breakEven),
+    trendDays: eachDay(from, end),
+    trendBuckets: amDailyBuckets({ from, to: end }),
+    levelSpend: {},
+  };
+}
+
+function amProfile(row, level, ctx) {
+  const days = amDaySeries(ctx.trendBuckets, `${level}:${row.key}`, ctx.trendDays);
+  return {
+    breakEven: ctx.breakEven,
+    targets: ctx.targets,
+    reg: CmcgProfit.verdict(row.spend, row.registered, ctx.breakEven),
+    booked: CmcgProfit.verdict(row.spend, row.booked, ctx.targets.booked),
+    message: CmcgProfit.verdict(row.spend, row.messages, ctx.targets.message),
+    margin: Number(row.registered || 0) * ctx.breakEven - Number(row.spend || 0),
+    share: ctx.levelSpend[level] ? Number(row.spend || 0) / ctx.levelSpend[level] : 0,
+    weeks: CmcgProfit.bucketCost(days, "registered", 7),
+    trend: CmcgProfit.compareCost(days.slice(-28, -14), days.slice(-14), "registered"),
+  };
+}
+
+function pfVsText(ratio) {
+  const diff = Math.round((ratio - 1) * 100);
+  if (Math.abs(diff) < 1) return "At break-even";
+  return diff < 0 ? `${-diff}% under break-even` : `${diff}% over break-even`;
+}
+
+function pfSignedMoney(value) { return `${value >= 0 ? "+" : "−"}${money(Math.abs(value))}`; }
+
+function pfBullet(ratio) {
+  if (!Number.isFinite(ratio)) return "";
+  return `<span class="pf-bullet" aria-hidden="true"><span style="left:${(Math.min(ratio / 2, 1) * 100).toFixed(1)}%"></span></span>`;
+}
+
+function pfVerdictChip(verdict, extraClass = "") {
+  return `<span class="pf-verdict pf-${verdict.key} ${extraClass}" title="${escapeHtml([verdict.label, verdict.note].filter(Boolean).join(" · "))}"><strong>${escapeHtml(verdict.action)}</strong><small>${escapeHtml(verdict.label)}</small></span>`;
+}
+
+function pfCostCell(verdict) {
+  if (verdict.key === "idle") return `<span class="pf-dash" title="${escapeHtml(verdict.note)}">—</span>`;
+  const title = escapeHtml([verdict.label, verdict.note].filter(Boolean).join(" · "));
+  if (verdict.cost === null) {
+    return `<div class="pf-cost pf-${verdict.key}" title="${title}"><strong>No registration</strong><small>${Math.round(verdict.ratio * 100)}% of break-even spent</small>${pfBullet(verdict.ratio)}</div>`;
+  }
+  return `<div class="pf-cost pf-${verdict.key}${verdict.lowData ? " is-low-data" : ""}" title="${title}"><strong>${money(verdict.cost)}</strong><small>${pfVsText(verdict.ratio)}</small>${pfBullet(verdict.ratio)}</div>`;
+}
+
+function pfPill(verdict, target, noun) {
+  if (verdict.key === "idle") return '<span class="pf-dash">—</span>';
+  if (!target) return verdict.cost === null ? '<span class="pf-dash">—</span>' : `<span class="pf-pill pf-neutral">${money(verdict.cost)}</span>`;
+  const text = verdict.cost === null ? `0 ${noun}` : money(verdict.cost);
+  return `<span class="pf-pill pf-${verdict.key}" title="${escapeHtml(`${verdict.label} · break-even ${money(target)}`)}">${escapeHtml(text)}</span>`;
+}
+
+function pfSparkline(points, breakEven) {
+  const width = 76;
+  const height = 26;
+  const pad = 3;
+  const finite = points.map((point) => point.value).filter((value) => value !== null);
+  if (!finite.length) return `<svg class="pf-spark" viewBox="0 0 ${width} ${height}" aria-hidden="true"><line class="pf-spark-empty" x1="${pad}" x2="${width - pad}" y1="${height / 2}" y2="${height / 2}"/></svg>`;
+  const max = Math.max(...finite, breakEven) * 1.1;
+  const x = (index) => pad + (index * (width - 2 * pad)) / Math.max(1, points.length - 1);
+  const y = (value) => height - pad - (value / max) * (height - 2 * pad);
+  let path = "";
+  let pen = false;
+  points.forEach((point, index) => {
+    if (point.value === null) { pen = false; return; }
+    path += `${pen ? "L" : "M"}${x(index).toFixed(1)} ${y(point.value).toFixed(1)}`;
+    pen = true;
+  });
+  const dots = points.map((point, index) => point.value === null ? "" : `<circle class="pf-dot-${CmcgProfit.tierForRatio(point.value / breakEven).key}" cx="${x(index).toFixed(1)}" cy="${y(point.value).toFixed(1)}" r="${index === points.length - 1 ? 2.8 : 1.8}"/>`).join("");
+  return `<svg class="pf-spark" viewBox="0 0 ${width} ${height}" aria-hidden="true"><line class="pf-spark-be" x1="0" x2="${width}" y1="${y(breakEven).toFixed(1)}" y2="${y(breakEven).toFixed(1)}"/><path d="${path}"/>${dots}</svg>`;
+}
+
+function pfTrendLabel(trend) {
+  if (!trend) return { text: "—", tone: "flat" };
+  const tone = trend.good === true ? "good" : trend.good === false ? "bad" : "flat";
+  if (trend.direction === "flat") return { text: "Stable", tone };
+  if (Number.isFinite(trend.change)) return { text: `${trend.change < 0 ? "▼" : "▲"} ${Math.abs(Math.round(trend.change * 100))}%`, tone };
+  return { text: trend.note || "—", tone };
+}
+
+function amChartButton(key, name) {
+  return `<button class="fbam-chart-btn" type="button" data-am-chart="${escapeHtml(key)}" aria-label="${escapeHtml(`View charts · ${name}`)}" title="View charts"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19h16v2H2V3h2v16Zm3-3-1.5-1.3 4.2-4.8 3.1 2.7L18 6.7 19.5 8l-6.6 7.6-3-2.6L7 16Z"/></svg></button>`;
+}
+
+function amAnalyzeCells(row, level) {
+  const pf = row.pf;
+  const key = `${level}:${row.key}`;
+  const trend = pfTrendLabel(pf.trend);
+  const idle = pf.reg.key === "idle";
+  return {
+    verdict: pfVerdictChip(pf.reg),
+    costRegistered: pfCostCell(pf.reg),
+    margin: idle ? '<span class="pf-dash">—</span>' : `<strong class="pf-margin ${pf.margin >= 0 ? "is-positive" : "is-negative"}">${pfSignedMoney(pf.margin)}</strong>`,
+    registered: `<strong>${number(row.registered)}</strong>${pf.reg.lowData ? '<small class="pf-low">low data</small>' : ""}`,
+    costBooked: pfPill(pf.booked, pf.targets.booked, "RDV"),
+    booked: number(row.booked),
+    costMessage: pfPill(pf.message, pf.targets.message, "messages"),
+    messages: number(row.messages),
+    spend: `<div class="pf-spend"><span>${money(row.spend)}</span><span class="pf-share" title="${escapeHtml(`${Math.round(pf.share * 100)}% of spend at this level`)}"><span style="width:${(pf.share * 100).toFixed(1)}%"></span></span></div>`,
+    trend: `<button class="pf-trend pf-trend-${trend.tone}" type="button" data-am-chart="${escapeHtml(key)}" title="Weekly cost per registration over 6 weeks. Arrow: last 2 weeks vs the 2 weeks before. Click for the full chart.">${pfSparkline(pf.weeks, pf.breakEven)}<span>${escapeHtml(trend.text)}</span></button>`,
+  };
+}
+
+function amTotals(rows) {
+  return rows.reduce((sum, row) => {
+    ["spend", "messages", "booked", "visits", "registered"].forEach((key) => { sum[key] += Number(row[key] || 0); });
+    return sum;
+  }, { spend: 0, messages: 0, booked: 0, visits: 0, registered: 0 });
+}
+
+function amSummaryHtml(ctx, rows, totals) {
+  const breakEven = ctx.breakEven;
+  const targets = ctx.targets;
+  const byTier = new Map(PF_TIER_ORDER.map((key) => [key, { count: 0, spend: 0 }]));
+  rows.forEach((row) => { const bucket = byTier.get(row.pf.reg.key); bucket.count += 1; bucket.spend += Number(row.spend || 0); });
+  const spendOf = (keys) => keys.reduce((sum, key) => sum + byTier.get(key).spend, 0);
+  const share = (value) => totals.spend ? `${Math.round((value / totals.spend) * 100)}%` : "0%";
+  const segments = PF_TIER_ORDER.filter((key) => byTier.get(key).spend > 0).map((key) => `<span class="pf-seg pf-${key}" style="flex:${byTier.get(key).spend}" title="${escapeHtml(`${CmcgProfit.TIERS[key].label}: ${money(byTier.get(key).spend)} (${share(byTier.get(key).spend)})`)}"></span>`).join("");
+  const chips = PF_TIER_ORDER.filter((key) => byTier.get(key).count > 0).map((key) => `<button class="pf-chip pf-${key}${amTierFilter === key ? " is-active" : ""}" type="button" data-pf-tier="${key}" aria-pressed="${amTierFilter === key}" title="${escapeHtml(CmcgProfit.TIERS[key].action)}"><i aria-hidden="true"></i><span>${escapeHtml(CmcgProfit.TIERS[key].label)}</span><strong>${byTier.get(key).count}</strong><small>${money(byTier.get(key).spend)}</small></button>`).join("");
+  const overall = CmcgProfit.verdict(totals.spend, totals.registered, breakEven);
+  const overallBooked = CmcgProfit.verdict(totals.spend, totals.booked, targets.booked);
+  const overallMessage = CmcgProfit.verdict(totals.spend, totals.messages, targets.message);
+  const margin = totals.registered * breakEven - totals.spend;
+  const canEdit = currentUser?.role !== "sales";
+  const breakEvenBlock = amEditingBreakEven
+    ? `<form class="pf-be-form" data-pf-be-form><label><span>Break-even cost per registration</span><input name="breakEven" type="number" min="1" step="0.01" value="${breakEven}" required /></label><div class="pf-be-actions"><button class="fbam-btn primary" type="submit">Save</button><button class="fbam-btn" type="button" data-pf-be-cancel>Cancel</button></div></form>`
+    : `<div class="pf-be-value"><span class="pf-kicker">Break-even</span><div><strong>${money(breakEven)}</strong><small>per registration</small></div>${canEdit ? '<button class="fbam-btn pf-be-edit" type="button" data-pf-edit-be>Edit</button>' : ""}</div>`;
+  const derived = [targets.booked ? `<strong>${money(targets.booked)}</strong> <span>per RDV</span>` : "", targets.message ? `<strong>${money(targets.message)}</strong> <span>per message</span>` : ""].filter(Boolean).join(' <span aria-hidden="true">·</span> ');
+  const rates = [targets.bookedToRegistered ? `${percent(targets.bookedToRegistered)} <span>of RDVs register</span>` : "", targets.messageToRegistered ? `${percent(targets.messageToRegistered)} <span>of messages register</span>` : ""].filter(Boolean).join(' <span aria-hidden="true">·</span> ');
+  const kpi = (label, verdict, value, detail) => `<div class="pf-kpi pf-${verdict ? verdict.key : "neutral"}"><span>${escapeHtml(label)}</span><strong>${value}</strong><small>${detail}</small></div>`;
+  return `<div class="pf-summary">
+    <div class="pf-be">${breakEvenBlock}${derived ? `<p class="pf-derived"><span>Same limit for leading metrics:</span> ${derived}${rates ? `<small><span>From your real conversion:</span> ${rates}</small>` : ""}</p>` : '<p class="pf-derived"><small>Record RDVs and registrations to derive break-even costs per RDV and per message.</small></p>'}</div>
+    <div class="pf-kpis">
+      ${kpi("Cost / registration", overall, overall.cost === null ? "—" : money(overall.cost), escapeHtml(overall.cost === null ? overall.label : pfVsText(overall.ratio)))}
+      ${kpi("Margin vs break-even", { key: margin >= 0 ? "profit" : "losing" }, pfSignedMoney(margin), `<span>${number(totals.registered)} × ${money(breakEven)} − ${money(totals.spend)}</span>`)}
+      ${kpi("Cost / RDV", targets.booked ? overallBooked : null, overallBooked.cost === null ? "—" : money(overallBooked.cost), targets.booked ? `<span>break-even</span> ${money(targets.booked)}` : "")}
+      ${kpi("Cost / message", targets.message ? overallMessage : null, overallMessage.cost === null ? "—" : money(overallMessage.cost), targets.message ? `<span>break-even</span> ${money(targets.message)}` : "")}
+    </div>
+    <div class="pf-money">
+      <div class="pf-money-head"><strong>Where the money goes</strong><span class="pf-money-split"><span class="pf-good">${share(spendOf(["scale", "profit", "edge"]))} <span>profitable</span></span><span class="pf-warn">${share(spendOf(["even"]))} <span>break-even</span></span><span class="pf-bad">${share(spendOf(["loss", "losing", "heavy"]))} <span>losing</span></span><span class="pf-muted">${share(spendOf(["learning"]))} <span>learning</span></span></span></div>
+      <div class="pf-stack" role="img" aria-label="Spend by verdict">${segments || '<span class="pf-seg pf-idle" style="flex:1"></span>'}</div>
+      <div class="pf-chips">${chips}${amTierFilter ? '<button class="pf-chip pf-clear" type="button" data-pf-tier="">Show all</button>' : ""}</div>
+    </div>
+  </div>`;
 }
 
 function amCollectRows(data, level, rows, depth, query, out) {
@@ -2036,7 +2352,8 @@ function amSortHeader(key, label, numeric = false, extraClass = "") {
 
 function amShellHtml() {
   const tabs = AM_LEVELS.map((level) => `<button class="fbam-tab" type="button" role="tab" data-am-level="${level}">${amIcon(level, "fbam-tab-icon")}<span>${AM_TABS[level]}</span></button>`).join("");
-  return `<div class="fbam-toolbar"><label class="fbam-search"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/></svg><span class="sr-only">Search by name or code</span><input type="search" data-am-search placeholder="Search by name or code" autocomplete="off" /></label><div class="fbam-date"><button class="fbam-date-button" type="button" data-am-date aria-haspopup="dialog" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v17H4V4h3V2Zm11 7H6v10h12V9Zm-9 2v2H7v-2h2Zm4 0v2h-2v-2h2Zm4 0v2h-2v-2h2Zm-8 4v2H7v-2h2Zm4 0v2h-2v-2h2Z"/></svg><span class="fbam-date-text"><strong data-am-date-preset></strong><span data-am-date-range></span></span><svg class="fbam-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5H7Z"/></svg></button><div class="fbam-picker hidden" data-am-picker role="dialog" aria-label="Date range"></div></div></div><div class="fbam-tabs" role="tablist" aria-label="Level">${tabs}</div><div class="fbam-grid"><table class="fbam-table"></table></div>`;
+  const modes = `<div class="fbam-mode" role="tablist" aria-label="Mode"><button type="button" role="tab" data-am-mode="enter"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg><span>Record results</span></button><button type="button" role="tab" data-am-mode="analyze"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19h16v2H2V3h2v16Zm3-3-1.5-1.3 4.2-4.8 3.1 2.7L18 6.7 19.5 8l-6.6 7.6-3-2.6L7 16Z"/></svg><span>Analyze</span></button></div>`;
+  return `<div class="fbam-toolbar">${modes}<label class="fbam-search"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/></svg><span class="sr-only">Search by name or code</span><input type="search" data-am-search placeholder="Search by name or code" autocomplete="off" /></label><div class="fbam-date"><button class="fbam-date-button" type="button" data-am-date aria-haspopup="dialog" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v17H4V4h3V2Zm11 7H6v10h12V9Zm-9 2v2H7v-2h2Zm4 0v2h-2v-2h2Zm4 0v2h-2v-2h2Zm-8 4v2H7v-2h2Zm4 0v2h-2v-2h2Z"/></svg><span class="fbam-date-text"><strong data-am-date-preset></strong><span data-am-date-range></span></span><svg class="fbam-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5H7Z"/></svg></button><div class="fbam-picker hidden" data-am-picker role="dialog" aria-label="Date range"></div></div></div><div data-am-summary></div><div class="fbam-tabs" role="tablist" aria-label="Level">${tabs}</div><div class="fbam-grid"><table class="fbam-table"></table></div>`;
 }
 
 function amMonthHtml(year, month, draft, todayKey) {
@@ -2086,26 +2403,51 @@ function renderAdsManagerPicker(root) {
 }
 
 function renderAdsManagerTable(root, range) {
-  const data = amBuildData(range);
+  const analyze = amMode === "analyze";
+  const ctx = analyze ? amAnalysisContext(range) : null;
+  const data = amBuildData(range, ctx);
   const query = amSearch.trim().toLocaleLowerCase();
-  const roots = data.rows[amLevel].filter((row) => !query || amBranchMatches(data, amLevel, row, query));
+  const searched = data.rows[amLevel].filter((row) => !query || amBranchMatches(data, amLevel, row, query));
+  if (analyze && amTierFilter && !searched.some((row) => row.pf.reg.key === amTierFilter)) amTierFilter = "";
+  const roots = analyze && amTierFilter ? searched.filter((row) => row.pf.reg.key === amTierFilter) : searched;
   const out = [];
-  amCollectRows(data, amLevel, data.rows[amLevel], 0, query, out);
-  const totals = roots.reduce((sum, row) => {
-    ["spend", "messages", "booked", "visits", "registered"].forEach((key) => { sum[key] += Number(row[key] || 0); });
-    return sum;
-  }, { spend: 0, messages: 0, booked: 0, visits: 0, registered: 0 });
-  const totalValues = { spend: money(totals.spend), messages: number(totals.messages), booked: number(totals.booked), visits: number(totals.visits), registered: number(totals.registered), costRegistered: cost(totals.spend, totals.registered) };
+  amCollectRows(data, amLevel, roots, 0, query, out);
+  const totals = amTotals(roots);
+  const columns = analyze ? AM_ANALYZE_COLUMNS : AM_COLUMNS;
   let empty = "";
   if (!out.length) {
     if (query) empty = `<span>No ${AM_NOUNS[amLevel][1]} match this search.</span>`;
     else if (!state.dailyLogs.length && !state.outcomes.length) empty = "<span>Import a Meta Ads report to see campaigns, ad sets, and ads.</span>";
     else empty = `<span>No ${AM_NOUNS[amLevel][1]} had activity in this period.</span>${amPeriod.preset === "lifetime" ? "" : ' <button class="fbam-btn" type="button" data-am-quick="lifetime">Show Maximum</button>'}`;
   }
-  const head = `<thead><tr>${amSortHeader("name", AM_NAME_HEADERS[amLevel], false, "fbam-name-cell")}${AM_COLUMNS.map((column) => amSortHeader(column.key, column.label, column.numeric)).join("")}</tr></thead>`;
-  const body = `<tbody>${out.length ? out.join("") : `<tr><td colspan="${AM_COLUMNS.length + 1}" class="empty fbam-empty">${empty}</td></tr>`}</tbody>`;
-  const foot = roots.length ? `<tfoot><tr class="fbam-total"><td class="fbam-name-cell"><div class="fbam-name"><div class="fbam-name-text"><strong>Results from ${roots.length} ${amNoun(amLevel, roots.length)}</strong><small>${escapeHtml(amRangeText(range))}</small></div></div></td>${AM_COLUMNS.map((column) => column.total ? `<td class="number-cell"><strong>${totalValues[column.key]}</strong><small>${escapeHtml(column.total)}</small></td>` : "<td></td>").join("")}</tr></tfoot>` : "";
-  root.querySelector(".fbam-table").innerHTML = head + body + foot;
+  const summary = root.querySelector("[data-am-summary]");
+  summary.innerHTML = analyze ? amSummaryHtml(ctx, searched, amTotals(searched)) : "";
+  let footCells;
+  if (analyze) {
+    const reg = CmcgProfit.verdict(totals.spend, totals.registered, ctx.breakEven);
+    const margin = totals.registered * ctx.breakEven - totals.spend;
+    const values = {
+      verdict: roots.length ? pfVerdictChip(reg) : "",
+      costRegistered: pfCostCell(reg),
+      margin: `<strong class="pf-margin ${margin >= 0 ? "is-positive" : "is-negative"}">${pfSignedMoney(margin)}</strong>`,
+      registered: number(totals.registered),
+      costBooked: pfPill(CmcgProfit.verdict(totals.spend, totals.booked, ctx.targets.booked), ctx.targets.booked, "RDV"),
+      booked: number(totals.booked),
+      costMessage: pfPill(CmcgProfit.verdict(totals.spend, totals.messages, ctx.targets.message), ctx.targets.message, "messages"),
+      messages: number(totals.messages),
+      spend: money(totals.spend),
+    };
+    footCells = columns.map((column) => values[column.key] === undefined ? "<td></td>" : `<td class="${column.numeric ? "number-cell" : ""}">${values[column.key]}${column.total && !["costRegistered", "verdict"].includes(column.key) ? `<small>${escapeHtml(column.total)}</small>` : ""}</td>`).join("");
+  } else {
+    const totalValues = { spend: money(totals.spend), messages: number(totals.messages), booked: number(totals.booked), visits: number(totals.visits), registered: number(totals.registered), costRegistered: cost(totals.spend, totals.registered) };
+    footCells = columns.map((column) => column.total ? `<td class="number-cell"><strong>${totalValues[column.key]}</strong><small>${escapeHtml(column.total)}</small></td>` : "<td></td>").join("");
+  }
+  const head = `<thead><tr>${amSortHeader("name", AM_NAME_HEADERS[amLevel], false, "fbam-name-cell")}${columns.map((column) => amSortHeader(column.key, column.label, column.numeric)).join("")}</tr></thead>`;
+  const body = `<tbody>${out.length ? out.join("") : `<tr><td colspan="${columns.length + 1}" class="empty fbam-empty">${empty}</td></tr>`}</tbody>`;
+  const foot = roots.length ? `<tfoot><tr class="fbam-total"><td class="fbam-name-cell"><div class="fbam-name"><div class="fbam-name-text"><strong>Results from ${roots.length} ${amNoun(amLevel, roots.length)}</strong><small>${escapeHtml(amRangeText(range))}</small></div></div></td>${footCells}</tr></tfoot>` : "";
+  const table = root.querySelector(".fbam-table");
+  table.classList.toggle("is-analyze", analyze);
+  table.innerHTML = head + body + foot;
 }
 
 function renderAdsManager() {
@@ -2116,6 +2458,12 @@ function renderAdsManager() {
     root.dataset.ready = "1";
   }
   const range = amPresetRange(amPeriod.preset);
+  root.classList.toggle("is-analyze", amMode === "analyze");
+  root.querySelectorAll("[data-am-mode]").forEach((button) => {
+    const active = button.dataset.amMode === amMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
   root.querySelectorAll("[data-am-level]").forEach((tab) => {
     const active = tab.dataset.amLevel === amLevel;
     tab.classList.toggle("active", active);
@@ -2128,6 +2476,7 @@ function renderAdsManager() {
   renderAdsManagerPicker(root);
   renderAdsManagerTable(root, range);
   applyLanguage(root);
+  if (amChart && document.getElementById("pfDrawer")?.open) renderPfDrawer();
 }
 
 function amRenderPickerOnly() {
@@ -2154,6 +2503,26 @@ function amApplyPeriod(next) {
 }
 
 function handleAdsManagerClick(event) {
+  const mode = event.target.closest("[data-am-mode]");
+  if (mode) {
+    if (mode.dataset.amMode === amMode) return;
+    amSorts[amMode] = amSort;
+    amMode = mode.dataset.amMode === "analyze" ? "analyze" : "enter";
+    amSort = amSorts[amMode];
+    amTierFilter = "";
+    amSavePrefs(); renderAdsManager();
+    return;
+  }
+  const chart = event.target.closest("[data-am-chart]");
+  if (chart) { openPfDrawer(chart.dataset.amChart); return; }
+  const tier = event.target.closest("[data-pf-tier]");
+  if (tier) { amTierFilter = amTierFilter === tier.dataset.pfTier ? "" : tier.dataset.pfTier; renderAdsManager(); return; }
+  if (event.target.closest("[data-pf-edit-be]")) {
+    amEditingBreakEven = true; renderAdsManager();
+    amRoot().querySelector('[data-pf-be-form] input[name="breakEven"]')?.select();
+    return;
+  }
+  if (event.target.closest("[data-pf-be-cancel]")) { amEditingBreakEven = false; renderAdsManager(); return; }
   const toggle = event.target.closest("[data-am-toggle]");
   if (toggle) {
     const key = toggle.dataset.amToggle;
@@ -2221,6 +2590,204 @@ function handleAdsManagerChange(event) {
     amShowDraftMonth();
     amRenderCalendarsOnly();
   }
+}
+
+async function handleAdsManagerSubmit(event) {
+  const form = event.target.closest("[data-pf-be-form]");
+  if (!form) return;
+  event.preventDefault();
+  const breakEven = Number(form.elements.breakEven.value);
+  try {
+    const result = await api("/api/settings/profit", { method: "POST", body: JSON.stringify({ breakEvenCostPerRegistered: breakEven }) });
+    state.settings = result.settings;
+    amEditingBreakEven = false;
+    renderAdsManager();
+    toast("Break-even saved");
+  } catch (error) { toast(error.message, "error"); }
+}
+
+// ---- Drill-down drawer: trend of cost per result for one campaign / ad set / ad ----
+const PF_METRICS = {
+  registered: { label: "Cost / registration", result: "registered", noun: "registrations" },
+  booked: { label: "Cost / RDV", result: "booked", noun: "RDV" },
+  message: { label: "Cost / message", result: "messages", noun: "messages" },
+  messages: { label: "Messages", count: "messages" },
+  spend: { label: "Amount spent", count: "spend", isMoney: true },
+};
+const PF_WINDOWS = [["14", "14 days"], ["30", "30 days"], ["90", "90 days"], ["all", "Maximum"]];
+let amChartPrefs = { window: "30", metric: "registered", ...readStoredJson("cmcg-am-chart", {}) };
+if (!PF_METRICS[amChartPrefs.metric]) amChartPrefs.metric = "registered";
+if (!PF_WINDOWS.some(([key]) => key === amChartPrefs.window)) amChartPrefs.window = "30";
+
+function amEntity(level, id) {
+  return byId(level === "campaign" ? state.campaigns : level === "adSet" ? state.adSets : state.creatives, id);
+}
+
+function pfWindowRange(windowKey) {
+  const to = dateInputValue(new Date());
+  if (windowKey !== "all") return { from: dateInputValue(addDays(new Date(), 1 - (Number(windowKey) || 30))), to };
+  const floor = dateInputValue(addDays(new Date(), -399));
+  const first = state.dailyLogs.reduce((min, log) => { const date = dateOnly(log.reportingStart || log.date); return date && (!min || date < min) ? date : min; }, "");
+  return { from: first && first > floor ? first : first ? floor : dateInputValue(addDays(new Date(), -29)), to };
+}
+
+function pfAdvice(verdict) {
+  if (verdict.key === "idle") return "No spend in this window.";
+  if (verdict.key === "learning") return `${money(verdict.spend)} spent without a registration yet — ${Math.round(verdict.ratio * 100)}% of the break-even. Let it spend up to ${money(verdict.breakEven)} before judging.`;
+  if (verdict.cost === null) return `${money(verdict.spend)} spent without a registration — ${number(verdict.ratio)}× the break-even.`;
+  return `Each registration costs ${money(verdict.cost)} — ${pfVsText(verdict.ratio).toLocaleLowerCase()} (${money(verdict.breakEven)}).${verdict.lowData ? " Few registrations: confirm before acting." : ""}`;
+}
+
+function pfTrendSentence(trend, label) {
+  if (!trend) return `<span class="pf-trend-line flat"><span>${escapeHtml(label)}</span> <strong>Not enough data</strong></span>`;
+  const tone = trend.good === true ? "good" : trend.good === false ? "bad" : "flat";
+  const word = tone === "good" ? "improving" : tone === "bad" ? "getting worse" : "stable";
+  const change = Number.isFinite(trend.change) && trend.direction !== "flat" ? `${trend.change < 0 ? "▼" : "▲"} ${Math.abs(Math.round(trend.change * 100))}%` : trend.note || "≈";
+  const detail = trend.costBefore !== null && trend.costAfter !== null ? `${money(trend.costBefore)} → ${money(trend.costAfter)}` : trend.costAfter !== null ? `→ ${money(trend.costAfter)}` : trend.costBefore !== null ? `${money(trend.costBefore)} →` : "";
+  return `<span class="pf-trend-line ${tone}"><span>${escapeHtml(label)}</span> <strong>${escapeHtml(change)}</strong> <em>${word}</em>${detail ? ` <small>${escapeHtml(detail)}</small>` : ""}</span>`;
+}
+
+function pfShortDate(value) {
+  const date = parseInputDate(value);
+  return date ? date.toLocaleDateString(amLocale(), { month: "short", day: "numeric" }) : "";
+}
+
+function pfChartSvg(series, metric, target) {
+  const width = 720;
+  const height = 280;
+  const left = 64;
+  const right = 18;
+  const top = 16;
+  const bottom = 34;
+  const count = series.length;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const x = (index) => left + (count <= 1 ? plotWidth / 2 : (index * plotWidth) / (count - 1));
+  const isCost = Boolean(metric.result);
+  const format = (value) => (isCost || metric.isMoney ? money(value) : number(value));
+  const line = isCost
+    ? CmcgProfit.rollingCost(series, metric.result, 7).map((point) => point.value)
+    : series.map((day, index) => { const slice = series.slice(Math.max(0, index - 6), index + 1); return slice.reduce((sum, item) => sum + item[metric.count], 0) / slice.length; });
+  const bars = series.map((day) => Number(isCost ? day[metric.result] : day[metric.count]) || 0);
+  const finite = line.filter((value) => Number.isFinite(value));
+  const max = niceCeil(Math.max(...finite, isCost ? 0 : Math.max(...bars), target ? target * 1.3 : 0)) || 1;
+  const y = (value) => top + plotHeight * (1 - Math.min(value, max) / max);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((step) => max * step);
+  const grid = ticks.map((value) => `<line class="pf-grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text class="pf-axis" x="${left - 8}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${escapeHtml(format(value))}</text>`).join("");
+  const zones = isCost && target ? `<rect class="pf-zone-bad" x="${left}" y="${top}" width="${plotWidth}" height="${Math.max(0, y(target) - top).toFixed(1)}"/><rect class="pf-zone-good" x="${left}" y="${y(target).toFixed(1)}" width="${plotWidth}" height="${Math.max(0, top + plotHeight - y(target)).toFixed(1)}"/><line class="pf-be-line" x1="${left}" x2="${width - right}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}"/><text class="pf-be-label" x="${width - right - 4}" y="${(y(target) - 6).toFixed(1)}" text-anchor="end">Break-even ${escapeHtml(money(target))}</text>` : "";
+  const barMax = Math.max(1, ...bars);
+  const barArea = isCost ? plotHeight * 0.22 : plotHeight;
+  const barWidth = Math.max(2, Math.min(18, (plotWidth / Math.max(1, count)) * 0.6));
+  const barMarks = bars.map((value, index) => value ? `<rect class="pf-bar${isCost ? " is-results" : ""}" x="${(x(index) - barWidth / 2).toFixed(1)}" y="${(top + plotHeight - (value / (isCost ? barMax : max)) * barArea).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${((value / (isCost ? barMax : max)) * barArea).toFixed(1)}"><title>${escapeHtml(`${series[index].date}: ${isCost ? `${number(value)} ${metric.noun}` : format(value)}`)}</title></rect>` : "").join("");
+  let path = "";
+  let pen = false;
+  line.forEach((value, index) => {
+    if (!Number.isFinite(value)) { pen = false; return; }
+    path += `${pen ? "L" : "M"}${x(index).toFixed(1)} ${y(value).toFixed(1)}`;
+    pen = true;
+  });
+  const lastIndex = line.map((value, index) => (Number.isFinite(value) ? index : -1)).filter((index) => index >= 0).pop();
+  const points = line.map((value, index) => Number.isFinite(value) ? `<circle class="pf-point${isCost && target ? ` pf-dot-${CmcgProfit.tierForRatio(value / target).key}` : ""}" cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="${index === lastIndex ? 5 : 2.6}"><title>${escapeHtml(`${series[index].date}: ${format(value)}`)}</title></circle>` : "").join("");
+  const labelIndexes = [...new Set([0, Math.floor((count - 1) / 2), count - 1])].filter((index) => index >= 0);
+  const xLabels = labelIndexes.map((index) => `<text class="pf-axis" x="${x(index).toFixed(1)}" y="${height - 10}" text-anchor="${index === 0 ? "start" : index === count - 1 ? "end" : "middle"}">${escapeHtml(pfShortDate(series[index].date))}</text>`).join("");
+  const empty = !finite.length && !bars.some(Boolean) ? `<text class="pf-empty-text" x="${left + plotWidth / 2}" y="${top + plotHeight / 2}" text-anchor="middle">No data in this window</text>` : "";
+  return `<svg class="pf-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric.label)}">${zones}${grid}${barMarks}<path class="pf-line" d="${path}"/>${points}${xLabels}${empty}</svg>`;
+}
+
+function ensurePfDrawer() {
+  let dialog = document.getElementById("pfDrawer");
+  if (dialog) return dialog;
+  dialog = document.createElement("dialog");
+  dialog.id = "pfDrawer";
+  dialog.className = "pf-drawer";
+  dialog.setAttribute("aria-labelledby", "pfDrawerTitle");
+  document.body.append(dialog);
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog || event.target.closest("[data-pf-close]")) { dialog.close(); return; }
+    const windowButton = event.target.closest("[data-pf-window]");
+    const metricButton = event.target.closest("[data-pf-metric]");
+    const open = event.target.closest("[data-pf-open]");
+    if (windowButton) amChartPrefs.window = windowButton.dataset.pfWindow;
+    if (metricButton) amChartPrefs.metric = metricButton.dataset.pfMetric;
+    if (open) { amChart.key = open.dataset.pfOpen; dialog.scrollTop = 0; }
+    if (windowButton || metricButton || open) {
+      try { localStorage.setItem("cmcg-am-chart", JSON.stringify(amChartPrefs)); } catch {}
+      renderPfDrawer();
+    }
+  });
+  dialog.addEventListener("close", () => { amChart = null; });
+  return dialog;
+}
+
+function openPfDrawer(key) {
+  const dialog = ensurePfDrawer();
+  amChart = { key };
+  renderPfDrawer();
+  if (!dialog.open) dialog.showModal();
+}
+
+function renderPfDrawer() {
+  const dialog = ensurePfDrawer();
+  if (!amChart) return;
+  const [level, id] = amChart.key.split(":");
+  const entity = amEntity(level, id);
+  const range = pfWindowRange(amChartPrefs.window);
+  const series = amDaySeries(amDailyBuckets(range), amChart.key, eachDay(range.from, range.to));
+  const row = performanceRows(level, true, "quality", range).find((item) => item.key === id) || { ...emptyMetrics(), key: id, name: entity?.name || "Unknown", relation: {} };
+  const breakEven = amBreakEven();
+  const targets = CmcgProfit.derivedBreakEvens(overallMetrics(false), breakEven);
+  const metricTargets = { registered: breakEven, booked: targets.booked, message: targets.message };
+  const reg = CmcgProfit.verdict(row.spend, row.registered, breakEven);
+  const booked = CmcgProfit.verdict(row.spend, row.booked, targets.booked);
+  const message = CmcgProfit.verdict(row.spend, row.messages, targets.message);
+  const margin = Number(row.registered || 0) * breakEven - Number(row.spend || 0);
+  const metric = PF_METRICS[amChartPrefs.metric];
+  const target = metricTargets[amChartPrefs.metric] || null;
+  const adSet = level === "ad" ? byId(state.adSets, entity?.adSetId) : level === "adSet" ? entity : null;
+  const campaign = level === "campaign" ? entity : byId(state.campaigns, adSet?.campaignId);
+  const crumbs = [level !== "campaign" && campaign ? `<button type="button" data-pf-open="campaign:${escapeHtml(campaign.id)}">${amIcon("campaign")}<span>${escapeHtml(campaign.name)}</span></button>` : "", level === "ad" && adSet ? `<button type="button" data-pf-open="adSet:${escapeHtml(adSet.id)}">${amIcon("adSet")}<span>${escapeHtml(adSet.name)}</span></button>` : ""].filter(Boolean).join('<span aria-hidden="true">›</span>');
+  const kpi = (label, value, verdict, detail = "") => `<div class="pf-kpi pf-${verdict ? verdict.key : "neutral"}"><span>${escapeHtml(label)}</span><strong>${value}</strong>${detail ? `<small>${detail}</small>` : ""}</div>`;
+  const resultKey = metric.result || "registered";
+  const trendLabel = metric.result ? metric.label : "Cost / registration";
+  const childLevel = AM_CHILD[level];
+  let breakdown = "";
+  if (childLevel) {
+    const kids = performanceRows(childLevel, true, "quality", range)
+      .filter((child) => (childLevel === "adSet" ? child.relation.campaign?.id : child.relation.adSet?.id) === id)
+      .sort((a, b) => b.spend - a.spend);
+    breakdown = `<section class="pf-drawer-section"><h3>${escapeHtml(AM_TABS[childLevel])} <small>${escapeHtml(PF_WINDOWS.find(([key]) => key === amChartPrefs.window)[1])}</small></h3>${kids.length ? `<div class="pf-kids">${kids.map((child) => {
+      const verdict = CmcgProfit.verdict(child.spend, child.registered, breakEven);
+      const share = row.spend ? child.spend / row.spend : 0;
+      return `<button class="pf-kid pf-${verdict.key}" type="button" data-pf-open="${childLevel}:${escapeHtml(child.key)}"><span class="pf-kid-name"><strong>${escapeHtml(child.name)}</strong><small>${escapeHtml(verdict.action)}</small></span><span class="pf-kid-spend">${money(child.spend)}<span class="pf-share"><span style="width:${(share * 100).toFixed(1)}%"></span></span></span><span class="pf-kid-reg">${number(child.registered)} <small>reg.</small></span>${pfPill(verdict, breakEven, "reg.")}</button>`;
+    }).join("")}</div>` : `<p class="pf-muted-text">No ${escapeHtml(AM_NOUNS[childLevel][1])} with activity in this window.</p>`}</section>`;
+  }
+  const levelLabel = AM_NAME_HEADERS[level];
+  dialog.innerHTML = `<div class="pf-drawer-inner">
+    <header class="pf-drawer-head">
+      <div class="pf-drawer-title">${crumbs ? `<nav class="pf-crumbs" aria-label="Parents">${crumbs}</nav>` : ""}<p class="pf-kicker">${amIcon(level)}<span>${escapeHtml(levelLabel)}</span></p><h2 id="pfDrawerTitle">${escapeHtml(row.name || entity?.name || "Unknown")}</h2></div>
+      <div class="pf-drawer-actions">${addOutcomeButton(level, id, row.name || "")}<button class="icon-button" type="button" data-pf-close aria-label="Close"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div>
+    </header>
+    <div class="pf-windows" role="group" aria-label="Window">${PF_WINDOWS.map(([key, label]) => `<button type="button" class="${amChartPrefs.window === key ? "active" : ""}" data-pf-window="${key}" aria-pressed="${amChartPrefs.window === key}">${escapeHtml(label)}</button>`).join("")}<span class="pf-window-range">${escapeHtml(amRangeText(range))}</span></div>
+    <div class="pf-advice pf-${reg.key}">${pfVerdictChip(reg, "is-large")}<p>${escapeHtml(pfAdvice(reg))}</p></div>
+    <div class="pf-kpis pf-drawer-kpis">
+      ${kpi("Cost / registration", reg.cost === null ? "—" : money(reg.cost), reg, escapeHtml(reg.cost === null ? reg.label : pfVsText(reg.ratio)))}
+      ${kpi("Margin vs break-even", pfSignedMoney(margin), { key: reg.key === "idle" ? "idle" : margin >= 0 ? "profit" : "losing" })}
+      ${kpi("Cost / RDV", booked.cost === null ? "—" : money(booked.cost), targets.booked ? booked : null, targets.booked ? `<span>break-even</span> ${money(targets.booked)}` : "")}
+      ${kpi("Cost / message", message.cost === null ? "—" : money(message.cost), targets.message ? message : null, targets.message ? `<span>break-even</span> ${money(targets.message)}` : "")}
+      ${kpi("Amount spent", money(row.spend), null)}
+      ${kpi("Registered", number(row.registered), null)}
+      ${kpi("RDV", number(row.booked), null)}
+      ${kpi("Messages", number(row.messages), null)}
+    </div>
+    <section class="pf-drawer-section">
+      <div class="pf-metric-switch" role="group" aria-label="Metric">${Object.entries(PF_METRICS).map(([key, item]) => `<button type="button" class="${amChartPrefs.metric === key ? "active" : ""}" data-pf-metric="${key}" aria-pressed="${amChartPrefs.metric === key}">${escapeHtml(item.label)}</button>`).join("")}</div>
+      <div class="pf-trends">${pfTrendSentence(CmcgProfit.compareCost(series.slice(-14, -7), series.slice(-7), resultKey), `${trendLabel} · last 7 days vs the 7 before:`)}${pfTrendSentence(CmcgProfit.halfTrend(series, resultKey), `${trendLabel} · 2nd half vs 1st half of the window:`)}</div>
+      <div class="pf-chart-wrap">${pfChartSvg(series, metric, target)}</div>
+      <p class="pf-chart-legend">${metric.result ? `<span><i class="pf-lg-line"></i>7-day rolling ${escapeHtml(metric.label.toLocaleLowerCase())}</span><span><i class="pf-lg-bar is-results"></i>${escapeHtml(metric.noun)} per day</span>${target ? '<span><i class="pf-lg-be"></i>Break-even</span>' : ""}` : `<span><i class="pf-lg-bar"></i>Per day</span><span><i class="pf-lg-line"></i>7-day average</span>`}</p>
+    </section>
+    ${breakdown}
+  </div>`;
+  applyLanguage(dialog);
 }
 
 function renderOverviewTables() {
@@ -4200,6 +4767,16 @@ on("outcomeTarget", "change", (event) => { ensureOutcomeTargetId().value = event
 on("outcomeSearch", "input", renderOutcomes);
 on("adsManager", "click", handleAdsManagerClick);
 on("adsManager", "change", handleAdsManagerChange);
+on("adsManager", "submit", handleAdsManagerSubmit);
+// Collapsible sidebar so the workspace can use the full screen width.
+const appShell = document.querySelector(".app-shell");
+document.querySelectorAll(".sidebar .tab").forEach((tab) => { tab.title = tab.textContent.trim(); });
+try { appShell?.classList.toggle("nav-collapsed", localStorage.getItem("cmcg-nav-collapsed") === "1"); } catch {}
+on("navCollapse", "click", (event) => {
+  const collapsed = appShell.classList.toggle("nav-collapsed");
+  event.currentTarget.setAttribute("aria-expanded", String(!collapsed));
+  try { localStorage.setItem("cmcg-nav-collapsed", collapsed ? "1" : "0"); } catch {}
+});
 on("adsManager", "input", (event) => {
   if (!event.target.matches("[data-am-search]")) return;
   amSearch = event.target.value;
