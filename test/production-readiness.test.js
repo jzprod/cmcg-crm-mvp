@@ -284,6 +284,18 @@ test("agents match quoted names with spelling slips, aliases, and the campaign a
   assert.equal(adSet("set4").agentId, "");
   assert.equal(adSet("set4").agentMatchHint, "hsn");
 
+  // Outcomes inherit the agent from the ad set, then the campaign; a picked agent fills the gap.
+  const campaign = (metaId) => snapshot.campaigns.find((item) => item.metaCampaignId === metaId);
+  const ad = (metaId) => snapshot.creatives.find((item) => item.metaAdId === metaId);
+  const onCampaign = await jsonRequest(baseUrl, "/api/outcomes", { method: "POST", body: { type: "registered", assignmentLevel: "campaign", targetId: campaign("c2").id, date: "2026-10-02" }, expectedStatus: 201 });
+  assert.equal(onCampaign.agentId, souad.id);
+  const onAd = await jsonRequest(baseUrl, "/api/outcomes", { method: "POST", body: { type: "booked", assignmentLevel: "ad", targetId: ad("ad3").id, date: "2026-10-02" }, expectedStatus: 201 });
+  assert.equal(onAd.agentId, souad.id); // "Broad women" names nobody, the campaign names Souad
+  const unknown = await jsonRequest(baseUrl, "/api/outcomes", { method: "POST", body: { type: "booked", assignmentLevel: "ad", targetId: ad("ad4").id, date: "2026-10-02" }, expectedStatus: 201 });
+  assert.equal(unknown.agentId, "");
+  const picked = await jsonRequest(baseUrl, "/api/outcomes", { method: "POST", body: { type: "booked", assignmentLevel: "ad", targetId: ad("ad4").id, agentId: souad.id, date: "2026-10-02" }, expectedStatus: 201 });
+  assert.equal(picked.agentId, souad.id);
+
   await jsonRequest(baseUrl, `/api/agents/${hassan.id}`, { method: "PATCH", body: { name: "Hassan", aliases: "hsn, حسن" } });
   snapshot = (await jsonRequest(baseUrl, "/api/state")).state;
   assert.equal(adSet("set4").agentId, hassan.id);

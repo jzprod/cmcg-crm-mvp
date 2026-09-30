@@ -1054,6 +1054,11 @@ dialog.pf-drawer::backdrop { background: rgba(15, 23, 42, .35); }
 .agent-modal-actions .agent-delete { margin-inline-end: auto; }
 .agent-aliases { color: var(--slate-600); }
 
+.outcome-agent-box { margin-top: 10px; }
+.outcome-agent-found { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; padding: 7px 12px; border-radius: 999px; background: var(--green-50); color: var(--green-800); font-size: .82rem; }
+.outcome-agent-found small { color: var(--slate-500); }
+.outcome-agent-box label > span { color: var(--amber-800); }
+
 /* Agent leaderboard */
 .agent-board .fbam-grid { max-height: none; }
 .ab-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-inline-start: auto; }

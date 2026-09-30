@@ -897,6 +897,27 @@ function rematchImportedAdSets(state) {
     const campaign = state.campaigns.find((item) => item.id === adSet.campaignId);
     Object.assign(adSet, matchAgent(state, adSet.name, campaign?.name || ""));
   });
+  // A campaign's agent: named in the campaign itself, or shared by all of its matched ad sets.
+  state.campaigns.forEach((campaign) => {
+    const named = agentsNamedIn(state, campaign.name).matches;
+    const fromAdSets = [...new Set(state.adSets.filter((adSet) => adSet.campaignId === campaign.id && adSet.agentId).map((adSet) => adSet.agentId))];
+    campaign.agentId = named.length === 1 ? named[0].id : fromAdSets.length === 1 ? fromAdSets[0] : "";
+    campaign.agentMatchSource = named.length === 1 ? "campaign" : fromAdSets.length === 1 ? "adSets" : "";
+  });
+  // Results recorded without an agent pick one up as soon as their ad set or campaign resolves to one.
+  state.outcomes.forEach((outcome) => {
+    if (outcome.agentId || outcome.assignmentLevel === "agent") return;
+    const adSet = state.adSets.find((item) => item.id === outcome.adSetId);
+    const campaign = state.campaigns.find((item) => item.id === outcome.campaignId);
+    outcome.agentId = agentForAdSet(adSet, campaign);
+  });
+}
+
+// An ad set that quotes an unknown name ("hsn") does not borrow the campaign's agent: that result needs a person to decide.
+function agentForAdSet(adSet, campaign) {
+  if (adSet?.agentId) return adSet.agentId;
+  if (adSet?.agentMatchHint) return "";
+  return campaign?.agentId || "";
 }
 
 function cleanAliases(value) {
@@ -1076,15 +1097,16 @@ function resolveOutcomeTarget(state, level, targetId) {
     if (!creative) return null;
     const adSet = state.adSets.find((item) => item.id === creative.adSetId);
     const campaign = state.campaigns.find((item) => item.id === adSet?.campaignId);
-    Object.assign(result, { creativeId: creative.id, adSetId: adSet?.id || "", campaignId: campaign?.id || "", agentId: adSet?.agentId || "" });
+    Object.assign(result, { creativeId: creative.id, adSetId: adSet?.id || "", campaignId: campaign?.id || "", agentId: adSet ? agentForAdSet(adSet, campaign) : campaign?.agentId || "" });
   } else if (level === "adSet") {
     const adSet = state.adSets.find((item) => item.id === targetId);
     if (!adSet) return null;
-    Object.assign(result, { adSetId: adSet.id, campaignId: adSet.campaignId || "", agentId: adSet.agentId || "" });
+    const campaign = state.campaigns.find((item) => item.id === adSet.campaignId);
+    Object.assign(result, { adSetId: adSet.id, campaignId: adSet.campaignId || "", agentId: agentForAdSet(adSet, campaign) });
   } else if (level === "campaign") {
     const campaign = state.campaigns.find((item) => item.id === targetId);
     if (!campaign) return null;
-    result.campaignId = campaign.id;
+    Object.assign(result, { campaignId: campaign.id, agentId: campaign.agentId || "" });
   } else if (level === "agent") {
     const agent = state.agents.find((item) => item.id === targetId);
     if (!agent) return null;
@@ -1225,6 +1247,9 @@ async function handleApi(req, res) {
       }
       const target = resolveOutcomeTarget(state, assignmentLevel, targetId);
       if (!target) return json(res, 400, { error: "Choose a valid ad, ad set, campaign, or agent" });
+      // No agent in the names: use the one picked in the form, if any (leaving it empty is allowed).
+      const pickedAgent = state.agents.find((agent) => agent.id === cleanText(body.agentId));
+      if (!target.agentId && pickedAgent) target.agentId = pickedAgent.id;
       const item = {
         id: id("out"),
         type,

@@ -965,6 +965,12 @@ Object.assign(ar, {
   "Data from": "البيانات من",
   "Saving rematches every imported ad set and campaign to its agent.": "الحفظ يعيد ربط كل مجموعة إعلانية وحملة بمستشارها.",
   "Earlier ad data is kept in the database but hidden here, even on Maximum.": "بيانات الإعلانات الأقدم محفوظة في قاعدة البيانات لكنها مخفية هنا، حتى في الحد الأقصى.",
+  "Credited to": "يُحتسب لـ",
+  "from the ad set name": "من اسم المجموعة الإعلانية",
+  "from the campaign name": "من اسم الحملة",
+  "from its ad sets": "من مجموعاتها الإعلانية",
+  "No agent found in these names — choose one": "لم يُعثر على مستشار في هذه الأسماء — اختر واحداً",
+  "Leave without agent": "بدون مستشار",
   "Agent leaderboard": "ترتيب المستشارين",
   "Who brings registrations, and at what cost. Rank the agents, then switch to graphs to follow each one's trajectory.": "من يجلب التسجيلات وبأي تكلفة. رتّب المستشارين، ثم انتقل إلى الرسوم لمتابعة مسار كل واحد.",
   "Leaderboard": "الترتيب",
@@ -4301,7 +4307,40 @@ function syncOutcomeHierarchy(preferred = {}) {
   if (preferred.adId && ads.some((ad) => ad.id === preferred.adId)) adSelect.value = preferred.adId;
 
   hiddenTarget.value = level === "campaign" ? campaignSelect.value : level === "adSet" ? adSetSelect.value : adSelect.value;
+  renderOutcomeAgentBox();
   applyLanguage(document.getElementById("outcomeDialog"));
+}
+
+// The agent is read from the ad set name, then the campaign. Only when neither names one
+// does the form ask for an agent, and leaving it empty is allowed.
+function outcomeResolvedAgent(level, targetId) {
+  const ad = level === "ad" ? byId(state.creatives, targetId) : null;
+  const adSet = level === "adSet" ? byId(state.adSets, targetId) : byId(state.adSets, ad?.adSetId);
+  const campaign = level === "campaign" ? byId(state.campaigns, targetId) : byId(state.campaigns, adSet?.campaignId);
+  if (adSet?.agentId) return { agent: byId(state.agents, adSet.agentId), source: adSet.agentMatchSource === "campaign" ? "from the campaign name" : "from the ad set name" };
+  if (campaign?.agentId && !adSet?.agentMatchHint) return { agent: byId(state.agents, campaign.agentId), source: campaign.agentMatchSource === "campaign" ? "from the campaign name" : "from its ad sets" };
+  return { agent: null, source: "" };
+}
+
+function renderOutcomeAgentBox() {
+  let box = document.getElementById("outcomeAgentBox");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "outcomeAgentBox";
+    box.className = "outcome-agent-box";
+    document.getElementById("assignmentHint").after(box);
+  }
+  const level = document.getElementById("assignmentLevel").value;
+  const targetId = ensureOutcomeTargetId().value;
+  if (level === "agent" || !targetId) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  const { agent, source } = outcomeResolvedAgent(level, targetId);
+  if (agent) {
+    box.innerHTML = `<span class="outcome-agent-found"><span>Credited to</span> <strong>${escapeHtml(agent.name)}</strong> <small>${escapeHtml(source)}</small></span>`;
+    return;
+  }
+  const agents = state.agents.filter((item) => item.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+  box.innerHTML = `<label><span>No agent found in these names — choose one <em>optional</em></span><select name="agentId"><option value="">Leave without agent</option>${agents.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join("")}</select></label>`;
 }
 
 function fillOutcomeTargets(preferred = "") {
@@ -4331,6 +4370,7 @@ function fillOutcomeTargets(preferred = "") {
   if (options.some((item) => item.id === preferred)) target.value = preferred;
   hiddenTarget.value = target.value;
   document.getElementById("assignmentHint").textContent = "Use when you only know the sales agent.";
+  renderOutcomeAgentBox();
   applyLanguage(document.getElementById("outcomeDialog"));
 }
 
