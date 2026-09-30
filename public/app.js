@@ -965,6 +965,25 @@ Object.assign(ar, {
   "Data from": "البيانات من",
   "Saving rematches every imported ad set and campaign to its agent.": "الحفظ يعيد ربط كل مجموعة إعلانية وحملة بمستشارها.",
   "Earlier ad data is kept in the database but hidden here, even on Maximum.": "بيانات الإعلانات الأقدم محفوظة في قاعدة البيانات لكنها مخفية هنا، حتى في الحد الأقصى.",
+  "Agent leaderboard": "ترتيب المستشارين",
+  "Who brings registrations, and at what cost. Rank the agents, then switch to graphs to follow each one's trajectory.": "من يجلب التسجيلات وبأي تكلفة. رتّب المستشارين، ثم انتقل إلى الرسوم لمتابعة مسار كل واحد.",
+  "Leaderboard": "الترتيب",
+  "Graphs": "الرسوم",
+  "Rank by": "رتّب حسب",
+  "Leader": "في الصدارة",
+  "Closing": "الإغلاق",
+  "Line": "خط",
+  "Bars": "أعمدة",
+  "Trajectory": "المسار",
+  "Per week": "في الأسبوع",
+  "Period": "الفترة",
+  "No data in this period": "لا بيانات في هذه الفترة",
+  "Running total since the start of the period": "المجموع التراكمي منذ بداية الفترة",
+  "Running cost since the start of the period": "التكلفة التراكمية منذ بداية الفترة",
+  "Total inside each day": "المجموع في كل يوم",
+  "Total inside each week": "المجموع في كل أسبوع",
+  "Cost inside each day": "التكلفة في كل يوم",
+  "Cost inside each week": "التكلفة في كل أسبوع",
   "Mo": "ن", "Tu": "ث", "We": "ر", "Th": "خ", "Fr": "ج", "Sa": "س", "Su": "ح",
 });
 
@@ -981,6 +1000,9 @@ arDynamic.push(
   [/^(\d+)% of break-even spent$/, "صُرف $1% من نقطة التعادل"],
   [/^(\d+)% of spend at this level$/, "$1% من الصرف في هذا المستوى"],
   [/^Data from (.+)$/, "البيانات من $1"],
+  [/^(.+) behind #1$/, "$1 خلف الأول"],
+  [/^(.+) more than #1$/, "$1 أكثر من الأول"],
+  [/^(.+) less than #1$/, "$1 أقل من الأول"],
   [/^No data before (.+)$/, "لا بيانات قبل $1"],
   [/^"(.+)" is not an agent yet$/, "«$1» ليس مستشاراً بعد"],
   [/^Ad data counts from (.+)\. Earlier data is kept but hidden here\.$/, "تُحتسب بيانات الإعلانات من $1. البيانات الأقدم محفوظة لكنها مخفية هنا."],
@@ -2837,10 +2859,324 @@ function renderPfDrawer() {
   applyLanguage(dialog);
 }
 
+// ---- Agent leaderboard (Overview): rank agents, colour them against break-even, graph their trajectory ----
+const AB_METRICS = {
+  registered: { label: "Registered", kind: "count", better: "high" },
+  booked: { label: "RDV", kind: "count", better: "high" },
+  costRegistered: { label: "Cost / registration", kind: "cost", result: "registered", better: "low" },
+  costBooked: { label: "Cost / RDV", kind: "cost", result: "booked", better: "low" },
+  margin: { label: "Margin vs break-even", kind: "money", better: "high", boardOnly: true },
+  messages: { label: "Messages", kind: "count", better: "high" },
+  spend: { label: "Amount spent", kind: "money", better: "none" },
+};
+const AB_RANKABLE = ["registered", "booked", "costRegistered", "costBooked", "margin"];
+const AB_COLORS = ["#1877f2", "#e4572e", "#17a398", "#b8860b", "#8e44ad", "#d63384", "#2d3436", "#5b8c00"];
+let abView = localStorage.getItem("cmcg-ab-view") === "graph" ? "graph" : "board";
+let abRank = AB_RANKABLE.includes(localStorage.getItem("cmcg-ab-rank")) ? localStorage.getItem("cmcg-ab-rank") : "registered";
+let abMetric = AB_METRICS[localStorage.getItem("cmcg-ab-metric")] && !AB_METRICS[localStorage.getItem("cmcg-ab-metric")].boardOnly ? localStorage.getItem("cmcg-ab-metric") : "registered";
+let abChartType = localStorage.getItem("cmcg-ab-chart") === "bars" ? "bars" : "line";
+let abCumulative = localStorage.getItem("cmcg-ab-cumulative") !== "0";
+let abPeriod = { preset: "report", from: "", to: "", ...readStoredJson("cmcg-ab-period", {}) };
+if (!AM_PRESETS.some(([key]) => key === abPeriod.preset)) abPeriod.preset = "report";
+const abHidden = new Set();
+
+function abSavePrefs() {
+  try {
+    localStorage.setItem("cmcg-ab-view", abView);
+    localStorage.setItem("cmcg-ab-rank", abRank);
+    localStorage.setItem("cmcg-ab-metric", abMetric);
+    localStorage.setItem("cmcg-ab-chart", abChartType);
+    localStorage.setItem("cmcg-ab-cumulative", abCumulative ? "1" : "0");
+    localStorage.setItem("cmcg-ab-period", JSON.stringify(abPeriod));
+  } catch {}
+}
+
+function abAgents() { return state.agents.filter((agent) => agent.active !== false); }
+function abColor(agentId) { return AB_COLORS[Math.max(0, state.agents.findIndex((agent) => agent.id === agentId)) % AB_COLORS.length]; }
+
+function abRows(range) {
+  const breakEven = amBreakEven();
+  const targets = CmcgProfit.derivedBreakEvens(amConversionTotals(), breakEven);
+  const performance = performanceRows("agent", true, "quality", range);
+  return abAgents().map((agent) => {
+    const row = performance.find((item) => item.key === agent.id) || { ...emptyMetrics(), key: agent.id, name: agent.name };
+    return {
+      ...row,
+      agent,
+      name: agent.name,
+      reg: CmcgProfit.verdict(row.spend, row.registered, breakEven),
+      bookedVerdict: CmcgProfit.verdict(row.spend, row.booked, targets.booked),
+      costRegistered: row.registered ? row.spend / row.registered : null,
+      costBooked: row.booked ? row.spend / row.booked : null,
+      margin: Number(row.registered || 0) * breakEven - Number(row.spend || 0),
+      targets,
+    };
+  });
+}
+
+function abRankValue(row, key) {
+  if (key === "costRegistered" || key === "costBooked") return row[key];
+  if (key === "margin") return row.spend > 0 || row.registered > 0 ? row.margin : null;
+  return Number(row[key] || 0);
+}
+
+function abSortRows(rows) {
+  const better = AB_METRICS[abRank].better;
+  return [...rows].sort((a, b) => {
+    const left = abRankValue(a, abRank);
+    const right = abRankValue(b, abRank);
+    if (left === null || right === null) return left === right ? b.registered - a.registered : left === null ? 1 : -1;
+    return (better === "low" ? left - right : right - left) || b.registered - a.registered || a.spend - b.spend;
+  });
+}
+
+function abFormat(key, value) {
+  if (value === null || value === undefined) return "—";
+  const kind = AB_METRICS[key].kind;
+  return kind === "count" ? number(value) : key === "margin" ? pfSignedMoney(value) : money(value);
+}
+
+function abBoardHtml(rows) {
+  if (!rows.length) return '<p class="empty fbam-empty">Add agents to compare their results.</p>';
+  const sorted = abSortRows(rows);
+  const leaderValue = abRankValue(sorted[0], abRank);
+  const maxRegistered = Math.max(1, ...rows.map((row) => row.registered));
+  const maxBooked = Math.max(1, ...rows.map((row) => row.booked));
+  const bar = (value, max, color) => `<span class="ab-bar"><span style="width:${((value / max) * 100).toFixed(1)}%;background:${color}"></span></span>`;
+  const body = sorted.map((row, index) => {
+    const value = abRankValue(row, abRank);
+    const rank = value === null ? "—" : index + 1;
+    const color = abColor(row.agent.id);
+    let gap = "";
+    if (index > 0 && value !== null && leaderValue !== null) {
+      const diff = Math.abs(value - leaderValue);
+      gap = AB_METRICS[abRank].kind === "count" ? `${number(diff)} behind #1` : `${money(diff)} ${AB_METRICS[abRank].better === "low" ? "more" : "less"} than #1`;
+    }
+    return `<tr class="ab-row pf-row-${row.reg.key}${rank === 1 ? " is-leader" : ""}">
+      <td class="ab-rank-cell"><span class="ab-rank ab-rank-${rank}">${rank === 1 ? "🏆" : ""}${rank}</span></td>
+      <td class="ab-agent-cell"><div class="ab-agent"><span class="ab-dot" style="background:${color}"></span><div><button class="fbam-agent-link" type="button" data-edit-agent="${escapeHtml(row.agent.id)}">${escapeHtml(row.name)}</button><small>${escapeHtml(gap || (rank === 1 ? "Leader" : ""))}</small></div></div></td>
+      <td>${pfVerdictChip(row.reg)}</td>
+      <td class="number-cell${abRank === "registered" ? " is-ranked" : ""}"><strong>${number(row.registered)}</strong>${bar(row.registered, maxRegistered, color)}</td>
+      <td class="number-cell${abRank === "booked" ? " is-ranked" : ""}"><strong>${number(row.booked)}</strong>${bar(row.booked, maxBooked, color)}</td>
+      <td class="number-cell${abRank === "costRegistered" ? " is-ranked" : ""}">${pfCostCell(row.reg)}</td>
+      <td class="number-cell${abRank === "costBooked" ? " is-ranked" : ""}">${pfPill(row.bookedVerdict, row.targets.booked, "RDV")}</td>
+      <td class="number-cell${abRank === "margin" ? " is-ranked" : ""}">${row.reg.key === "idle" ? '<span class="pf-dash">—</span>' : `<strong class="pf-margin ${row.margin >= 0 ? "is-positive" : "is-negative"}">${pfSignedMoney(row.margin)}</strong>`}</td>
+      <td class="number-cell">${number(row.messages)}</td>
+      <td class="number-cell">${money(row.spend)}</td>
+      <td>${agentClosingBadge(row)}</td>
+    </tr>`;
+  }).join("");
+  const head = ["#", "Agent", "Verdict", "Registered", "RDV", "Cost / registration", "Cost / RDV", "Margin vs break-even", "Messages", "Amount spent", "Closing"];
+  const keys = [null, null, null, "registered", "booked", "costRegistered", "costBooked", "margin", null, null, null];
+  return `<div class="fbam-grid"><table class="fbam-table ab-table"><thead><tr>${head.map((label, index) => keys[index] ? `<th class="number-cell" aria-sort="${abRank === keys[index] ? (AB_METRICS[keys[index]].better === "low" ? "ascending" : "descending") : "none"}"><button class="fbam-sort${abRank === keys[index] ? " active" : ""}" type="button" data-ab-rank="${keys[index]}"><span>${escapeHtml(label)}</span><span class="fbam-sort-arrow" aria-hidden="true">${AB_METRICS[keys[index]].better === "low" ? "▲" : "▼"}</span></button></th>` : `<th><span class="ab-th">${escapeHtml(label)}</span></th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+// Per-agent daily spend/messages/RDV/registrations inside the range.
+function abDaily(range) {
+  const buckets = new Map();
+  const add = (agentId, date, field, value) => {
+    if (!agentId || !date) return;
+    if (!buckets.has(agentId)) buckets.set(agentId, new Map());
+    const days = buckets.get(agentId);
+    if (!days.has(date)) days.set(date, { spend: 0, messages: 0, booked: 0, registered: 0 });
+    days.get(date)[field] += value;
+  };
+  filteredLogs(range).forEach((log) => {
+    const agentId = relationForLog(log).agent?.id;
+    const date = dateOnly(log.reportingEnd || log.date || log.reportingStart);
+    add(agentId, date, "spend", Number(log.spend || 0));
+    add(agentId, date, "messages", Number(log.messages || 0));
+  });
+  filteredOutcomes(range).forEach((outcome) => {
+    if (outcome.type === "booked" || outcome.type === "registered") add(outcome.agentId, dateOnly(outcome.sourceDate || outcome.date), outcome.type, 1);
+  });
+  return buckets;
+}
+
+function abChartRange(range) {
+  const to = range.to || dateInputValue(new Date());
+  if (range.from) return { from: range.from, to };
+  const first = state.dailyLogs.reduce((min, log) => { const date = dateOnly(log.reportingStart || log.date); return date && (!min || date < min) ? date : min; }, "");
+  return { from: first || dateInputValue(addDays(new Date(), -29)), to };
+}
+
+// One value per bucket per agent; cumulative mode draws the running trajectory.
+function abSeries(daily, agentId, buckets) {
+  const days = daily.get(agentId) || new Map();
+  const metric = AB_METRICS[abMetric];
+  let spend = 0;
+  let total = 0;
+  return buckets.map((bucket) => {
+    const sums = bucket.days.reduce((acc, date) => {
+      const day = days.get(date);
+      if (day) Object.keys(acc).forEach((key) => { acc[key] += day[key]; });
+      return acc;
+    }, { spend: 0, messages: 0, booked: 0, registered: 0 });
+    if (metric.kind === "cost") {
+      spend = abCumulative ? spend + sums.spend : sums.spend;
+      total = abCumulative ? total + sums[metric.result] : sums[metric.result];
+      return total ? spend / total : null;
+    }
+    const value = sums[abMetric];
+    total = abCumulative ? total + value : value;
+    return total;
+  });
+}
+
+function abBuckets(range) {
+  const days = eachDay(range.from, range.to);
+  const size = days.length > 45 ? 7 : 1;
+  const buckets = [];
+  for (let index = 0; index < days.length; index += size) buckets.push({ from: days[index], days: days.slice(index, index + size) });
+  return { buckets, weekly: size === 7 };
+}
+
+function abChartSvg(series, buckets, target) {
+  const width = 960;
+  const height = 320;
+  const left = 70;
+  const right = 120;
+  const top = 18;
+  const bottom = 36;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const count = buckets.length;
+  const metric = AB_METRICS[abMetric];
+  const format = (value) => (metric.kind === "count" ? number(value) : money(value));
+  const values = series.flatMap((item) => item.values).filter((value) => Number.isFinite(value));
+  const max = niceCeil(Math.max(0, ...values, target ? target * 1.2 : 0)) || 1;
+  const x = (index) => left + (count <= 1 ? plotWidth / 2 : (index * plotWidth) / (count - 1));
+  const y = (value) => top + plotHeight * (1 - Math.min(value, max) / max);
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((step) => max * step).map((value) => `<line class="pf-grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text class="pf-axis" x="${left - 8}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${escapeHtml(format(value))}</text>`).join("");
+  const targetLine = target ? `<rect class="pf-zone-bad" x="${left}" y="${top}" width="${plotWidth}" height="${Math.max(0, y(target) - top).toFixed(1)}"/><rect class="pf-zone-good" x="${left}" y="${y(target).toFixed(1)}" width="${plotWidth}" height="${Math.max(0, top + plotHeight - y(target)).toFixed(1)}"/><line class="pf-be-line" x1="${left}" x2="${width - right}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}"/><text class="pf-be-label" x="${left + 6}" y="${(y(target) - 6).toFixed(1)}">Break-even ${escapeHtml(money(target))}</text>` : "";
+  const step = Math.max(1, Math.ceil(count / 7));
+  const xLabels = buckets.map((bucket, index) => (index % step === 0 || index === count - 1) ? `<text class="pf-axis" x="${x(index).toFixed(1)}" y="${height - 12}" text-anchor="middle">${escapeHtml(pfShortDate(bucket.from))}</text>` : "").join("");
+  let marks = "";
+  if (abChartType === "bars") {
+    const slot = plotWidth / Math.max(1, count);
+    const barWidth = Math.max(2, Math.min(22, (slot * 0.8) / Math.max(1, series.length)));
+    series.forEach((item, seriesIndex) => {
+      item.values.forEach((value, index) => {
+        if (!Number.isFinite(value) || value <= 0) return;
+        const xPos = x(index) - (barWidth * series.length) / 2 + barWidth * seriesIndex; // grouped around the date
+        marks += `<rect class="ab-bar-mark" x="${xPos.toFixed(1)}" y="${y(value).toFixed(1)}" width="${(barWidth - 1).toFixed(1)}" height="${(top + plotHeight - y(value)).toFixed(1)}" fill="${item.color}"><title>${escapeHtml(`${item.name} · ${buckets[index].from}: ${format(value)}`)}</title></rect>`;
+      });
+    });
+  } else {
+    series.forEach((item) => {
+      let path = "";
+      let pen = false;
+      item.values.forEach((value, index) => {
+        if (!Number.isFinite(value)) { pen = false; return; }
+        path += `${pen ? "L" : "M"}${x(index).toFixed(1)} ${y(value).toFixed(1)}`;
+        pen = true;
+      });
+      const dots = item.values.map((value, index) => Number.isFinite(value) ? `<circle cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="${count > 40 ? 2 : 3}" fill="${item.color}"><title>${escapeHtml(`${item.name} · ${buckets[index].from}: ${format(value)}`)}</title></circle>` : "").join("");
+      marks += `<path class="ab-line" d="${path}" stroke="${item.color}"/>${dots}`;
+    });
+  }
+  // End labels, nudged apart so they never overlap.
+  const labels = series.map((item) => {
+    const last = item.values.map((value, index) => [value, index]).filter(([value]) => Number.isFinite(value)).pop();
+    return last ? { item, value: last[0], y: y(last[0]) } : null;
+  }).filter(Boolean).sort((a, b) => a.y - b.y);
+  labels.forEach((label, index) => { if (index && label.y - labels[index - 1].y < 15) label.y = labels[index - 1].y + 15; });
+  const endLabels = labels.map((label) => `<text class="ab-end-label" x="${width - right + 8}" y="${(label.y + 4).toFixed(1)}" fill="${label.item.color}">${escapeHtml(label.item.name)} · ${escapeHtml(format(label.value))}</text>`).join("");
+  const empty = !values.length ? `<text class="pf-empty-text" x="${left + plotWidth / 2}" y="${top + plotHeight / 2}" text-anchor="middle">No data in this period</text>` : "";
+  return `<svg class="ab-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric.label)}">${targetLine}${grid}${marks}${xLabels}${endLabels}${empty}</svg>`;
+}
+
+function abGraphHtml(rows, range) {
+  const chartRange = abChartRange(range);
+  const { buckets, weekly } = abBuckets(chartRange);
+  const daily = abDaily(chartRange);
+  const visible = rows.filter((row) => !abHidden.has(row.agent.id));
+  const totals = amTotals(visible);
+  const targets = rows[0]?.targets || CmcgProfit.derivedBreakEvens(amConversionTotals(), amBreakEven());
+  const cards = Object.entries(AB_METRICS).filter(([, metric]) => !metric.boardOnly).map(([key, metric]) => {
+    const value = metric.kind === "cost" ? (totals[metric.result] ? totals.spend / totals[metric.result] : null) : totals[key];
+    const target = key === "costRegistered" ? amBreakEven() : key === "costBooked" ? targets.booked : null;
+    const verdict = metric.kind === "cost" && target ? CmcgProfit.verdict(totals.spend, totals[metric.result], target) : null;
+    return `<button class="ab-card${abMetric === key ? " is-active" : ""}${verdict ? ` pf-${verdict.key}` : ""}" type="button" data-ab-metric="${key}" aria-pressed="${abMetric === key}"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(abFormat(key, value))}</strong>${target ? `<small><span>break-even</span> ${escapeHtml(money(target))}</small>` : ""}</button>`;
+  }).join("");
+  const chips = rows.map((row) => `<button class="ab-agent-chip${abHidden.has(row.agent.id) ? " is-off" : ""}" type="button" data-ab-agent="${escapeHtml(row.agent.id)}" aria-pressed="${!abHidden.has(row.agent.id)}"><i style="background:${abColor(row.agent.id)}"></i>${escapeHtml(row.name)}</button>`).join("");
+  const series = visible.map((row) => ({ name: row.name, color: abColor(row.agent.id), values: abSeries(daily, row.agent.id, buckets) }));
+  const target = abMetric === "costRegistered" ? amBreakEven() : abMetric === "costBooked" ? targets.booked : null;
+  const metric = AB_METRICS[abMetric];
+  const note = `${abCumulative ? (metric.kind === "cost" ? "Running cost since the start of the period" : "Running total since the start of the period") : (metric.kind === "cost" ? "Cost inside each" : "Total inside each")} ${abCumulative ? "" : (weekly ? "week" : "day")}`.trim();
+  return `<div class="ab-cards">${cards}</div>
+    <div class="ab-graph-controls">
+      <div class="ab-agent-chips"><button class="ab-agent-chip ab-all" type="button" data-ab-agent="">All agents</button>${chips}</div>
+      <div class="ab-toggles"><div class="fbam-mode" role="group" aria-label="Chart type"><button type="button" class="${abChartType === "line" ? "active" : ""}" data-ab-chart="line">Line</button><button type="button" class="${abChartType === "bars" ? "active" : ""}" data-ab-chart="bars">Bars</button></div><div class="fbam-mode" role="group" aria-label="Values"><button type="button" class="${abCumulative ? "active" : ""}" data-ab-cumulative="1">Trajectory</button><button type="button" class="${abCumulative ? "" : "active"}" data-ab-cumulative="0">Per ${weekly ? "week" : "day"}</button></div></div>
+    </div>
+    <div class="ab-chart-wrap">${abChartSvg(series, buckets, target)}</div>
+    <p class="pf-chart-legend"><span>${escapeHtml(metric.label)}</span><span>${escapeHtml(note)}</span>${target ? '<span><i class="pf-lg-be"></i>Break-even</span>' : ""}</p>`;
+}
+
+function renderAgentBoard() {
+  const root = document.getElementById("agentBoard");
+  if (!root || !state) return;
+  if (!root.dataset.ready) {
+    root.innerHTML = `<div class="fbam-toolbar"><div class="fbam-mode" role="tablist" aria-label="View"><button type="button" role="tab" data-ab-view="board"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3h10v3h4v3a5 5 0 0 1-5 5h-.3A5 5 0 0 1 13 16.9V19h4v2H7v-2h4v-2.1A5 5 0 0 1 8.3 14H8a5 5 0 0 1-5-5V6h4V3Zm0 5H5v1a3 3 0 0 0 2 2.8V8Zm10 3.8A3 3 0 0 0 19 9V8h-2v3.8Z"/></svg><span>Leaderboard</span></button><button type="button" role="tab" data-ab-view="graph"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19h16v2H2V3h2v16Zm3-3-1.5-1.3 4.2-4.8 3.1 2.7L18 6.7 19.5 8l-6.6 7.6-3-2.6L7 16Z"/></svg><span>Graphs</span></button></div><div class="ab-period"><label><span class="sr-only">Period</span><select data-ab-preset>${AM_PRESETS.map(([key, label]) => `<option value="${key}">${escapeHtml(label)}</option>`).join("")}</select></label><label class="ab-custom"><span class="sr-only">From</span><input type="date" data-ab-date="from" /></label><label class="ab-custom"><span class="sr-only">To</span><input type="date" data-ab-date="to" /></label><span class="ab-range" data-ab-range></span></div></div><div class="ab-body" data-ab-body></div>`;
+    root.dataset.ready = "1";
+    root.addEventListener("click", handleAgentBoardClick);
+    root.addEventListener("change", handleAgentBoardChange);
+  }
+  const range = amClampRange(amPresetRange(abPeriod.preset, abPeriod));
+  root.querySelectorAll("[data-ab-view]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.abView === abView);
+    button.setAttribute("aria-selected", String(button.dataset.abView === abView));
+  });
+  root.querySelector("[data-ab-preset]").value = abPeriod.preset;
+  root.querySelectorAll(".ab-custom").forEach((label) => label.classList.toggle("hidden", abPeriod.preset !== "custom"));
+  root.querySelector('[data-ab-date="from"]').value = abPeriod.from || "";
+  root.querySelector('[data-ab-date="to"]').value = abPeriod.to || "";
+  root.querySelector("[data-ab-range]").textContent = amRangeText(range);
+  const rows = abRows(range);
+  const rankChips = `<div class="ab-rank-by"><span>Rank by</span>${AB_RANKABLE.map((key) => `<button type="button" class="pf-chip${abRank === key ? " is-active ab-rank-active" : ""}" data-ab-rank="${key}" aria-pressed="${abRank === key}">${escapeHtml(AB_METRICS[key].label)}</button>`).join("")}</div>`;
+  root.querySelector("[data-ab-body]").innerHTML = abView === "graph" ? abGraphHtml(rows, range) : rankChips + abBoardHtml(rows);
+  applyLanguage(root);
+}
+
+function handleAgentBoardClick(event) {
+  const view = event.target.closest("[data-ab-view]");
+  const rank = event.target.closest("[data-ab-rank]");
+  const metric = event.target.closest("[data-ab-metric]");
+  const agent = event.target.closest("[data-ab-agent]");
+  const chart = event.target.closest("[data-ab-chart]");
+  const cumulative = event.target.closest("[data-ab-cumulative]");
+  if (view) abView = view.dataset.abView === "graph" ? "graph" : "board";
+  else if (rank) abRank = rank.dataset.abRank;
+  else if (metric) abMetric = metric.dataset.abMetric;
+  else if (chart) abChartType = chart.dataset.abChart;
+  else if (cumulative) abCumulative = cumulative.dataset.abCumulative === "1";
+  else if (agent) {
+    const id = agent.dataset.abAgent;
+    if (!id) abHidden.clear();
+    else if (abHidden.has(id)) abHidden.delete(id);
+    else if (abAgents().length - abHidden.size > 1) abHidden.add(id);
+  } else return;
+  abSavePrefs();
+  renderAgentBoard();
+}
+
+function handleAgentBoardChange(event) {
+  const preset = event.target.closest("[data-ab-preset]");
+  const date = event.target.closest("[data-ab-date]");
+  if (preset) {
+    abPeriod.preset = preset.value;
+    if (preset.value === "custom" && !abPeriod.from) Object.assign(abPeriod, amPresetRange("last30"));
+  } else if (date) {
+    abPeriod[date.dataset.abDate] = date.value;
+    abPeriod.preset = "custom";
+  } else return;
+  abSavePrefs();
+  renderAgentBoard();
+}
+
 function renderOverviewTables() {
   renderAdsManager();
-  const agents = performanceRows("agent", true, "quality").filter((row) => row.key !== "__unassigned");
-  document.getElementById("agentRows").innerHTML = agents.length ? agents.map((row) => `<tr class="${qualityRowClass(row)}"><td><strong>${escapeHtml(row.name)}</strong></td><td>${qualityBadge(row)}</td><td>${agentClosingBadge(row)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${row.booked}</td><td class="number-cell">${row.visits}</td><td class="number-cell"><strong>${row.registered}</strong></td><td class="number-cell">${cost(row.spend, row.registered)}</td></tr>`).join("") : '<tr><td colspan="8" class="empty">Add agents to compare their results.</td></tr>';
+  renderAgentBoard();
 }
 
 function entityCell(row, type = groupBy) {
