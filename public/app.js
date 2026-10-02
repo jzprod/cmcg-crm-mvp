@@ -2207,7 +2207,10 @@ function amRowHtml(data, level, row, depth, open) {
     ? [row.relation.ad?.code ? `Code ${row.relation.ad.code}` : "Ad"]
     : [level === "campaign" ? row.relation.objective : "", `${childCount} ${amNoun(childLevel, childCount)}`].filter(Boolean);
   const context = contextParts.map((part) => `<span>${escapeHtml(part)}</span>`).join('<span aria-hidden="true"> · </span>');
-  const identity = `<td class="fbam-name-cell"><div class="fbam-name" style="--depth:${depth}">${toggle}${amIcon(level)}<div class="fbam-name-text">${name}<small>${context}</small></div>${analyze ? amChartButton(key, row.name) : addOutcomeButton(level, row.targetId, row.name)}</div></td>`;
+  const rowActions = analyze
+    ? `<div class="fbam-row-actions">${addOutcomeButton(level, row.targetId, row.name)}${amChartButton(key, row.name)}</div>`
+    : addOutcomeButton(level, row.targetId, row.name);
+  const identity = `<td class="fbam-name-cell"><div class="fbam-name" style="--depth:${depth}">${toggle}${amIcon(level)}<div class="fbam-name-text">${name}<small>${context}</small></div>${rowActions}</div></td>`;
   if (analyze) {
     const cells = amAnalyzeCells(row, level);
     return `<tr class="fbam-row fbam-${level} pf-row pf-row-${row.pf.reg.key}${open ? " is-open" : ""}" data-am-row="${escapeHtml(key)}">${identity}${AM_ANALYZE_COLUMNS.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cells[column.key]}</td>`).join("")}</tr>`;
