@@ -847,7 +847,6 @@ td { font-size: .8rem; }
 .fbam-name-plain { color: var(--fb-text); }
 .fbam-name-text small { overflow: hidden; color: var(--fb-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .fbam .row-add { width: 28px; height: 28px; min-height: 28px; flex: none; border-radius: 6px; font-size: 1rem; }
-.fbam-row-actions { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .fbam-delivery { display: inline-flex; align-items: center; gap: 7px; }
 .fbam-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #bcc0c4; }
 .fbam-dot.on { background: #31a24c; }
