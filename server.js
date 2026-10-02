@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { createStorage } = require("./storage");
+const { buildReport, toCsv, toMarkdown, todayIn } = require("./report");
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_FILE = process.env.CRM_DATA_FILE || path.join(__dirname, "data", "crm.json");
@@ -1173,6 +1174,39 @@ async function handleApi(req, res) {
           dailyLogs: state.dailyLogs.length,
         },
       });
+    }
+
+    if (method === "GET" && url.pathname === "/api/report") {
+      const query = url.searchParams;
+      const format = (query.get("format") || "json").toLowerCase();
+      if (!["json", "csv", "md"].includes(format)) return json(res, 400, { error: "format must be json, csv, or md" });
+      // Without login, student names and payments stay out of the export (same rule as /api/state).
+      const studentDataAllowed = hasAuth() || !hasSensitiveStudentData(state);
+      const report = buildReport(state, {
+        preset: query.get("preset") || "",
+        from: query.get("from") || "",
+        to: query.get("to") || "",
+        today: todayIn(process.env.REPORT_TIME_ZONE || "Africa/Casablanca"),
+        includePersonal: studentDataAllowed && query.get("personal") === "1",
+        includeStudents: studentDataAllowed,
+        respectDataStart: query.get("allData") !== "1",
+      });
+      let body;
+      let contentType;
+      try {
+        if (format === "csv") { body = toCsv(report, (query.get("table") || "all").toLowerCase()); contentType = "text/csv; charset=utf-8"; }
+        else if (format === "md") { body = toMarkdown(report); contentType = "text/markdown; charset=utf-8"; }
+        else { body = JSON.stringify(report, null, 2); contentType = "application/json; charset=utf-8"; }
+      } catch (error) {
+        return json(res, 400, { error: error.message });
+      }
+      const headers = { "Content-Type": contentType, "Cache-Control": "no-store" };
+      if (query.get("download") === "1") {
+        const table = format === "csv" && query.get("table") && query.get("table") !== "all" ? `-${query.get("table")}` : "";
+        headers["Content-Disposition"] = `attachment; filename="cmcg-report-${report.meta.period.from}_${report.meta.period.to}${table}.${format}"`;
+      }
+      res.writeHead(200, securityHeaders(headers));
+      return res.end(body);
     }
 
     if (method === "GET" && url.pathname === "/api/backup") {

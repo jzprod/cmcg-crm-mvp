@@ -31,6 +31,7 @@ Production-oriented attribution CRM for CMCG click-to-WhatsApp campaigns. It syn
 - Separates business quality from agent closing quality so ads and sales follow-up can be judged fairly.
 - Sorts every performance level by quality, spend, outcome totals, messages, rates, or lowest cost per outcome.
 - Assigns every imported ad a permanent case-insensitive 2-3 character tracking code.
+- Adds an **Export & AI** tab: a detailed data extractor for yesterday, last 7 days, last week, last month, or any custom range. One report covers totals, the same-length previous period, daily/weekly/weekday breakdowns, every campaign/ad set/ad (Meta IDs, delivery, CTR, CPM, frequency, cost per message/RDV/visit/registration, margin, break-even verdict, quality score, trend, daily series), every agent (closing rates, rankings, students, collected money, ROI, overdue payments), outcomes, trainings, students, payments, and rule-based decisions. Download it as Markdown for Claude/ChatGPT (with an analyst prompt and Meta IDs for an AI that can change the ad account), CSV for Excel, or JSON, or copy it to the clipboard. Names and phones are excluded unless requested.
 - Downloads and restores full JSON backups.
 - Provides a confirmed clean-start reset for removing old imports, spend, ads, outcomes, leads, and used creative codes.
 - Uses Hostinger MySQL in production and automatically snapshots the previous database state before every write.

@@ -78,6 +78,7 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 
 - `GET /api/health` - backend, persistence status, update time, and record counts.
 - `GET /api/backup` - authenticated full JSON download.
+- `GET /api/report` - admin-only detailed data extractor built by `report.js` (aggregation mirrors `performanceRows()`, ad data clamped to `profit.dataStartDate` unless `allData=1`). Query: `preset` (today, yesterday, last7, lastWeek, thisWeek, last14, last30, thisMonth, lastMonth, thisYear, lifetime) or `from`/`to`; `format` json | csv (`table` = all or one of summary, comparison, insights, daily, weekly, weekdays, campaigns, adsets, ads, agents, outcomes, trainings, students, payments) | md (AI-ready, includes analyst prompt and Meta IDs); `personal=1` adds names/phones/notes; `download=1` sets an attachment filename. "Today" uses `REPORT_TIME_ZONE` (default Africa/Casablanca). Student data is omitted when auth is not configured.
 - `POST /api/restore` - validates and restores a full JSON backup; the storage layer snapshots current data first.
 - `POST /api/meta-import` - validates and synchronizes an ad-level Meta Ads CSV.
 - `POST /api/settings/scoring` - saves optional timing/rate assumptions used by the automatic score.

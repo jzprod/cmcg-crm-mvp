@@ -1156,3 +1156,15 @@ main { width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Export & AI tab */
+.export-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; }
+.export-options { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; }
+.export-check { display: inline-flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--slate-700, #334155); }
+.export-check input[type="checkbox"] { width: 18px; height: 18px; min-height: 0; }
+.export-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.export-preview:empty { display: none; }
+.export-preview td small { display: block; color: var(--slate-500); }
+.export-api { margin-top: 14px; padding: 14px; }
+.export-code { display: block; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--slate-50); border: 1px solid var(--slate-200); font-size: .8rem; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .export-grid { grid-template-columns: 1fr; } .export-actions .button { flex: 1 1 100%; } }

@@ -23,6 +23,7 @@ const pageMeta = {
   students: ["Étudiants", "Filtrez par formation, groupe, statut ou paiement, puis gérez chaque étudiant."],
   agents: ["Agents", "Manage automatic ad-set assignment."],
   reports: ["Rapports", "Rapport détaillé par agent: publicité, ROI, closing, étudiants et paiements."],
+  export: ["Export & AI", "Extract detailed daily, weekly, or custom reports for Excel or an AI analyst."],
   data: ["Import & data", "Synchronize Meta Ads and protect your CRM data."],
 };
 const outcomeMeta = {
@@ -5224,6 +5225,111 @@ function on(id, event, handler) {
   if (el) el.addEventListener(event, handler);
   return el;
 }
+// ---------- Data extractor (Export & AI tab) ----------
+function exportParams(format, { download = false } = {}) {
+  const preset = document.getElementById("exportPreset")?.value || "last7";
+  const params = new URLSearchParams({ format });
+  if (preset === "custom") {
+    const from = document.getElementById("exportFrom")?.value || "";
+    const to = document.getElementById("exportTo")?.value || "";
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+  } else params.set("preset", preset);
+  if (format === "csv") params.set("table", document.getElementById("exportTable")?.value || "all");
+  if (document.getElementById("exportPersonal")?.checked) params.set("personal", "1");
+  if (document.getElementById("exportAllData")?.checked) params.set("allData", "1");
+  if (download) params.set("download", "1");
+  return params;
+}
+
+function syncExportForm() {
+  const custom = document.getElementById("exportPreset")?.value === "custom";
+  document.getElementById("exportFromField")?.classList.toggle("hidden", !custom);
+  document.getElementById("exportToField")?.classList.toggle("hidden", !custom);
+  if (custom && !document.getElementById("exportFrom").value) {
+    document.getElementById("exportFrom").value = filters.from || "";
+    document.getElementById("exportTo").value = filters.to || "";
+  }
+  const example = document.getElementById("exportApiExample");
+  if (example) example.textContent = `${window.location.origin}/api/report?${exportParams("md").toString()}`;
+}
+
+async function fetchExport(format) {
+  const response = await fetch(`/api/report?${exportParams(format).toString()}`, { cache: "no-store" });
+  if (!response.ok) {
+    let message = `Export failed (${response.status})`;
+    try { message = (await response.json()).error || message; } catch {}
+    throw new Error(message);
+  }
+  return format === "json" ? response.json() : response.text();
+}
+
+function exportVerdictPill(verdict) {
+  const tone = { scale: "quality-strong", profit: "quality-strong", edge: "quality-strong", even: "quality-watch", learning: "quality-pending", loss: "quality-watch", losing: "quality-weak", heavy: "quality-weak", idle: "quality-pending" }[verdict?.key] || "quality-pending";
+  return `<span class="status-pill ${tone}">${escapeHtml(verdict?.label || "-")}</span>`;
+}
+
+function renderExportPreview(report) {
+  const box = document.getElementById("exportPreview");
+  if (!box) return;
+  const s = report.summary;
+  const c = report.meta.currency;
+  const m = (value) => (value === null || value === undefined ? "—" : `${number(value)} ${c}`);
+  const p = (value) => (value === null || value === undefined ? "—" : `${number(value * 100)}%`);
+  const kpis = [
+    ["Spend", m(s.spend), `${report.meta.period.from} → ${report.meta.period.to}`, "neutral"],
+    ["Messages", number(s.messages), `${m(s.costPerMessage)} each`, "blue"],
+    ["Booked", number(s.booked), `${m(s.costPerBooked)} each`, "amber"],
+    ["Visits", number(s.visits), `show rate ${p(s.showRate)}`, "violet"],
+    ["Registered", number(s.registered), `${m(s.costPerRegistered)} each`, "green"],
+    ["Margin", m(s.margin), s.verdict.label, s.margin >= 0 ? "green" : "red"],
+  ].map(([label, value, detail, tone]) => `<article class="kpi ${tone}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
+  const insights = report.insights.slice(0, 25).map((item) => `<tr><td>${item.priority}</td><td>${escapeHtml(item.action)}</td><td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.level)}</small></td><td>${escapeHtml(item.reason)}</td></tr>`).join("");
+  const adSets = report.adSets.slice(0, 15).map((row) => `<tr><td><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.agent || "Unassigned")} · ${escapeHtml(row.campaign || "")}</small></td><td class="number-cell">${m(row.spend)}</td><td class="number-cell">${number(row.messages)}</td><td class="number-cell">${number(row.booked)}</td><td class="number-cell">${number(row.registered)}</td><td class="number-cell">${m(row.costPerRegistered)}</td><td>${exportVerdictPill(row.verdict)}</td></tr>`).join("");
+  const agents = report.agents.map((row) => `<tr><td><strong>${escapeHtml(row.name)}</strong></td><td class="number-cell">${m(row.spend)}</td><td class="number-cell">${number(row.booked)}</td><td class="number-cell">${number(row.registered)}</td><td class="number-cell">${m(row.costPerRegistered)}</td><td class="number-cell">${p(row.closing.showRate)}</td><td class="number-cell">${p(row.closing.closeRate)}</td><td class="number-cell">${row.school ? m(row.school.collectedInPeriod) : "—"}</td></tr>`).join("");
+  box.innerHTML = `<div class="kpis">${kpis}</div>
+    <div class="section-head"><div><h3>Suggested decisions (${number(report.insights.length)})</h3><p>Rule-based, from the break-even and your conversion rates. Paste the AI report into Claude or ChatGPT for a deeper read.</p></div></div>
+    <div class="table-wrap"><table><thead><tr><th>P</th><th>Action</th><th>Where</th><th>Why</th></tr></thead><tbody>${insights || '<tr><td colspan="4" class="empty">Nothing to flag in this period.</td></tr>'}</tbody></table></div>
+    <div class="section-head"><div><h3>Ad sets by spend</h3><p>${number(report.adSets.length)} ad sets · ${number(report.ads.length)} ads · ${number(report.campaigns.length)} campaigns in the file.</p></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Ad set</th><th>Spend</th><th>Msgs</th><th>Booked</th><th>Reg.</th><th>Cost/reg.</th><th>Verdict</th></tr></thead><tbody>${adSets || '<tr><td colspan="7" class="empty">No ad activity in this period.</td></tr>'}</tbody></table></div>
+    <div class="section-head"><div><h3>Agents</h3></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Agent</th><th>Spend</th><th>Booked</th><th>Reg.</th><th>Cost/reg.</th><th>Show rate</th><th>Close rate</th><th>Collected</th></tr></thead><tbody>${agents || '<tr><td colspan="8" class="empty">No agents yet.</td></tr>'}</tbody></table></div>`;
+  applyLanguage(box);
+}
+
+async function handleExportClick(event) {
+  const button = event.target.closest("[data-export]");
+  if (!button) return;
+  const action = button.dataset.export;
+  if (document.getElementById("exportPreset")?.value === "custom" && !document.getElementById("exportFrom")?.value) return toast("Choose a start date", "error");
+  if (["md", "csv", "json"].includes(action)) {
+    window.location.href = `/api/report?${exportParams(action, { download: true }).toString()}`;
+    return;
+  }
+  button.disabled = true;
+  try {
+    if (action === "copy") {
+      const text = await fetchExport("md");
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(`Report copied (${number(text.length)} characters). Paste it into Claude or ChatGPT.`);
+      } catch {
+        window.location.href = `/api/report?${exportParams("md", { download: true }).toString()}`;
+        toast("Clipboard blocked by the browser — the report was downloaded instead.", "error");
+      }
+    } else if (action === "preview") {
+      renderExportPreview(await fetchExport("json"));
+    }
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+on("exportForm", "click", handleExportClick);
+on("exportForm", "change", syncExportForm);
+syncExportForm();
 on("clearFilters", "click", () => {
   Object.keys(filters).forEach((key) => { filters[key] = ""; });
   applyPeriodPreset("last7", false);
