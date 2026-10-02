@@ -961,7 +961,7 @@ td { font-size: .8rem; }
 .pf-derived { margin: 0; color: #5c4a10; font-size: 12.5px; }
 .pf-derived strong { color: #3f3100; }
 .pf-derived small { display: block; margin-top: 3px; color: #7d6a2c; font-size: 11.5px; }
-.pf-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.pf-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .pf-kpi { min-width: 0; display: grid; align-content: start; gap: 2px; padding: 10px 12px; border-inline-start: 4px solid var(--pf-c); border-radius: 8px; background: var(--pf-soft); }
 .pf-kpi > span { color: var(--fb-muted); font-size: 12px; font-weight: 600; }
 .pf-kpi strong { color: var(--fb-text); font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -1168,3 +1168,5 @@ main { width: 100%; }
 .export-api { margin-top: 14px; padding: 14px; }
 .export-code { display: block; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--slate-50); border: 1px solid var(--slate-200); font-size: .8rem; overflow-wrap: anywhere; }
 @media (max-width: 760px) { .export-grid { grid-template-columns: 1fr; } .export-actions .button { flex: 1 1 100%; } }
+.revenue-kpi { cursor: default; }
+.revenue-kpi:hover { transform: none; }

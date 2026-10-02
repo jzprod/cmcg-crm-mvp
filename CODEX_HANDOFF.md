@@ -82,7 +82,7 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - `POST /api/restore` - validates and restores a full JSON backup; the storage layer snapshots current data first.
 - `POST /api/meta-import` - validates and synchronizes an ad-level Meta Ads CSV.
 - `POST /api/settings/scoring` - saves optional timing/rate assumptions used by the automatic score.
-- `POST /api/settings/profit` - saves the break-even cost per registration (`breakEvenCostPerRegistered` > 0) used by the Ads Manager Analyze mode.
+- `POST /api/settings/profit` - saves the break-even cost per registration (`breakEvenCostPerRegistered` > 0) used by the Ads Manager Analyze mode, plus `revenuePerRegistered` (average revenue per registered student, default 3000, >= 0), `revenueCurrency` (label, default "DH") and `exchangeRate` (revenue currency per 1 unit of the ad-account currency, default 10, > 0). Estimated revenue = registered x revenuePerRegistered; profit after ads = revenue - spend x exchangeRate; ROAS = revenue / (spend x exchangeRate). Shown on the Overview KPI row, in the Analyze summary (editable through the break-even Edit form), and in `/api/report`.
 - `POST /api/reset-data` - resets CRM records to a clean empty state while preserving centre/currency settings.
 - `POST /api/programs` - creates a training with numeric duration (value + unit), sessions/week, session hours, three prices (monthly/full/discounted), and the nidam-shift flag.
 - `PATCH /api/programs/:id` - updates a training and recomputes derived duration fields.

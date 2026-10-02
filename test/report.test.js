@@ -74,6 +74,10 @@ test("report aggregates ads, agents, outcomes and school data like the UI", () =
   assert.equal(report.summary.registered, 2);
   assert.equal(report.summary.visits, 3);
   assert.equal(report.summary.costPerRegistered, 130);
+  // Default revenue: 3000 DH per student, 1 USD-equivalent of spend = 10 DH.
+  assert.equal(report.summary.estimatedRevenue, 6000);
+  assert.equal(report.summary.profitAfterAds, 6000 - 2600);
+  assert.equal(report.meta.revenuePerRegistered, 3000);
   assert.equal(report.daily.length, 3);
   assert.equal(report.daily[1].spend, 190);
 
@@ -131,7 +135,7 @@ test("CSV export neutralizes formulas and markdown is AI-ready", () => {
   ["### SUMMARY", "### ADSETS", "### AGENTS", "### STUDENTS", "### INSIGHTS"].forEach((title) => assert.ok(all.includes(title), title));
   assert.throws(() => toCsv(report, "nope"), /Unknown table/);
   const md = toMarkdown(report);
-  ["## Summary", "## Ad sets", "## Agents", "Action plan", "| 211 |", "## Rule-based decisions"].forEach((part) => assert.ok(md.includes(part), part));
+  ["## Summary", "## Ad sets", "## Agents", "Action plan", "| 211 |", "## Rule-based decisions", "Est. revenue (DH)"].forEach((part) => assert.ok(md.includes(part), part));
 });
 
 function freePort() {

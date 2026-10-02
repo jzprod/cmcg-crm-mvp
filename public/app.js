@@ -1912,7 +1912,9 @@ function renderKpis() {
     ["Cost / registered", cost(values.spend, values.registered), "graph rises when cost falls", "red", "costRegisteredEfficiency"],
   ];
   const highlight = activeGoal() ? "" : activeChartMetric;
-  document.getElementById("kpis").innerHTML = items.map(([label, value, detail, style, metric]) => `<button class="kpi ${style} ${highlight === metric ? "selected" : ""}" type="button" data-kpi-metric="${metric}" aria-pressed="${highlight === metric}"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></button>`).join("");
+  const estimate = revenueEstimate(values.registered, values.spend);
+  const revenueTile = `<article class="kpi green revenue-kpi" title="Edit the revenue per student in Ads Manager → Analyze → Break-even → Edit"><span>Revenue (estimated)</span><strong>${escapeHtml(revenueMoney(estimate.revenue))}</strong><small>${escapeHtml(`${number(values.registered)} × ${revenueMoney(estimate.perStudent)}${estimate.roas === null ? "" : ` · profit ${estimate.profit >= 0 ? "+" : "−"}${revenueMoney(Math.abs(estimate.profit))} · ROAS ${number(estimate.roas)}×`}`)}</small></article>`;
+  document.getElementById("kpis").innerHTML = items.map(([label, value, detail, style, metric]) => `<button class="kpi ${style} ${highlight === metric ? "selected" : ""}" type="button" data-kpi-metric="${metric}" aria-pressed="${highlight === metric}"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></button>`).join("") + revenueTile;
   renderOverviewChart();
   const welcome = document.getElementById("welcomeState");
   welcome.classList.toggle("hidden", state.imports.length > 0);
@@ -2230,6 +2232,27 @@ function amRowHtml(data, level, row, depth, open) {
 
 // ---- Analyze mode: profitability against the break-even cost per registration ----
 function amBreakEven() { return Number(state.settings?.profit?.breakEvenCostPerRegistered) || 60; }
+// Average revenue per registered student, in the school's currency (DH), and the
+// rate that turns ad spend (Meta account currency) into that currency.
+function revenueSettings() {
+  const profit = state?.settings?.profit || {};
+  const perStudent = Number(profit.revenuePerRegistered);
+  return {
+    perStudent: Number.isFinite(perStudent) && perStudent >= 0 ? perStudent : 3000,
+    label: profit.revenueCurrency || "DH",
+    rate: Number(profit.exchangeRate) > 0 ? Number(profit.exchangeRate) : 10,
+  };
+}
+function revenueMoney(value) {
+  return `${new Intl.NumberFormat("en-MA", { maximumFractionDigits: 0 }).format(Math.round(Number(value || 0)))} ${revenueSettings().label}`;
+}
+// Estimated revenue and profit after ad spend for a number of registrations.
+function revenueEstimate(registered, spend) {
+  const settings = revenueSettings();
+  const revenue = Number(registered || 0) * settings.perStudent;
+  const spendLocal = Number(spend || 0) * settings.rate;
+  return { revenue, spendLocal, profit: revenue - spendLocal, roas: spendLocal > 0 ? revenue / spendLocal : null, ...settings };
+}
 
 // Ad data before this day is kept in the database but hidden from the Ads Manager, even on "Maximum".
 function amDataStart() { return state?.settings?.profit?.dataStartDate || ""; }
@@ -2412,10 +2435,11 @@ function amSummaryHtml(ctx, rows, totals) {
   const overallBooked = CmcgProfit.verdict(totals.spend, totals.booked, targets.booked);
   const overallMessage = CmcgProfit.verdict(totals.spend, totals.messages, targets.message);
   const margin = totals.registered * breakEven - totals.spend;
+  const estimate = revenueEstimate(totals.registered, totals.spend);
   const canEdit = currentUser?.role !== "sales";
   const breakEvenBlock = amEditingBreakEven
-    ? `<form class="pf-be-form" data-pf-be-form><label><span>Break-even cost per registration</span><input name="breakEven" type="number" min="1" step="0.01" value="${breakEven}" required /></label><label><span>Count ad data from <em>earlier data stays hidden</em></span><input name="dataStartDate" type="date" value="${escapeHtml(amDataStart())}" /></label><div class="pf-be-actions"><button class="fbam-btn primary" type="submit">Save</button><button class="fbam-btn" type="button" data-pf-be-cancel>Cancel</button></div></form>`
-    : `<div class="pf-be-value"><span class="pf-kicker">Break-even</span><div><strong>${money(breakEven)}</strong><small>per registration</small></div>${amDataStart() ? `<small class="pf-start-note"><span>Data from</span> ${escapeHtml(amDateLabel(amDataStart()))}</small>` : ""}${canEdit ? '<button class="fbam-btn pf-be-edit" type="button" data-pf-edit-be>Edit</button>' : ""}</div>`;
+    ? `<form class="pf-be-form" data-pf-be-form><label><span>Break-even cost per registration</span><input name="breakEven" type="number" min="1" step="0.01" value="${breakEven}" required /></label><label><span>Count ad data from <em>earlier data stays hidden</em></span><input name="dataStartDate" type="date" value="${escapeHtml(amDataStart())}" /></label><label><span>Average revenue per registered student</span><input name="revenuePerRegistered" type="number" min="0" step="1" value="${revenueSettings().perStudent}" required /></label><label><span>Revenue currency</span><input name="revenueCurrency" maxlength="8" value="${escapeHtml(revenueSettings().label)}" required /></label><label><span>1 ${escapeHtml(currency())} of ad spend = ? ${escapeHtml(revenueSettings().label)}</span><input name="exchangeRate" type="number" min="0.0001" step="0.0001" value="${revenueSettings().rate}" required /></label><div class="pf-be-actions"><button class="fbam-btn primary" type="submit">Save</button><button class="fbam-btn" type="button" data-pf-be-cancel>Cancel</button></div></form>`
+    : `<div class="pf-be-value"><span class="pf-kicker">Break-even</span><div><strong>${money(breakEven)}</strong><small>per registration</small></div>${amDataStart() ? `<small class="pf-start-note"><span>Data from</span> ${escapeHtml(amDateLabel(amDataStart()))}</small>` : ""}<small class="pf-start-note"><span>Revenue per student</span> ${escapeHtml(revenueMoney(revenueSettings().perStudent))} <span>· 1 ${escapeHtml(currency())} = ${escapeHtml(String(revenueSettings().rate))} ${escapeHtml(revenueSettings().label)}</span></small>${canEdit ? '<button class="fbam-btn pf-be-edit" type="button" data-pf-edit-be>Edit</button>' : ""}</div>`;
   const derived = [targets.booked ? `<strong>${money(targets.booked)}</strong> <span>per RDV</span>` : "", targets.message ? `<strong>${money(targets.message)}</strong> <span>per message</span>` : ""].filter(Boolean).join(' <span aria-hidden="true">·</span> ');
   const rates = [targets.bookedToRegistered ? `${percent(targets.bookedToRegistered)} <span>of RDVs register</span>` : "", targets.messageToRegistered ? `${percent(targets.messageToRegistered)} <span>of messages register</span>` : ""].filter(Boolean).join(' <span aria-hidden="true">·</span> ');
   const kpi = (label, verdict, value, detail) => `<div class="pf-kpi pf-${verdict ? verdict.key : "neutral"}"><span>${escapeHtml(label)}</span><strong>${value}</strong><small>${detail}</small></div>`;
@@ -2424,6 +2448,8 @@ function amSummaryHtml(ctx, rows, totals) {
     <div class="pf-kpis">
       ${kpi("Cost / registration", overall, overall.cost === null ? "—" : money(overall.cost), escapeHtml(overall.cost === null ? overall.label : pfVsText(overall.ratio)))}
       ${kpi("Margin vs break-even", { key: margin >= 0 ? "profit" : "losing" }, pfSignedMoney(margin), `<span>${number(totals.registered)} × ${money(breakEven)} − ${money(totals.spend)}</span>`)}
+      ${kpi("Revenue (estimated)", { key: estimate.revenue > 0 ? "profit" : "neutral" }, escapeHtml(revenueMoney(estimate.revenue)), `<span>${number(totals.registered)} × ${escapeHtml(revenueMoney(estimate.perStudent))}</span>`)}
+      ${kpi("Profit after ads", { key: estimate.profit >= 0 ? "profit" : "losing" }, `${estimate.profit >= 0 ? "+" : "−"}${escapeHtml(revenueMoney(Math.abs(estimate.profit)))}`, `<span>${estimate.roas === null ? "no spend" : `ROAS ${number(estimate.roas)}× · ads ${escapeHtml(revenueMoney(estimate.spendLocal))}`}</span>`)}
       ${kpi("Cost / RDV", targets.booked ? overallBooked : null, overallBooked.cost === null ? "—" : money(overallBooked.cost), targets.booked ? `<span>break-even</span> ${money(targets.booked)}` : "")}
       ${kpi("Cost / message", targets.message ? overallMessage : null, overallMessage.cost === null ? "—" : money(overallMessage.cost), targets.message ? `<span>break-even</span> ${money(targets.message)}` : "")}
     </div>
@@ -2714,10 +2740,10 @@ async function handleAdsManagerSubmit(event) {
   event.preventDefault();
   const breakEven = Number(form.elements.breakEven.value);
   try {
-    const result = await api("/api/settings/profit", { method: "POST", body: JSON.stringify({ breakEvenCostPerRegistered: breakEven, dataStartDate: form.elements.dataStartDate.value }) });
+    const result = await api("/api/settings/profit", { method: "POST", body: JSON.stringify({ breakEvenCostPerRegistered: breakEven, dataStartDate: form.elements.dataStartDate.value, revenuePerRegistered: Number(form.elements.revenuePerRegistered.value), revenueCurrency: form.elements.revenueCurrency.value, exchangeRate: Number(form.elements.exchangeRate.value) }) });
     state.settings = result.settings;
     amEditingBreakEven = false;
-    renderAdsManager();
+    render();
     toast("Settings saved");
   } catch (error) { toast(error.message, "error"); }
 }

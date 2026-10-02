@@ -259,6 +259,26 @@ test("break-even cost per registration defaults to 60, saves, and survives a dat
   assert.equal((await request("/api/state")).state.settings.profit.breakEvenCostPerRegistered, 45.5);
 });
 
+test("average revenue per registration defaults to 3000 DH and can be changed", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-revenue-test-"));
+  const { child, baseUrl, authHeader } = await startApp(path.join(tempDir, "crm.json"), { auth: true });
+  const request = (route, options = {}) => jsonRequest(baseUrl, route, { ...options, authHeader });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+
+  const defaults = (await request("/api/state")).state.settings.profit;
+  assert.equal(defaults.revenuePerRegistered, 3000);
+  assert.equal(defaults.revenueCurrency, "DH");
+  assert.equal(defaults.exchangeRate, 10);
+  await request("/api/settings/profit", { method: "POST", body: { revenuePerRegistered: -5 }, expectedStatus: 400 });
+  await request("/api/settings/profit", { method: "POST", body: { exchangeRate: 0 }, expectedStatus: 400 });
+  const saved = await request("/api/settings/profit", { method: "POST", body: { revenuePerRegistered: 3500, exchangeRate: 9.8 } });
+  assert.equal(saved.settings.profit.revenuePerRegistered, 3500);
+  assert.equal(saved.settings.profit.exchangeRate, 9.8);
+  assert.equal(saved.settings.profit.breakEvenCostPerRegistered, 60);
+  await request("/api/reset-data", { method: "POST", body: {} });
+  assert.equal((await request("/api/state")).state.settings.profit.revenuePerRegistered, 3500);
+});
+
 test("agents match quoted names with spelling slips, aliases, and the campaign as fallback", async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-agent-match-test-"));
   const { child, baseUrl } = await startApp(path.join(tempDir, "crm.json"));

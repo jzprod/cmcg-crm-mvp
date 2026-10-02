@@ -151,7 +151,9 @@ function addOutcome(target, outcome) {
 }
 
 // Derived rates and costs for any metric bundle.
-function derive(m, breakEven) {
+function derive(m, breakEven, rev = { perStudent: 0, rate: 1 }) {
+  const revenue = m.registered * rev.perStudent;
+  const spendLocal = m.spend * rev.rate;
   const costPer = (count) => (Number(count) > 0 && m.spend > 0 ? m.spend / count : null);
   return {
     cpm: m.impressions > 0 ? (m.spend / m.impressions) * 1000 : null,
@@ -171,6 +173,9 @@ function derive(m, breakEven) {
     costPerShowed: costPer(m.showed),
     costPerRegistered: costPer(m.registered),
     margin: m.registered * breakEven - m.spend,
+    estimatedRevenue: revenue,
+    profitAfterAds: revenue - spendLocal,
+    roas: spendLocal > 0 ? revenue / spendLocal : null,
   };
 }
 
@@ -311,6 +316,12 @@ function buildReport(state, options = {}) {
   const breakEven = Number(state.settings?.profit?.breakEvenCostPerRegistered) || 60;
   const dataStartDate = state.settings?.profit?.dataStartDate || "";
   const currency = state.settings?.currency || "MAD";
+  const profitSettings = state.settings?.profit || {};
+  const rev = {
+    perStudent: Number(profitSettings.revenuePerRegistered) >= 0 && profitSettings.revenuePerRegistered !== undefined ? Number(profitSettings.revenuePerRegistered) : 3000,
+    label: profitSettings.revenueCurrency || "DH",
+    rate: Number(profitSettings.exchangeRate) > 0 ? Number(profitSettings.exchangeRate) : 10,
+  };
   const includePersonal = Boolean(options.includePersonal);
   const includeStudents = options.includeStudents !== false;
   const respectDataStart = options.respectDataStart !== false && Boolean(dataStartDate);
@@ -338,8 +349,8 @@ function buildReport(state, options = {}) {
   const derivedTargets = CmcgProfit.derivedBreakEvens(lifetime.total, breakEven);
 
   // ---------- Summary ----------
-  const summaryMetrics = { ...current.total, ...derive(current.total, breakEven) };
-  const previousMetrics = previous ? { ...previous.total, ...derive(previous.total, breakEven) } : null;
+  const summaryMetrics = { ...current.total, ...derive(current.total, breakEven, rev) };
+  const previousMetrics = previous ? { ...previous.total, ...derive(previous.total, breakEven, rev) } : null;
   const comparisonKeys = ["spend", "impressions", "linkClicks", "messages", "booked", "showed", "registered", "visits", "costPerMessage", "costPerBooked", "costPerVisit", "costPerRegistered", "showRate", "closeRate", "messageToRegisteredRate", "margin"];
   const comparison = {};
   if (previousMetrics) {
@@ -414,8 +425,8 @@ function buildReport(state, options = {}) {
     const scored = CmcgQuality.scoreRows(rows, state.settings || {}, new Date(`${period.today}T12:00:00Z`));
     return scored.map((row) => {
       const prev = previous?.levels[level].get(row.id);
-      const derived = derive(row, breakEven);
-      const prevDerived = prev ? derive(prev, breakEven) : null;
+      const derived = derive(row, breakEven, rev);
+      const prevDerived = prev ? derive(prev, breakEven, rev) : null;
       const daily = buildDailySeries(adRange, current.entityDaily[level].get(row.id) || new Map());
       const trend = CmcgProfit.halfTrend(daily, "registered");
       const base = {};
@@ -585,9 +596,9 @@ function buildReport(state, options = {}) {
   });
   const scoredAgents = CmcgQuality.scoreRows(agentRowsRaw, state.settings || {}, new Date(`${period.today}T12:00:00Z`));
   const agents = scoredAgents.map((row) => {
-    const derived = derive(row, breakEven);
+    const derived = derive(row, breakEven, rev);
     const prev = previous?.levels.agent.get(row.id);
-    const prevDerived = prev ? derive(prev, breakEven) : null;
+    const prevDerived = prev ? derive(prev, breakEven, rev) : null;
     const mine = studentRows.filter((s) => s.agentId === row.id);
     const mineActive = mine.filter((s) => s.status !== "cancelled");
     const collected = mine.reduce((sum, s) => sum + s.paidInPeriod, 0);
@@ -691,7 +702,7 @@ function buildReport(state, options = {}) {
     date: day.date,
     weekday: WEEKDAYS[new Date(`${day.date}T00:00:00Z`).getUTCDay()],
     ...roundObject(Object.fromEntries([...BASE_KEYS, "booked", "showed", "registered", "visits"].map((key) => [key, day[key]]))),
-    ...roundObject(derive(day, breakEven)),
+    ...roundObject(derive(day, breakEven, rev)),
   }));
   const weekdayMap = new Map(WEEKDAYS.map((name) => [name, { weekday: name, days: 0, ...emptyMetrics() }]));
   buildDailySeries(adRange, current.daily).forEach((day) => {
@@ -770,6 +781,9 @@ function buildReport(state, options = {}) {
       previousPeriod: previousUsable ? { ...previousRange, days: daysBetween(previousRange.from, previousRange.to) + 1 } : null,
       dataStartDate: respectDataStart ? dataStartDate : "",
       breakEvenCostPerRegistered: breakEven,
+      revenuePerRegistered: rev.perStudent,
+      revenueCurrency: rev.label,
+      exchangeRate: rev.rate,
       derivedBreakEvens: {
         costPerBooked: round(derivedTargets.booked),
         costPerMessage: round(derivedTargets.message),
@@ -812,6 +826,9 @@ const DEFINITIONS = {
   showRate: "visits / booked",
   closeRate: "registered / visits",
   margin: "registered x break-even - spend (positive = profit vs break-even)",
+  estimatedRevenue: "registered x average revenue per student, in the revenue currency (DH)",
+  profitAfterAds: "estimated revenue - spend converted with the exchange rate, in the revenue currency",
+  roas: "estimated revenue / spend (both in the revenue currency)",
   verdict: "Cost per registration vs break-even: <=0.5 very profitable, <=0.8 profitable, <0.95 slightly profitable, 0.95-1.05 break-even, <=1.3 slight loss, <=2 losing, >2 heavy loss; spend without registration is Learning below break-even",
   frequency: "impressions / summed daily reach (approximate across days)",
   quality: "Automatic business-quality score learned from all rows of the same level",
@@ -1029,6 +1046,7 @@ function toMarkdown(report) {
   out.push(`Centre: ${report.meta.centre.name || "CMCG"} (${report.meta.centre.city || ""}) · Currency: ${c} · Period: ${report.meta.period.from} -> ${report.meta.period.to} (${report.meta.period.days} days, preset ${report.meta.period.preset})`);
   if (report.meta.previousPeriod) out.push(`Compared with previous period: ${report.meta.previousPeriod.from} -> ${report.meta.previousPeriod.to}`);
   out.push(`Break-even cost per registration: ${m(report.meta.breakEvenCostPerRegistered)} ${c} · Derived break-even per booked appointment: ${m(report.meta.derivedBreakEvens.costPerBooked)} · per message: ${m(report.meta.derivedBreakEvens.costPerMessage)}`);
+  out.push(`Average revenue per registered student: ${report.meta.revenuePerRegistered} ${report.meta.revenueCurrency} · 1 ${c} of ad spend = ${report.meta.exchangeRate} ${report.meta.revenueCurrency}`);
   out.push(`Generated: ${report.meta.generatedAt}`);
   out.push("");
   out.push("> **Instructions for the AI analyst:** This is a click-to-WhatsApp advertising business (a training centre). Meta reports spend and conversations; the CRM adds booked appointments, centre visits and registered students, which are the real goal. Judge ads by cost per registration against the break-even above, not by cost per message. Using the data below: (1) list what is working and why, (2) list what is not working and why, (3) give concrete decisions per campaign / ad set / ad (scale by how much, keep, fix, pause), (4) assess each sales agent's follow-up and closing, (5) flag data problems that make the analysis unreliable. Be specific and cite the numbers.");
@@ -1039,6 +1057,9 @@ function toMarkdown(report) {
   out.push(mdTable([s], [
     ["Spend", (r) => m(r.spend)], ["Impr.", (r) => r.impressions], ["Link clicks", (r) => r.linkClicks], ["Messages", (r) => r.messages], ["Booked", (r) => r.booked], ["Showed", (r) => r.showed], ["Registered", (r) => r.registered],
     ["Cost/msg", (r) => m(r.costPerMessage)], ["Cost/booked", (r) => m(r.costPerBooked)], ["Cost/visit", (r) => m(r.costPerVisit)], ["Cost/reg.", (r) => m(r.costPerRegistered)], ["Margin", (r) => m(r.margin)], ["Verdict", (r) => r.verdict.label],
+  ]));
+  out.push(mdTable([s], [
+    [`Est. revenue (${report.meta.revenueCurrency})`, (r) => Math.round(r.estimatedRevenue)], [`Profit after ads (${report.meta.revenueCurrency})`, (r) => Math.round(r.profitAfterAds)], ["ROAS", (r) => (r.roas === null ? "-" : `${r.roas.toFixed(1)}x`)],
   ]));
   out.push(mdTable([s], [
     ["CPM", (r) => m(r.cpm)], ["Link CTR", (r) => p(r.ctrLink)], ["CPC", (r) => m(r.cpcLink)], ["Frequency", (r) => m(r.frequency)], ["Reply rate", (r) => p(r.replyRate)], ["Msg->booked", (r) => p(r.messageToBookedRate)], ["Show rate", (r) => p(r.showRate)], ["Close rate", (r) => p(r.closeRate)], ["Msg->reg.", (r) => p(r.messageToRegisteredRate)],
@@ -1073,7 +1094,7 @@ function toMarkdown(report) {
   out.push("## Agents");
   out.push(mdTable(report.agents, [
     ["Agent", (r) => r.name], ["Spend", (r) => m(r.spend)], ["Msgs", (r) => r.messages], ["Booked", (r) => r.booked], ["Showed", (r) => r.showed], ["Reg.", (r) => r.registered], ["Cost/reg.", (r) => m(r.costPerRegistered)], ["Margin", (r) => m(r.margin)], ["Msg->booked", (r) => p(r.messageToBookedRate)], ["Show rate", (r) => p(r.closing.showRate)], ["Close rate", (r) => p(r.closing.closeRate)], ["Closing score", (r) => r.closing.score ?? r.closing.status],
-    ["Verdict", (r) => r.verdict.label], ["Rank reg.", (r) => r.ranks?.registered], ["Students (period)", (r) => r.school?.studentsRegisteredInPeriod], ["Collected", (r) => m(r.school?.collectedInPeriod)], ["ROI", (r) => r.school?.roi], ["Overdue", (r) => r.school?.overdueStudents], ["Prev reg.", (r) => r.previous?.registered], ["Best ad set", (r) => r.bestAdSets[0]?.name], ["Worst ad set", (r) => r.worstAdSets[0]?.name],
+    ["Verdict", (r) => r.verdict.label], [`Est. revenue (${report.meta.revenueCurrency})`, (r) => Math.round(r.estimatedRevenue)], ["ROAS", (r) => (r.roas === null ? "-" : `${r.roas.toFixed(1)}x`)], ["Rank reg.", (r) => r.ranks?.registered], ["Students (period)", (r) => r.school?.studentsRegisteredInPeriod], ["Collected", (r) => m(r.school?.collectedInPeriod)], ["ROI", (r) => r.school?.roi], ["Overdue", (r) => r.school?.overdueStudents], ["Prev reg.", (r) => r.previous?.registered], ["Best ad set", (r) => r.bestAdSets[0]?.name], ["Worst ad set", (r) => r.worstAdSets[0]?.name],
   ]));
   out.push("## Daily");
   out.push(mdTable(report.daily, [["Date", (r) => r.date], ["Day", (r) => r.weekday.slice(0, 3)], ["Spend", (r) => m(r.spend)], ["Impr.", (r) => r.impressions], ["Msgs", (r) => r.messages], ["Booked", (r) => r.booked], ["Showed", (r) => r.showed], ["Reg.", (r) => r.registered], ["Cost/msg", (r) => m(r.costPerMessage)], ["Cost/reg.", (r) => m(r.costPerRegistered)]]));

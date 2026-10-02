@@ -74,7 +74,9 @@ function normalizeScoringSettings(input = {}) {
 }
 
 // dataStartDate: ad data before this day is kept but hidden from the Ads Manager ("" shows everything).
-const DEFAULT_PROFIT = { breakEvenCostPerRegistered: 60, dataStartDate: "2026-10-01" };
+// Revenue is entered in the school's currency (DH); exchangeRate converts one unit of
+// the ad-account currency into it so spend and revenue can be compared.
+const DEFAULT_PROFIT = { breakEvenCostPerRegistered: 60, dataStartDate: "2026-10-01", revenuePerRegistered: 3000, revenueCurrency: "DH", exchangeRate: 10 };
 
 // Break-even = the most one registration may cost before an ad loses money.
 function normalizeProfitSettings(input = {}) {
@@ -83,6 +85,11 @@ function normalizeProfitSettings(input = {}) {
   return {
     breakEvenCostPerRegistered: breakEven > 0 ? Math.round(breakEven * 100) / 100 : DEFAULT_PROFIT.breakEvenCostPerRegistered,
     dataStartDate: /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : "",
+    revenuePerRegistered: input.revenuePerRegistered === undefined || !(finiteNumber(input.revenuePerRegistered) >= 0)
+      ? DEFAULT_PROFIT.revenuePerRegistered
+      : Math.round(finiteNumber(input.revenuePerRegistered) * 100) / 100,
+    revenueCurrency: cleanText(input.revenueCurrency).slice(0, 8) || DEFAULT_PROFIT.revenueCurrency,
+    exchangeRate: finiteNumber(input.exchangeRate) > 0 ? Math.round(finiteNumber(input.exchangeRate) * 10000) / 10000 : DEFAULT_PROFIT.exchangeRate,
   };
 }
 
@@ -1249,6 +1256,8 @@ async function handleApi(req, res) {
       const next = { ...state.settings.profit, ...body };
       if (!(finiteNumber(next.breakEvenCostPerRegistered) > 0)) return json(res, 400, { error: "Break-even cost per registration must be greater than 0" });
       if (next.dataStartDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(next.dataStartDate))) return json(res, 400, { error: "Choose a valid start date" });
+      if (body.revenuePerRegistered !== undefined && !(finiteNumber(body.revenuePerRegistered) >= 0)) return json(res, 400, { error: "Revenue per registered student must be 0 or more" });
+      if (body.exchangeRate !== undefined && !(finiteNumber(body.exchangeRate) > 0)) return json(res, 400, { error: "The exchange rate must be greater than 0" });
       state.settings.profit = normalizeProfitSettings(next);
       await storage.write(state);
       return json(res, 200, { settings: state.settings });
