@@ -726,6 +726,10 @@ test("production UI contains accessible controls and correctly encoded Arabic co
   assert.match(app, /applyPeriodPreset/);
   assert.match(html, /id="adsManager"/);
   assert.match(app, /renderAdsManager/);
+  assert.match(app, /data-am-inactive/);
+  assert.match(app, /amShowInactive/);
+  assert.match(app, /seedAll/);
+  assert.match(app, /cmcg-am-inactive/);
   assert.match(app, /cmcg-am-period/);
   assert.match(app, /periodRange/);
   assert.match(app, /data-kpi-metric/);

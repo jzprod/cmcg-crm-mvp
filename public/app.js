@@ -878,6 +878,7 @@ Object.assign(ar, {
   "Import a Meta Ads report to see campaigns, ad sets, and ads.": "استورد تقرير Meta Ads لرؤية الحملات والمجموعات والإعلانات.",
   "Record results": "تسجيل النتائج",
   "Analyze": "التحليل",
+  "Show inactive": "عرض غير النشطة",
   "Verdict": "الحكم",
   "Margin vs break-even": "الهامش مقابل نقطة التعادل",
   "Cost / RDV": "تكلفة الموعد",
@@ -1496,12 +1497,27 @@ function agentRevenue(agentId, useFilters = true, range = filters) {
   return { collected, potential };
 }
 
-function performanceRows(type = groupBy, useFilters = true, criterion = sortBy, range = filters) {
+function performanceRows(type = groupBy, useFilters = true, criterion = sortBy, range = filters, seedAll = false) {
   const rows = new Map();
   function ensure(key) {
     if (!key) return null;
     if (!rows.has(key)) rows.set(key, { ...groupDescriptor(key, type), ...emptyMetrics(), latestLog: null });
     return rows.get(key);
+  }
+  // Seed a zero-metric row for every known entity of this type, so paused /
+  // not-spending items still appear (the Ads Manager "show inactive" toggle).
+  if (seedAll) {
+    const seedSource = type === "ad" ? state.creatives : type === "adSet" ? state.adSets : type === "campaign" ? state.campaigns : state.agents;
+    const metaKey = type === "ad" ? "metaAdId" : type === "adSet" ? "metaAdSetId" : type === "campaign" ? "metaCampaignId" : null;
+    seedSource.forEach((entity) => {
+      if (metaKey && !entity[metaKey]) return; // only real Meta entities, not local placeholders
+      const relation = type === "ad" ? relationForAd(entity)
+        : type === "adSet" ? { adSet: entity, campaign: byId(state.campaigns, entity.campaignId), agent: byId(state.agents, entity.agentId), objective: entity.objective || "" }
+        : type === "campaign" ? { campaign: entity, objective: entity.objective || "" }
+        : { agent: entity };
+      if (!relationMatches(relation)) return;
+      ensure(groupKeyForRelation(relation, type));
+    });
   }
   const logs = useFilters ? filteredLogs(range) : state.dailyLogs;
   const outcomes = useFilters ? filteredOutcomes(range) : state.outcomes;
@@ -2024,6 +2040,7 @@ const amOpen = new Set([readStoredJson("cmcg-am-open", [])].flat().filter((key) 
 let amPeriod = { preset: "report", from: "", to: "", ...readStoredJson("cmcg-am-period", {}) };
 if (!AM_PRESETS.some(([key]) => key === amPeriod.preset)) amPeriod.preset = "report";
 let amMode = localStorage.getItem("cmcg-am-mode") === "analyze" ? "analyze" : "enter";
+let amShowInactive = localStorage.getItem("cmcg-am-inactive") === "1"; // show paused / not-spending entities too
 const AM_DEFAULT_SORT = { enter: { key: "quality", dir: "desc" }, analyze: { key: "spend", dir: "desc" } };
 function amValidSort(mode, sort) {
   const columns = mode === "analyze" ? AM_ANALYZE_COLUMNS : AM_COLUMNS;
@@ -2080,12 +2097,13 @@ function amSavePrefs() {
     amSorts[amMode] = amSort;
     localStorage.setItem("cmcg-am-sorts", JSON.stringify(amSorts));
     localStorage.setItem("cmcg-am-mode", amMode);
+    localStorage.setItem("cmcg-am-inactive", amShowInactive ? "1" : "0");
   } catch {}
 }
 
 function amBuildData(range, ctx = null) {
   const rows = {};
-  AM_LEVELS.forEach((level) => { rows[level] = performanceRows(level, true, "quality", range); });
+  AM_LEVELS.forEach((level) => { rows[level] = performanceRows(level, true, "quality", range, amShowInactive); });
   if (ctx) {
     AM_LEVELS.forEach((level) => { ctx.levelSpend[level] = rows[level].reduce((sum, row) => sum + Number(row.spend || 0), 0); });
     AM_LEVELS.forEach((level) => rows[level].forEach((row) => { row.pf = amProfile(row, level, ctx); }));
@@ -2439,7 +2457,7 @@ function amSortHeader(key, label, numeric = false, extraClass = "") {
 function amShellHtml() {
   const tabs = AM_LEVELS.map((level) => `<button class="fbam-tab" type="button" role="tab" data-am-level="${level}">${amIcon(level, "fbam-tab-icon")}<span>${AM_TABS[level]}</span></button>`).join("");
   const modes = `<div class="fbam-mode" role="tablist" aria-label="Mode"><button type="button" role="tab" data-am-mode="enter"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg><span>Record results</span></button><button type="button" role="tab" data-am-mode="analyze"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19h16v2H2V3h2v16Zm3-3-1.5-1.3 4.2-4.8 3.1 2.7L18 6.7 19.5 8l-6.6 7.6-3-2.6L7 16Z"/></svg><span>Analyze</span></button></div>`;
-  return `<div class="fbam-toolbar">${modes}<label class="fbam-search"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/></svg><span class="sr-only">Search by name or code</span><input type="search" data-am-search placeholder="Search by name or code" autocomplete="off" /></label><div class="fbam-date"><button class="fbam-date-button" type="button" data-am-date aria-haspopup="dialog" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v17H4V4h3V2Zm11 7H6v10h12V9Zm-9 2v2H7v-2h2Zm4 0v2h-2v-2h2Zm4 0v2h-2v-2h2Zm-8 4v2H7v-2h2Zm4 0v2h-2v-2h2Z"/></svg><span class="fbam-date-text"><strong data-am-date-preset></strong><span data-am-date-range></span></span><svg class="fbam-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5H7Z"/></svg></button><div class="fbam-picker hidden" data-am-picker role="dialog" aria-label="Date range"></div></div><span class="fbam-start hidden" data-am-start></span></div><div data-am-summary></div><div class="fbam-tabs" role="tablist" aria-label="Level">${tabs}</div><div class="fbam-grid"><table class="fbam-table"></table></div>`;
+  return `<div class="fbam-toolbar">${modes}<label class="fbam-search"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/></svg><span class="sr-only">Search by name or code</span><input type="search" data-am-search placeholder="Search by name or code" autocomplete="off" /></label><button class="fbam-inactive-toggle" type="button" data-am-inactive role="switch" aria-checked="false" title="Show paused and not-spending items for this period, not only those that spent"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5c-5 0-9 4.5-10 7 1 2.5 5 7 10 7s9-4.5 10-7c-1-2.5-5-7-10-7Zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/></svg><span>Show inactive</span></button><div class="fbam-date"><button class="fbam-date-button" type="button" data-am-date aria-haspopup="dialog" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v17H4V4h3V2Zm11 7H6v10h12V9Zm-9 2v2H7v-2h2Zm4 0v2h-2v-2h2Zm4 0v2h-2v-2h2Zm-8 4v2H7v-2h2Zm4 0v2h-2v-2h2Z"/></svg><span class="fbam-date-text"><strong data-am-date-preset></strong><span data-am-date-range></span></span><svg class="fbam-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5H7Z"/></svg></button><div class="fbam-picker hidden" data-am-picker role="dialog" aria-label="Date range"></div></div><span class="fbam-start hidden" data-am-start></span></div><div data-am-summary></div><div class="fbam-tabs" role="tablist" aria-label="Level">${tabs}</div><div class="fbam-grid"><table class="fbam-table"></table></div>`;
 }
 
 function amMonthHtml(year, month, draft, todayKey) {
@@ -2556,6 +2574,11 @@ function renderAdsManager() {
     tab.classList.toggle("active", active);
     tab.setAttribute("aria-selected", String(active));
   });
+  const inactiveToggle = root.querySelector("[data-am-inactive]");
+  if (inactiveToggle) {
+    inactiveToggle.classList.toggle("active", amShowInactive);
+    inactiveToggle.setAttribute("aria-checked", String(amShowInactive));
+  }
   root.querySelector("[data-am-date-preset]").textContent = amPeriod.preset === "report" ? periodLabels[selectedPeriod] || "Custom" : amPresetLabel(amPeriod.preset);
   root.querySelector("[data-am-date]").title = amPeriod.preset === "report" ? "Same as report period" : "Only this table changes. The report period at the top stays as it is.";
   root.querySelector("[data-am-date-range]").textContent = amRangeText(range);
@@ -2621,6 +2644,7 @@ function handleAdsManagerClick(event) {
     amSavePrefs(); renderAdsManager();
     return;
   }
+  if (event.target.closest("[data-am-inactive]")) { amShowInactive = !amShowInactive; amSavePrefs(); renderAdsManager(); return; }
   const tab = event.target.closest("[data-am-level]");
   if (tab) { amLevel = tab.dataset.amLevel; amSavePrefs(); renderAdsManager(); return; }
   const sort = event.target.closest("[data-am-sort]");

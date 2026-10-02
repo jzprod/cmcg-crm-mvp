@@ -746,6 +746,10 @@ td { font-size: .8rem; }
 .fbam-search input { height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--fb-text); font-size: 13px; }
 .fbam-search input:focus { border: 0; box-shadow: none; }
 
+.fbam-inactive-toggle { height: 36px; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid var(--fb-border); border-radius: 6px; background: white; color: var(--fb-muted); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.fbam-inactive-toggle:hover { background: var(--fb-hover); color: var(--fb-text); }
+.fbam-inactive-toggle svg { width: 16px; height: 16px; }
+.fbam-inactive-toggle.active { border-color: var(--fb-blue); background: var(--fb-blue-50); color: var(--fb-blue); }
 .fbam-date { position: relative; flex: 0 0 auto; }
 .fbam-date-button { height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px 0 12px; border: 1px solid var(--fb-border); border-radius: 6px; background: white; color: var(--fb-text); cursor: pointer; white-space: nowrap; }
 .fbam-date-button:hover { background: var(--fb-hover); }
