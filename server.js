@@ -398,7 +398,7 @@ function sendOperationsLockedPage(res) {
   res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG CRM locked</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0f172a;color:#fff;display:grid;min-height:100vh;place-items:center"><main style="max-width:640px;padding:28px"><p style="color:#86efac;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Secure area locked</p><h1>Student operations need CRM login first.</h1><p style="color:#cbd5e1;line-height:1.6">Add <strong>CRM_USER</strong>/<strong>CRM_PASSWORD</strong> for admin, or <strong>CRM_SALES_USER</strong>/<strong>CRM_SALES_PASSWORD</strong>/<strong>CRM_SALES_AGENT</strong> for a restricted sales login. Restart the app, then open this page again.</p></main></body></html>`);
 }
 
-const VERSIONED_ASSETS = ["app.js", "quality.js", "profit.js", "styles.css"];
+const VERSIONED_ASSETS = ["app.js", "quality.js", "profit.js", "coach.js", "styles.css"];
 
 // Stamp asset URLs in the page with a hash of their contents, so a CDN or browser
 // cache can never pair a freshly deployed index.html with an old app.js.
@@ -408,7 +408,7 @@ function versionAssetUrls(html) {
     try { hash.update(fs.readFileSync(path.join(PUBLIC_DIR, name))); } catch {}
   });
   const version = hash.digest("hex").slice(0, 12);
-  return html.replace(/(src|href)="\/(app\.js|quality\.js|profit\.js|styles\.css)"/g, `$1="/$2?v=${version}"`);
+  return html.replace(/(src|href)="\/(app\.js|quality\.js|profit\.js|coach\.js|styles\.css)"/g, `$1="/$2?v=${version}"`);
 }
 
 function serveStatic(req, res) {

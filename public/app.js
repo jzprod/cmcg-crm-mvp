@@ -2019,7 +2019,7 @@ const AM_COLUMNS = [
 const AM_ANALYZE_COLUMNS = [
   { key: "verdict", label: "Verdict" },
   { key: "costRegistered", label: "Cost / registration", numeric: true, total: "Per registration" },
-  { key: "margin", label: "Margin vs break-even", numeric: true, total: "Total margin" },
+  { key: "margin", label: "Profit (est.)", numeric: true, total: "Total profit" },
   { key: "registered", label: "Registered", numeric: true, total: "Total" },
   { key: "costBooked", label: "Cost / RDV", numeric: true, total: "Per RDV" },
   { key: "booked", label: "RDV", numeric: true, total: "Total" },
@@ -2193,7 +2193,27 @@ function amBranchMatches(data, level, row, query) {
   return amChildren(data, level, row).some((child) => amBranchMatches(data, AM_CHILD[level], child, query));
 }
 
-function amRowHtml(data, level, row, depth, open) {
+// Analyze filters: a verdict tier, or a watch list of rows that spent without a student.
+const AM_WATCH_FILTERS = {
+  nostudent: { label: "Spent, no student yet", test: (row, be) => Number(row.spend) > 0 && !Number(row.registered) },
+  near: { label: "Close to the limit", test: (row, be) => !Number(row.registered) && Number(row.spend) >= be * 0.5 && Number(row.spend) < be },
+  over: { label: "Past the limit", test: (row, be) => !Number(row.registered) && Number(row.spend) >= be },
+};
+function amFilterMatches(row) {
+  if (!amTierFilter || amMode !== "analyze" || !row.pf) return true;
+  const watch = AM_WATCH_FILTERS[amTierFilter];
+  return watch ? watch.test(row, row.pf.breakEven) : row.pf.reg.key === amTierFilter;
+}
+function amRowMatches(row, query) {
+  return (!query || amMatches(row, query)) && amFilterMatches(row);
+}
+// Does this row, or anything under it, pass the search and the analyze filter?
+function amBranchPasses(data, level, row, query) {
+  if (amRowMatches(row, query)) return true;
+  return amChildren(data, level, row).some((child) => amBranchPasses(data, AM_CHILD[level], child, query));
+}
+
+function amRowHtml(data, level, row, depth, open, dimmed = false) {
   const key = `${level}:${row.key}`;
   const childLevel = AM_CHILD[level];
   const childCount = amChildren(data, level, row).length;
@@ -2213,7 +2233,7 @@ function amRowHtml(data, level, row, depth, open) {
   const identity = `<td class="fbam-name-cell"><div class="fbam-name" style="--depth:${depth}">${toggle}${amIcon(level)}<div class="fbam-name-text">${name}<small>${context}</small></div>${analyze ? amChartButton(key, row.name) : addOutcomeButton(level, row.targetId, row.name)}</div></td>`;
   if (analyze) {
     const cells = amAnalyzeCells(row, level);
-    return `<tr class="fbam-row fbam-${level} pf-row pf-row-${row.pf.reg.key}${open ? " is-open" : ""}" data-am-row="${escapeHtml(key)}">${identity}${AM_ANALYZE_COLUMNS.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cells[column.key]}</td>`).join("")}</tr>`;
+    return `<tr class="fbam-row fbam-${level} pf-row pf-row-${row.pf.reg.key}${open ? " is-open" : ""}${dimmed ? " is-dimmed" : ""}" data-am-row="${escapeHtml(key)}">${identity}${AM_ANALYZE_COLUMNS.map((column) => `<td class="${column.numeric ? "number-cell" : ""}">${cells[column.key]}</td>`).join("")}</tr>`;
   }
   const delivery = amDelivery(row, level);
   const cells = {
@@ -2337,6 +2357,82 @@ function pfVsText(ratio) {
   return diff < 0 ? `${-diff}% under break-even` : `${diff}% over break-even`;
 }
 
+// Plain-language profit: students x revenue per student - ad spend, in DH.
+// ---- Decision coach: daily, duration-aware decisions per ad set and ad ----
+function coachLatestDate() {
+  const start = amDataStart();
+  return state.dailyLogs.map((log) => dateOnly(log.reportingEnd || log.date || log.reportingStart)).filter((date) => date && (!start || date >= start)).sort().pop() || "";
+}
+
+function coachDecisions() {
+  const latest = coachLatestDate();
+  if (!latest) return { latest: "", items: [] };
+  const from = [dateInputValue(addDays(parseInputDate(latest), -41)), amDataStart()].filter(Boolean).sort().pop();
+  const range = { from, to: latest };
+  const days = eachDay(from, latest);
+  const buckets = amDailyBuckets(range);
+  const options = { breakEven: amBreakEven(), latestDate: latest, money, date: amDateLabel };
+  const adRows = new Map(performanceRows("ad", true, "quality", range).map((row) => [row.key, row]));
+  const items = [];
+  state.adSets.filter((adSet) => adSet.metaAdSetId || buckets.has(`adSet:${adSet.id}`)).forEach((adSet) => {
+    const decision = CmcgCoach.decide({ name: adSet.name, level: "adSet", days: amDaySeries(buckets, `adSet:${adSet.id}`, days) }, options);
+    if (!decision) return;
+    const campaign = byId(state.campaigns, adSet.campaignId);
+    items.push({ ...decision, id: adSet.id, context: [campaign?.name, byId(state.agents, adSet.agentId)?.name || "no agent"].filter(Boolean).join(" · ") });
+  });
+  state.creatives.forEach((ad) => {
+    const row = adRows.get(ad.id);
+    if (!row) return;
+    const decision = CmcgCoach.decide({ name: ad.name, level: "ad", days: amDaySeries(buckets, `ad:${ad.id}`, days), impressions: row.impressions, linkClicks: row.linkClicks, reach: row.reach }, options);
+    if (!decision) return;
+    const relation = relationForAd(ad);
+    items.push({ ...decision, id: ad.id, context: [relation.adSet?.name, relation.agent?.name].filter(Boolean).join(" · ") });
+  });
+  return { latest, items: CmcgCoach.sortDecisions(items) };
+}
+
+function coachItemHtml(item) {
+  const levelLabel = item.level === "ad" ? "Ad" : "Ad set";
+  const meta = [levelLabel, item.context, `day ${item.age}`, `${money(item.spend)} spent`, `${number(item.registered)} student${item.registered === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  return `<li class="coach-item coach-${item.tone}"><div class="coach-item-head"><span class="coach-pill coach-${item.tone}">${escapeHtml(item.label)}</span><strong>${escapeHtml(item.name)}</strong></div><small class="coach-meta">${escapeHtml(meta)}</small><p>${escapeHtml(item.reason)}</p>${item.nextCheck ? `<small class="coach-next">Check again on <strong>${escapeHtml(amDateLabel(item.nextCheck))}</strong></small>` : ""}</li>`;
+}
+
+function coachHtml() {
+  if (!window.CmcgCoach) return "";
+  const { latest, items } = coachDecisions();
+  if (!latest) return "";
+  const today = dateInputValue(new Date());
+  const lag = Math.round((parseInputDate(today) - parseInputDate(latest)) / 86400000);
+  const groups = [
+    ["now", "Do today", "Clear signals: act on these now."],
+    ["soon", "Decide in the next days", "Each one has a date. Look again then."],
+    ["wait", "Leave alone for now", "Still learning or doing fine. Changing them now would hurt."],
+  ].map(([key, title, hint]) => {
+    const list = items.filter((item) => item.group === key);
+    if (!list.length) return "";
+    const body = `<ul class="coach-list">${list.map(coachItemHtml).join("")}</ul>`;
+    return key === "wait"
+      ? `<details class="coach-group"><summary><strong>${title}</strong> <span>${list.length}</span><small>${hint}</small></summary>${body}</details>`
+      : `<section class="coach-group"><h4>${title} <span>${list.length}</span></h4><small class="coach-hint">${hint}</small>${body}</section>`;
+  }).join("");
+  const stale = lag > 1 ? `<p class="coach-stale">Newest ad data is from ${escapeHtml(amDateLabel(latest))}. Import the latest Meta report so these decisions use yesterday's results.</p>` : "";
+  return `<div class="coach">
+    <div class="coach-head"><div><span class="pf-kicker">Decision coach</span><h3>What to do with your ads today</h3><small>Based on results up to <strong>${escapeHtml(amDateLabel(latest))}</strong> since ${escapeHtml(amDateLabel(amDataStart() || latest))}, recalculated after every import. Ignores the table's date picker.</small></div>
+    <details class="coach-rules"><summary>How it decides</summary><ul><li>The first ${CmcgCoach.LEARNING_DAYS} days are Meta's learning period: don't change budget, audience or creative.</li><li>No student and spend past your ${escapeHtml(money(amBreakEven()))} limit: pause, unless bookings are still open (then wait 2 days).</li><li>No student and half the limit spent: a decision date is set from the daily spend.</li><li>Students under 80% of the limit, at least 2 of them, after day 3: raise the budget 20% (30% if under half the limit), then wait 3 days before the next raise.</li><li>Over the limit: up to 30% over, fix the creative or follow-up; up to 2× over, cut the budget 30%; beyond that, pause.</li><li>Ads: copy creatives that bring 2+ cheap students; refresh those seen 3+ times per person or clicked by under 0.5% of viewers.</li></ul></details></div>
+    ${stale}
+    ${groups || '<p class="coach-empty">No ad set spent in the last 3 days of data.</p>'}
+  </div>`;
+}
+
+function pfProfitCell(registered, spend) {
+  const estimate = revenueEstimate(registered, spend);
+  const sign = estimate.profit >= 0 ? "+" : "−";
+  const detail = Number(registered)
+    ? `${number(registered)} student${Number(registered) > 1 ? "s" : ""} − ${revenueMoney(estimate.spendLocal)} ads`
+    : `no student yet · ${revenueMoney(estimate.spendLocal)} ads`;
+  return `<strong class="pf-margin ${estimate.profit >= 0 ? "is-positive" : "is-negative"}" title="${escapeHtml(`${number(registered)} × ${revenueMoney(estimate.perStudent)} − ad spend (${money(spend)} = ${revenueMoney(estimate.spendLocal)})`)}">${sign}${escapeHtml(revenueMoney(Math.abs(estimate.profit)))}</strong><small class="pf-profit-note">${escapeHtml(detail)}</small>`;
+}
+
 function pfSignedMoney(value) { return `${value >= 0 ? "+" : "−"}${money(Math.abs(value))}`; }
 
 function pfBullet(ratio) {
@@ -2404,7 +2500,7 @@ function amAnalyzeCells(row, level) {
   return {
     verdict: pfVerdictChip(pf.reg),
     costRegistered: pfCostCell(pf.reg),
-    margin: idle ? '<span class="pf-dash">—</span>' : `<strong class="pf-margin ${pf.margin >= 0 ? "is-positive" : "is-negative"}">${pfSignedMoney(pf.margin)}</strong>`,
+    margin: idle ? '<span class="pf-dash">—</span>' : pfProfitCell(row.registered, row.spend),
     registered: `<strong>${number(row.registered)}</strong>${pf.reg.lowData ? '<small class="pf-low">low data</small>' : ""}`,
     costBooked: pfPill(pf.booked, pf.targets.booked, "RDV"),
     booked: number(row.booked),
@@ -2422,7 +2518,7 @@ function amTotals(rows) {
   }, { spend: 0, messages: 0, booked: 0, visits: 0, registered: 0 });
 }
 
-function amSummaryHtml(ctx, rows, totals) {
+function amSummaryHtml(ctx, rows, totals, data = null) {
   const breakEven = ctx.breakEven;
   const targets = ctx.targets;
   const byTier = new Map(PF_TIER_ORDER.map((key) => [key, { count: 0, spend: 0 }]));
@@ -2430,7 +2526,27 @@ function amSummaryHtml(ctx, rows, totals) {
   const spendOf = (keys) => keys.reduce((sum, key) => sum + byTier.get(key).spend, 0);
   const share = (value) => totals.spend ? `${Math.round((value / totals.spend) * 100)}%` : "0%";
   const segments = PF_TIER_ORDER.filter((key) => byTier.get(key).spend > 0).map((key) => `<span class="pf-seg pf-${key}" style="flex:${byTier.get(key).spend}" title="${escapeHtml(`${CmcgProfit.TIERS[key].label}: ${money(byTier.get(key).spend)} (${share(byTier.get(key).spend)})`)}"></span>`).join("");
-  const chips = PF_TIER_ORDER.filter((key) => byTier.get(key).count > 0).map((key) => `<button class="pf-chip pf-${key}${amTierFilter === key ? " is-active" : ""}" type="button" data-pf-tier="${key}" aria-pressed="${amTierFilter === key}" title="${escapeHtml(CmcgProfit.TIERS[key].action)}"><i aria-hidden="true"></i><span>${escapeHtml(CmcgProfit.TIERS[key].label)}</span><strong>${byTier.get(key).count}</strong><small>${money(byTier.get(key).spend)}</small></button>`).join("");
+  // Counts at every level, so a chip can be used from the Campaigns tab to reach ads.
+  const levelRows = data ? data.rows : { [amLevel]: rows };
+  const levelCount = (test) => AM_LEVELS.map((level) => [level, (levelRows[level] || []).filter(test).length]).filter(([, count]) => count > 0);
+  const countText = (counts) => counts.map(([level, count]) => `${count} ${amNoun(level, count)}`).join(" · ");
+  const chips = PF_TIER_ORDER.filter((key) => levelCount((row) => row.pf?.reg.key === key).length).map((key) => {
+    const counts = levelCount((row) => row.pf?.reg.key === key);
+    return `<button class="pf-chip pf-${key}${amTierFilter === key ? " is-active" : ""}" type="button" data-pf-tier="${key}" aria-pressed="${amTierFilter === key}" title="${escapeHtml(`${CmcgProfit.TIERS[key].action} · ${countText(counts)}`)}"><i aria-hidden="true"></i><span>${escapeHtml(CmcgProfit.TIERS[key].label)}</span><strong>${escapeHtml(countText(counts))}</strong>${byTier.get(key).spend ? `<small>${money(byTier.get(key).spend)}</small>` : ""}</button>`;
+  }).join("");
+  const watchChips = Object.entries(AM_WATCH_FILTERS).map(([key, filter]) => {
+    const counts = levelCount((row) => row.pf && filter.test(row, breakEven));
+    if (!counts.length) return "";
+    const spendHere = rows.filter((row) => row.pf && filter.test(row, breakEven)).reduce((sum, row) => sum + Number(row.spend || 0), 0);
+    return `<button class="pf-chip pf-watch pf-watch-${key}${amTierFilter === key ? " is-active" : ""}" type="button" data-pf-tier="${key}" aria-pressed="${amTierFilter === key}"><i aria-hidden="true"></i><span>${escapeHtml(filter.label)}</span><strong>${escapeHtml(countText(counts))}</strong>${spendHere ? `<small>${money(spendHere)}</small>` : ""}</button>`;
+  }).join("");
+  const goodSpend = spendOf(["scale", "profit", "edge"]);
+  const badSpend = spendOf(["loss", "losing", "heavy"]);
+  const learnSpend = spendOf(["learning"]);
+  const parts = [goodSpend ? `<strong class="pf-good">${money(goodSpend)}</strong> went to ads that get students under your ${money(breakEven)} limit` : "", learnSpend ? `<strong class="pf-muted">${money(learnSpend)}</strong> went to ads with no student yet that are still under the limit` : "", badSpend ? `<strong class="pf-bad">${money(badSpend)}</strong> went to ads that cost more than the limit` : ""].filter(Boolean);
+  const plain = totals.spend
+    ? `Of <strong>${money(totals.spend)}</strong> spent, ${parts.length > 1 ? `${parts.slice(0, -1).join("; ")}; and ${parts[parts.length - 1]}` : parts[0] || "nothing has a verdict yet"}.`
+    : "No spend in this period.";
   const overall = CmcgProfit.verdict(totals.spend, totals.registered, breakEven);
   const overallBooked = CmcgProfit.verdict(totals.spend, totals.booked, targets.booked);
   const overallMessage = CmcgProfit.verdict(totals.spend, totals.messages, targets.message);
@@ -2447,7 +2563,7 @@ function amSummaryHtml(ctx, rows, totals) {
     <div class="pf-be">${breakEvenBlock}${derived ? `<p class="pf-derived"><span>Same limit for leading metrics:</span> ${derived}${rates ? `<small><span>From your real conversion:</span> ${rates}</small>` : ""}</p>` : '<p class="pf-derived"><small>Record RDVs and registrations to derive break-even costs per RDV and per message.</small></p>'}</div>
     <div class="pf-kpis">
       ${kpi("Cost / registration", overall, overall.cost === null ? "—" : money(overall.cost), escapeHtml(overall.cost === null ? overall.label : pfVsText(overall.ratio)))}
-      ${kpi("Margin vs break-even", { key: margin >= 0 ? "profit" : "losing" }, pfSignedMoney(margin), `<span>${number(totals.registered)} × ${money(breakEven)} − ${money(totals.spend)}</span>`)}
+      ${kpi(margin >= 0 ? "Room left under your limit" : "Over your limit by", { key: margin >= 0 ? "profit" : "losing" }, money(Math.abs(margin)), `<span>${margin >= 0 ? `You could spend this much more and still pay ${money(breakEven)} per student` : `${number(totals.registered)} students should cost at most ${money(totals.registered * breakEven)}`}</span>`)}
       ${kpi("Revenue (estimated)", { key: estimate.revenue > 0 ? "profit" : "neutral" }, escapeHtml(revenueMoney(estimate.revenue)), `<span>${number(totals.registered)} × ${escapeHtml(revenueMoney(estimate.perStudent))}</span>`)}
       ${kpi("Profit after ads", { key: estimate.profit >= 0 ? "profit" : "losing" }, `${estimate.profit >= 0 ? "+" : "−"}${escapeHtml(revenueMoney(Math.abs(estimate.profit)))}`, `<span>${estimate.roas === null ? "no spend" : `ROAS ${number(estimate.roas)}× · ads ${escapeHtml(revenueMoney(estimate.spendLocal))}`}</span>`)}
       ${kpi("Cost / RDV", targets.booked ? overallBooked : null, overallBooked.cost === null ? "—" : money(overallBooked.cost), targets.booked ? `<span>break-even</span> ${money(targets.booked)}` : "")}
@@ -2456,21 +2572,40 @@ function amSummaryHtml(ctx, rows, totals) {
     <div class="pf-money">
       <div class="pf-money-head"><strong>Where the money goes</strong><span class="pf-money-split"><span class="pf-good">${share(spendOf(["scale", "profit", "edge"]))} <span>profitable</span></span><span class="pf-warn">${share(spendOf(["even"]))} <span>break-even</span></span><span class="pf-bad">${share(spendOf(["loss", "losing", "heavy"]))} <span>losing</span></span><span class="pf-muted">${share(spendOf(["learning"]))} <span>learning</span></span></span></div>
       <div class="pf-stack" role="img" aria-label="Spend by verdict">${segments || '<span class="pf-seg pf-idle" style="flex:1"></span>'}</div>
+      <p class="pf-plain">${plain}</p>
       <div class="pf-chips">${chips}${amTierFilter ? '<button class="pf-chip pf-clear" type="button" data-pf-tier="">Show all</button>' : ""}</div>
+      ${watchChips ? `<div class="pf-watchlist"><span class="pf-watch-title">Watch list</span><div class="pf-chips">${watchChips}</div></div>` : ""}
     </div>
+    ${coachHtml()}
   </div>`;
 }
 
 function amCollectRows(data, level, rows, depth, query, out) {
+  const filtering = Boolean(amTierFilter && amMode === "analyze");
   amSortRows(rows, level).forEach((row) => {
     const children = amChildren(data, level, row);
-    const selfMatch = !query || amMatches(row, query);
-    const childMatch = !selfMatch && children.some((child) => amBranchMatches(data, AM_CHILD[level], child, query));
-    if (!selfMatch && !childMatch) return;
-    // While searching, branches that only match through a child open automatically.
-    const open = children.length > 0 && (childMatch || amOpen.has(`${level}:${row.key}`));
-    out.push(amRowHtml(data, level, row, depth, open));
-    if (open) amCollectRows(data, AM_CHILD[level], children, depth + 1, selfMatch ? "" : query, out);
+    const selfMatch = amRowMatches(row, query);
+    const childLevel = AM_CHILD[level];
+    const childQuery = selfMatch ? "" : query;
+    const passingChildren = children.filter((child) => amBranchPasses(data, childLevel, child, childQuery));
+    if (!selfMatch && !passingChildren.length) return;
+    // Branches that match only through a child (search or filter) open automatically,
+    // down to the matching ads.
+    const open = children.length > 0 && (!selfMatch || (filtering && passingChildren.length > 0) || amOpen.has(`${level}:${row.key}`));
+    out.push(amRowHtml(data, level, row, depth, open, filtering && !selfMatch));
+    if (!open) return;
+    if (passingChildren.length) amCollectRows(data, childLevel, passingChildren, depth + 1, childQuery, out);
+    else amCollectRowsUnfiltered(data, childLevel, children, depth + 1, out);
+  });
+}
+
+// A matching parent whose children don't match still shows them when opened.
+function amCollectRowsUnfiltered(data, level, rows, depth, out) {
+  amSortRows(rows, level).forEach((row) => {
+    const children = amChildren(data, level, row);
+    const open = children.length > 0 && amOpen.has(`${level}:${row.key}`);
+    out.push(amRowHtml(data, level, row, depth, open, true));
+    if (open) amCollectRowsUnfiltered(data, AM_CHILD[level], children, depth + 1, out);
   });
 }
 
@@ -2539,8 +2674,7 @@ function renderAdsManagerTable(root, range) {
   const data = amBuildData(range, ctx);
   const query = amSearch.trim().toLocaleLowerCase();
   const searched = data.rows[amLevel].filter((row) => !query || amBranchMatches(data, amLevel, row, query));
-  if (analyze && amTierFilter && !searched.some((row) => row.pf.reg.key === amTierFilter)) amTierFilter = "";
-  const roots = analyze && amTierFilter ? searched.filter((row) => row.pf.reg.key === amTierFilter) : searched;
+  const roots = analyze && amTierFilter ? searched.filter((row) => amBranchPasses(data, amLevel, row, query)) : searched;
   const out = [];
   amCollectRows(data, amLevel, roots, 0, query, out);
   const totals = amTotals(roots);
@@ -2553,7 +2687,7 @@ function renderAdsManagerTable(root, range) {
     else empty = `<span>No ${AM_NOUNS[amLevel][1]} had activity in this period.</span>${amPeriod.preset === "lifetime" ? "" : ' <button class="fbam-btn" type="button" data-am-quick="lifetime">Show Maximum</button>'}`;
   }
   const summary = root.querySelector("[data-am-summary]");
-  summary.innerHTML = analyze ? amSummaryHtml(ctx, searched, amTotals(searched)) : "";
+  summary.innerHTML = analyze ? amSummaryHtml(ctx, searched, amTotals(searched), data) : "";
   let footCells;
   if (analyze) {
     const reg = CmcgProfit.verdict(totals.spend, totals.registered, ctx.breakEven);
@@ -2561,7 +2695,7 @@ function renderAdsManagerTable(root, range) {
     const values = {
       verdict: roots.length ? pfVerdictChip(reg) : "",
       costRegistered: pfCostCell(reg),
-      margin: `<strong class="pf-margin ${margin >= 0 ? "is-positive" : "is-negative"}">${pfSignedMoney(margin)}</strong>`,
+      margin: pfProfitCell(totals.registered, totals.spend),
       registered: number(totals.registered),
       costBooked: pfPill(CmcgProfit.verdict(totals.spend, totals.booked, ctx.targets.booked), ctx.targets.booked, "RDV"),
       booked: number(totals.booked),
