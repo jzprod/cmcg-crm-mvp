@@ -2053,6 +2053,7 @@ const storedSorts = readStoredJson("cmcg-am-sorts", {});
 const amSorts = { enter: amValidSort("enter", storedSorts.enter || readStoredJson("cmcg-am-sort", null)), analyze: amValidSort("analyze", storedSorts.analyze) };
 let amSort = amSorts[amMode];
 let amTierFilter = ""; // Analyze mode: show only top-level rows with this verdict
+let coachOpen = (() => { try { return localStorage.getItem("cmcg-coach-open") === "1"; } catch { return false; } })();
 let amChart = null; // drill-down drawer: { key: "level:id", window, metric }
 let amEditingBreakEven = false;
 let amSearch = "";
@@ -2415,9 +2416,14 @@ function coachHtml() {
       ? `<details class="coach-group"><summary><strong>${title}</strong> <span>${list.length}</span><small>${hint}</small></summary>${body}</details>`
       : `<section class="coach-group"><h4>${title} <span>${list.length}</span></h4><small class="coach-hint">${hint}</small>${body}</section>`;
   }).join("");
+  const count = (group) => items.filter((item) => item.group === group).length;
+  const summary = [count("now") ? `${count("now")} to do today` : "", count("soon") ? `${count("soon")} to decide soon` : "", count("wait") ? `${count("wait")} to leave alone` : ""].filter(Boolean).join(" · ") || "nothing to change";
+  const toggle = `<button class="coach-toggle${count("now") ? " has-actions" : ""}" type="button" data-coach-toggle aria-expanded="${coachOpen}"><span class="pf-kicker">Decision coach</span><strong>${coachOpen ? "Hide today's decisions" : "Show today's decisions"}</strong><small>${escapeHtml(summary)}</small><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9.4 6 6 6-6 6L8 16.6l4.6-4.6L8 7.4 9.4 6Z"/></svg></button>`;
+  if (!coachOpen) return `<div class="coach is-closed">${toggle}</div>`;
   const stale = lag > 1 ? `<p class="coach-stale">Newest ad data is from ${escapeHtml(amDateLabel(latest))}. Import the latest Meta report so these decisions use yesterday's results.</p>` : "";
   return `<div class="coach">
-    <div class="coach-head"><div><span class="pf-kicker">Decision coach</span><h3>What to do with your ads today</h3><small>Based on results up to <strong>${escapeHtml(amDateLabel(latest))}</strong> since ${escapeHtml(amDateLabel(amDataStart() || latest))}, recalculated after every import. Ignores the table's date picker.</small></div>
+    ${toggle}
+    <div class="coach-head"><div><h3>What to do with your ads today</h3><small>Based on results up to <strong>${escapeHtml(amDateLabel(latest))}</strong> since ${escapeHtml(amDateLabel(amDataStart() || latest))}, recalculated after every import. Ignores the table's date picker.</small></div>
     <details class="coach-rules"><summary>How it decides</summary><ul><li>The first ${CmcgCoach.LEARNING_DAYS} days are Meta's learning period: don't change budget, audience or creative.</li><li>No student and spend past your ${escapeHtml(money(amBreakEven()))} limit: pause, unless bookings are still open (then wait 2 days).</li><li>No student and half the limit spent: a decision date is set from the daily spend.</li><li>Students under 80% of the limit, at least 2 of them, after day 3: raise the budget 20% (30% if under half the limit), then wait 3 days before the next raise.</li><li>Over the limit: up to 30% over, fix the creative or follow-up; up to 2× over, cut the budget 30%; beyond that, pause.</li><li>Ads: copy creatives that bring 2+ cheap students; refresh those seen 3+ times per person or clicked by under 0.5% of viewers.</li></ul></details></div>
     ${stale}
     ${groups || '<p class="coach-empty">No ad set spent in the last 3 days of data.</p>'}
@@ -2778,6 +2784,12 @@ function amApplyPeriod(next) {
 }
 
 function handleAdsManagerClick(event) {
+  if (event.target.closest("[data-coach-toggle]")) {
+    coachOpen = !coachOpen;
+    try { localStorage.setItem("cmcg-coach-open", coachOpen ? "1" : "0"); } catch {}
+    renderAdsManager();
+    return;
+  }
   const mode = event.target.closest("[data-am-mode]");
   if (mode) {
     if (mode.dataset.amMode === amMode) return;

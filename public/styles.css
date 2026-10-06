@@ -1206,3 +1206,12 @@ main { width: 100%; }
 .coach-item p { margin: 0; color: var(--fb-text); font-size: 13px; line-height: 1.45; }
 .coach-next { color: #1d4ed8; font-size: 12px; }
 .coach-empty { margin: 0; color: var(--fb-muted); font-size: 13px; }
+.coach.is-closed { padding: 0; background: transparent; border: 0; }
+.coach-toggle { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 14px; border: 1px solid var(--fb-line); border-radius: 10px; background: white; color: var(--fb-text); text-align: start; cursor: pointer; }
+.coach:not(.is-closed) .coach-toggle { padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--fb-line); border-radius: 0; background: transparent; }
+.coach-toggle:hover strong { color: var(--fb-blue); }
+.coach-toggle strong { font-size: 14px; }
+.coach-toggle small { color: var(--fb-muted); font-size: 12.5px; }
+.coach-toggle.has-actions small { color: #11652f; font-weight: 600; }
+.coach-toggle svg { width: 18px; height: 18px; margin-inline-start: auto; fill: currentColor; color: var(--fb-muted); transition: transform 150ms ease; }
+.coach-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
