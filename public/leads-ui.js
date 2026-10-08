@@ -5,42 +5,42 @@
 
 const LEAD_STATUS = {
   new: { label: "جديد", icon: "🆕", tone: "new" },
-  no_answer: { label: "ما جاوبش", icon: "📵", tone: "warn" },
-  callback: { label: "عاودي الاتصال", icon: "⏳", tone: "info" },
-  contacted: { label: "تواصلنا، كيفكر", icon: "💬", tone: "info" },
+  no_answer: { label: "لم يُجب", icon: "📵", tone: "warn" },
+  callback: { label: "إعادة الاتصال", icon: "⏳", tone: "info" },
+  contacted: { label: "تواصلنا، يفكّر", icon: "💬", tone: "info" },
   booked: { label: "موعد محجوز", icon: "📅", tone: "booked" },
-  visited: { label: "جا وما تسجلش", icon: "🚶", tone: "visited" },
-  registered: { label: "تسجّل", icon: "🎓", tone: "good" },
-  not_interested: { label: "ما مهتمش", icon: "🙅", tone: "lost" },
+  visited: { label: "حضر ولم يسجّل", icon: "🚶", tone: "visited" },
+  registered: { label: "سجّل", icon: "🎓", tone: "good" },
+  not_interested: { label: "غير مهتم", icon: "🙅", tone: "lost" },
   other_city: { label: "مدينة أخرى", icon: "🏙️", tone: "lost" },
-  not_qualified: { label: "ماشي مؤهل", icon: "🚫", tone: "lost" },
-  wrong_number: { label: "رقم غالط", icon: "❌", tone: "lost" },
+  not_qualified: { label: "غير مؤهل", icon: "🚫", tone: "lost" },
+  wrong_number: { label: "رقم خاطئ", icon: "❌", tone: "lost" },
 };
 // Big cards shown after every call, most common first.
 const CALL_RESULTS = [
-  ["booked", "حجز موعد", "حدّدي النهار والساعة"],
-  ["no_answer", "ما جاوبش", "نعاودو نعيطو"],
-  ["callback", "عاودي الاتصال", "طلب نعيطو من بعد"],
-  ["contacted", "تواصلنا، كيفكر", "مهتم وباقي ما قررش"],
-  ["not_interested", "ما مهتمش", "ما بغاش التكوين"],
-  ["other_city", "مدينة أخرى", "ساكن برا طنجة"],
-  ["not_qualified", "ماشي مؤهل", "المستوى ولا الشروط ما مناسبينش"],
-  ["wrong_number", "رقم غالط", "الرقم ماشي ديالو"],
+  ["booked", "حجز موعد", "حدّدي اليوم والساعة"],
+  ["no_answer", "لم يُجب", "سنعاود الاتصال"],
+  ["callback", "إعادة الاتصال", "طلب الاتصال لاحقاً"],
+  ["contacted", "تواصلنا، يفكّر", "مهتم ولم يقرّر بعد"],
+  ["not_interested", "غير مهتم", "لا يرغب في التكوين"],
+  ["other_city", "مدينة أخرى", "يقيم خارج طنجة"],
+  ["not_qualified", "غير مؤهل", "المستوى أو الشروط غير مناسبة"],
+  ["wrong_number", "رقم خاطئ", "الرقم ليس له"],
 ];
 const LEAD_BOARD = [
-  ["new", "جداد", ["new"]],
+  ["new", "جديدة", ["new"]],
   ["follow", "متابعة", ["no_answer", "callback", "contacted"]],
   ["booked", "مواعيد", ["booked"]],
-  ["visited", "جاو", ["visited"]],
-  ["registered", "تسجلو", ["registered"]],
-  ["lost", "مغلقين", ["not_interested", "other_city", "not_qualified", "wrong_number"]],
+  ["visited", "حضروا", ["visited"]],
+  ["registered", "سجّلوا", ["registered"]],
+  ["lost", "مغلقة", ["not_interested", "other_city", "not_qualified", "wrong_number"]],
 ];
 const OPEN_SLOTS = [
   ["الصباح", ["11:00", "11:30", "12:00", "12:30"]],
-  ["بعد الزوال", ["13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30"]],
-  ["العشية", ["17:00", "17:30", "18:00", "18:30", "19:00", "19:30"]],
+  ["بعد الظهر", ["13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30"]],
+  ["المساء", ["17:00", "17:30", "18:00", "18:30", "19:00", "19:30"]],
 ];
-const CHEERS = ["برافو! 💪", "زوين بزاف! 👏", "كمّلي هكا! 🔥", "نتيجة مزيانة ✨", "واصلي! 🚀"];
+const CHEERS = ["أحسنتِ! 💪", "رائع! 👏", "استمري هكذا! 🔥", "نتيجة ممتازة ✨", "واصلي! 🚀"];
 const AR_LOCALE = "ar-MA-u-nu-latn";
 const LEAD_UI = {
   view: (() => { try { return localStorage.getItem("cmcg-leads-view") || "today"; } catch { return "today"; } })(),
@@ -87,12 +87,12 @@ function leadInitials(name) { return (String(name || "").replace(/[^\p{L}\s]/gu,
 function leadPhoneLabel(phone) {
   const d = String(phone || "");
   if (d.startsWith("212") && d.length === 12) return `0${d.slice(3, 4)} ${d.slice(4, 6)} ${d.slice(6, 8)} ${d.slice(8, 10)} ${d.slice(10, 12)}`;
-  return d ? `+${d}` : "بلا رقم";
+  return d ? `+${d}` : "بدون رقم";
 }
 function leadAge(value) {
   const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
   if (!Number.isFinite(minutes)) return "";
-  if (minutes < 1) return "دابا";
+  if (minutes < 1) return "الآن";
   if (minutes < 60) return `${minutes} دقيقة`;
   if (minutes < 48 * 60) return `${Math.round(minutes / 60)} ساعة`;
   return `${Math.round(minutes / 1440)} يوم`;
@@ -100,16 +100,16 @@ function leadAge(value) {
 function leadTime(value) { return value ? String(value).slice(11, 16) : ""; }
 function leadDayName(day) {
   if (day === leadTodayKey()) return "اليوم";
-  if (day === leadTodayKey(1)) return "غدا";
+  if (day === leadTodayKey(1)) return "غداً";
   if (day === leadTodayKey(2)) return "بعد غد";
-  if (day === leadTodayKey(-1)) return "البارح";
+  if (day === leadTodayKey(-1)) return "أمس";
   return new Date(`${day}T12:00:00`).toLocaleDateString(AR_LOCALE, { weekday: "long", day: "numeric", month: "long" });
 }
 function leadWhen(value) { return value ? `${leadDayName(leadDayOf(value))} · ${leadTime(value)}` : ""; }
 function leadSource(lead) {
   const ad = byId(state.creatives, lead.creativeId);
   const adSet = byId(state.adSets, lead.adSetId);
-  return { channel: lead.source === "form" ? "فورمولير" : "واتساب", where: ad?.name || adSet?.name || lead.meta?.adName || lead.meta?.formName || "" };
+  return { channel: lead.source === "form" ? "استمارة" : "واتساب", where: ad?.name || adSet?.name || lead.meta?.adName || lead.meta?.formName || "" };
 }
 function leadTemplates() { return state.settings?.leadDistribution?.templates || {}; }
 function leadFillTemplate(template, lead) {
@@ -139,11 +139,11 @@ function leadUrgency(lead) {
 function leadHeat(lead) {
   if (lead.status !== "new") return null;
   const minutes = (Date.now() - new Date(lead.createdAt).getTime()) / 60000;
-  if (minutes < 15) return { key: "h3", icon: "🔥🔥🔥", label: "ساخن بزاف" };
+  if (minutes < 15) return { key: "h3", icon: "🔥🔥🔥", label: "ساخن جداً" };
   if (minutes < 60) return { key: "h2", icon: "🔥🔥", label: "ساخن" };
-  if (minutes < 180) return { key: "h1", icon: "🔥", label: "دافي" };
-  if (minutes < 1440) return { key: "cool", icon: "🌤️", label: "بدا كيبرد" };
-  return { key: "cold", icon: "🧊", label: "برد" };
+  if (minutes < 180) return { key: "h1", icon: "🔥", label: "دافئ" };
+  if (minutes < 1440) return { key: "cool", icon: "🌤️", label: "بدأ يبرد" };
+  return { key: "cold", icon: "🧊", label: "بارد" };
 }
 function leadCallbackDue(lead) {
   return lead.status === "no_answer" || (lead.status === "callback" && (!lead.callbackAt || lead.callbackAt <= `${leadTodayKey()}T23:59`));
@@ -190,20 +190,20 @@ function leadCardHtml(lead) {
   const urgency = leadUrgency(lead);
   const needsReminder = leadNeedsReminder(lead);
   return `<article class="la-card${urgency ? ` is-${urgency}` : ""}${leadHeat(lead) ? ` heat-${leadHeat(lead).key}` : ""}${needsReminder ? " needs-reminder" : ""}" data-lead-open="${escapeHtml(lead.id)}" tabindex="0">
-    ${needsReminder ? `<div class="la-remind-flag">⚠️ خاصك تصيفطي رسالة التذكير</div>` : ""}
+    ${needsReminder ? `<div class="la-remind-flag">⚠️ يجب إرسال رسالة التذكير</div>` : ""}
     <header class="la-card-head">
       <span class="la-avatar" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadInitials(lead.name))}</span>
-      <div class="la-who"><strong>${escapeHtml(lead.name || "بلا اسم")}</strong><span class="la-phone" dir="ltr">${escapeHtml(leadPhoneLabel(lead.phone))}</span></div>
+      <div class="la-who"><strong>${escapeHtml(lead.name || "بدون اسم")}</strong><span class="la-phone" dir="ltr">${escapeHtml(leadPhoneLabel(lead.phone))}</span></div>
       ${leadStatusPill(lead)}
     </header>
     <div class="la-meta">
       ${lead.demo ? '<span class="la-demo">🧪 تجريبي</span>' : ""}<span class="la-src la-src-${lead.source}">${escapeHtml(source.channel)}</span>
       ${source.where ? `<span class="la-where">${escapeHtml(source.where)}</span>` : ""}
-      ${leadHeat(lead) ? `<span class="la-heat la-heat-${leadHeat(lead).key}" title="${escapeHtml(leadHeat(lead).label)}"><b>${leadHeat(lead).icon}</b> ${escapeHtml(leadHeat(lead).label)} · ${escapeHtml(leadAge(lead.createdAt))}</span>` : `<span class="la-age">من ${escapeHtml(leadAge(lead.createdAt))}</span>`}
-      ${leadAdminView() ? `<span class="la-owner" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadAgentCode(leadAgent(lead.agentId)) === "?" ? "بلا مستشارة" : leadAgentName(lead.agentId))}</span>` : ""}
+      ${leadHeat(lead) ? `<span class="la-heat la-heat-${leadHeat(lead).key}" title="${escapeHtml(leadHeat(lead).label)}"><b>${leadHeat(lead).icon}</b> ${escapeHtml(leadHeat(lead).label)} · ${escapeHtml(leadAge(lead.createdAt))}</span>` : `<span class="la-age">منذ ${escapeHtml(leadAge(lead.createdAt))}</span>`}
+      ${leadAdminView() ? `<span class="la-owner" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadAgentCode(leadAgent(lead.agentId)) === "?" ? "بدون مستشارة" : leadAgentName(lead.agentId))}</span>` : ""}
     </div>
-    ${lead.status === "booked" && lead.appointmentAt ? `<div class="la-rdv${leadDayOf(lead.appointmentAt) < leadTodayKey() ? " is-past" : ""}">📅 <strong>${escapeHtml(leadWhen(lead.appointmentAt))}</strong>${lead.remindedAt ? '<em>✓ تذكير مبعوث</em>' : ""}</div>` : ""}
-    ${lead.status === "callback" && lead.callbackAt ? `<div class="la-rdv is-callback">⏳ عاودي الاتصال <strong>${escapeHtml(leadWhen(lead.callbackAt))}</strong></div>` : ""}
+    ${lead.status === "booked" && lead.appointmentAt ? `<div class="la-rdv${leadDayOf(lead.appointmentAt) < leadTodayKey() ? " is-past" : ""}">📅 <strong>${escapeHtml(leadWhen(lead.appointmentAt))}</strong>${lead.remindedAt ? '<em>✓ أُرسل التذكير</em>' : ""}</div>` : ""}
+    ${lead.status === "callback" && lead.callbackAt ? `<div class="la-rdv is-callback">⏳ أعيدي الاتصال <strong>${escapeHtml(leadWhen(lead.callbackAt))}</strong></div>` : ""}
     ${Number(lead.callAttempts) ? `<small class="la-attempts">📞 ${number(lead.callAttempts)} محاولة اتصال</small>` : ""}
     ${leadActionsHtml(lead)}
   </article>`;
@@ -224,35 +224,35 @@ function leadsTodayHtml(leads) {
   const missed = leads.filter((lead) => lead.status === "booked" && lead.appointmentAt && leadDayOf(lead.appointmentAt) < today).sort(byRdv);
   const thinking = leads.filter((lead) => lead.status === "contacted");
   return [
-    leadSection("rdv", "⏰", "مواعيد اليوم", "صيفطي التذكير، ومن بعد بدّلي الحالة لـ «جا» ولا «تسجّل».", rdvToday, "ما كاين حتى موعد اليوم."),
-    leadSection("new", "🔥", "ليدز جداد خاصهم اتصال", "عيطي ليهم وهوما سخونين: اللي كنعيطو ليه فـ 15 دقيقة الأولى كيجاوب بزاف أكثر.", fresh, "برافو! كاع الليدز الجداد تعيط ليهم 🎉"),
-    leadSection("callback", "📞", "عاودي الاتصال", "ما جاوبوش، ولا طلبو نعيطو ليهم اليوم.", callback, "ما كاين حتى واحد خاصو إعادة الاتصال."),
-    leadSection("tomorrow", "📅", "مواعيد غدا", "صيفطي رسالة التذكير اليوم.", tomorrow, ""),
-    leadSection("missed", "❗", "مواعيد فاتت بلا نتيجة", "الموعد فات: واش جا؟ تسجّل؟ ولا خاصو موعد جديد؟", missed, ""),
-    leadSection("thinking", "💭", "كيفكرو", "تواصلتي معاهم وباقي ما قرروش. عاودي تواصلي معاهم.", thinking, ""),
+    leadSection("rdv", "⏰", "مواعيد اليوم", "أرسلي التذكير، ثم غيّري الحالة إلى «حضر» أو «سجّل».", rdvToday, "لا توجد مواعيد اليوم."),
+    leadSection("new", "🔥", "طلبات جديدة تنتظر الاتصال", "اتصلي بهم وهم متحمسون: من نتصل به خلال أول 15 دقيقة يجيب أكثر بكثير.", fresh, "أحسنتِ! تم الاتصال بكل الطلبات الجديدة 🎉"),
+    leadSection("callback", "📞", "إعادة الاتصال", "لم يُجيبوا، أو طلبوا الاتصال بهم اليوم.", callback, "لا أحد ينتظر إعادة الاتصال."),
+    leadSection("tomorrow", "📅", "مواعيد الغد", "أرسلي رسالة التذكير اليوم.", tomorrow, ""),
+    leadSection("missed", "❗", "مواعيد فائتة بدون نتيجة", "فات الموعد: هل حضر؟ هل سجّل؟ أم يحتاج موعداً جديداً؟", missed, ""),
+    leadSection("thinking", "💭", "يفكّرون", "تواصلتِ معهم ولم يقرّروا بعد. أعيدي التواصل معهم.", thinking, ""),
   ].join("");
 }
 
 function leadsBoardHtml(leads) {
   return `<div class="la-board">${LEAD_BOARD.map(([key, title, statuses]) => {
     const column = leads.filter((lead) => statuses.includes(lead.status)).sort((a, b) => String(b.statusAt || b.createdAt).localeCompare(String(a.statusAt || a.createdAt)));
-    return `<section class="la-column la-col-${key}"><h3>${escapeHtml(title)} <b>${column.length}</b></h3><div class="la-column-body">${column.slice(0, 60).map(leadCardHtml).join("") || '<p class="la-empty">خاوي</p>'}</div></section>`;
+    return `<section class="la-column la-col-${key}"><h3>${escapeHtml(title)} <b>${column.length}</b></h3><div class="la-column-body">${column.slice(0, 60).map(leadCardHtml).join("") || '<p class="la-empty">فارغ</p>'}</div></section>`;
   }).join("")}</div>`;
 }
 
 function leadsListHtml(leads) {
   const rows = [...leads].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 400).map((lead) => {
     const source = leadSource(lead);
-    return `<tr data-lead-open="${escapeHtml(lead.id)}" class="clickable-row"><td><strong>${escapeHtml(lead.name || "بلا اسم")}</strong><small dir="ltr">${escapeHtml(leadPhoneLabel(lead.phone))}</small></td><td><span class="la-src la-src-${lead.source}">${escapeHtml(source.channel)}</span><small>${escapeHtml(source.where)}</small></td>${leadAdminView() ? `<td>${escapeHtml(leadAgentName(lead.agentId) || "بلا مستشارة")}</td>` : ""}<td>${leadStatusPill(lead)}</td><td>${escapeHtml(lead.appointmentAt ? leadWhen(lead.appointmentAt) : "—")}</td><td>${escapeHtml(leadWhen(dateInputValue(new Date(lead.createdAt)) + "T" + new Date(lead.createdAt).toTimeString().slice(0, 5)))}</td></tr>`;
+    return `<tr data-lead-open="${escapeHtml(lead.id)}" class="clickable-row"><td><strong>${escapeHtml(lead.name || "بدون اسم")}</strong><small dir="ltr">${escapeHtml(leadPhoneLabel(lead.phone))}</small></td><td><span class="la-src la-src-${lead.source}">${escapeHtml(source.channel)}</span><small>${escapeHtml(source.where)}</small></td>${leadAdminView() ? `<td>${escapeHtml(leadAgentName(lead.agentId) || "بدون مستشارة")}</td>` : ""}<td>${leadStatusPill(lead)}</td><td>${escapeHtml(lead.appointmentAt ? leadWhen(lead.appointmentAt) : "—")}</td><td>${escapeHtml(leadWhen(dateInputValue(new Date(lead.createdAt)) + "T" + new Date(lead.createdAt).toTimeString().slice(0, 5)))}</td></tr>`;
   }).join("");
-  return `<div class="table-wrap la-table-wrap"><table class="la-table"><thead><tr><th>الشخص</th><th>المصدر</th>${leadAdminView() ? "<th>المستشارة</th>" : ""}<th>الحالة</th><th>الموعد</th><th>وصل</th></tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty">ما كاين حتى ليد بهاد الفلاتر.</td></tr>`}</tbody></table></div>`;
+  return `<div class="table-wrap la-table-wrap"><table class="la-table"><thead><tr><th>الشخص</th><th>المصدر</th>${leadAdminView() ? "<th>المستشارة</th>" : ""}<th>الحالة</th><th>الموعد</th><th>الوصول</th></tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty">لا توجد طلبات بهذه الفلاتر.</td></tr>`}</tbody></table></div>`;
 }
 
 // Personal header: greeting, daily goal ring, today's numbers, friendly ranking.
 function leadHeroHtml() {
   const stats = Array.isArray(window.leadStats) ? window.leadStats : [];
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? "صباح الخير" : hour < 18 ? "مساء النور" : "مساء الخير";
+  const greeting = hour < 12 ? "صباح الخير" : hour < 18 ? "مساء الخير" : "مساء الخير";
   const me = leadAdminView() ? null : leadAgent(leadViewerId());
   const mine = leadsList().filter((lead) => !me || lead.agentId === me.id);
   const myStats = me ? stats.find((row) => row.agentId === me.id) : null;
@@ -260,7 +260,7 @@ function leadHeroHtml() {
   const todo = mine.filter((lead) => lead.status === "new" || leadCallbackDue(lead) || (lead.status === "booked" && leadDayOf(lead.appointmentAt) === leadTodayKey())).length;
   const goal = Math.max(10, done + todo);
   const progress = Math.min(1, done / goal);
-  const message = progress >= 1 ? "برافو! كملتي هدف اليوم 🎉" : progress >= 0.7 ? "قربتي توصلي، كمّلي! 🔥" : progress >= 0.35 ? "خدمة زوينة، واصلي 👏" : done ? "بداية مزيانة 💪" : "يلا نبداو النهار بقوة 💪";
+  const message = progress >= 1 ? "أحسنتِ! أكملتِ هدف اليوم 🎉" : progress >= 0.7 ? "اقتربتِ من الهدف، استمري! 🔥" : progress >= 0.35 ? "عمل رائع، واصلي 👏" : done ? "بداية جيدة 💪" : "لنبدأ اليوم بقوة 💪";
   const rdvsToday = me ? Number(myStats?.rdvsToday || 0) : stats.reduce((sum, row) => sum + Number(row.rdvsToday || 0), 0);
   const registered = me ? Number(myStats?.registeredMonth || 0) : stats.reduce((sum, row) => sum + Number(row.registeredMonth || 0), 0);
   const reminders = mine.filter(leadNeedsReminder).length;
@@ -278,13 +278,13 @@ function leadHeroHtml() {
       <div class="la-ring" role="img" aria-label="هدف اليوم ${done} من ${goal}"><svg viewBox="0 0 72 72"><circle cx="36" cy="36" r="30" class="la-ring-bg"/><circle cx="36" cy="36" r="30" class="la-ring-fg" style="stroke-dasharray:${ring};stroke-dashoffset:${ring * (1 - progress)}"/></svg><span><strong>${done}</strong><small>/ ${goal}</small></span></div>
     </div>
     <div class="la-stats">
-      <button type="button" class="la-stat la-stat-todo" data-lead-jump="new"><i>📞</i><strong>${number(todo)}</strong><span>خاصهم اتصال</span></button>
+      <button type="button" class="la-stat la-stat-todo" data-lead-jump="new"><i>📞</i><strong>${number(todo)}</strong><span>تنتظر الاتصال</span></button>
       <button type="button" class="la-stat la-stat-rdv" data-lead-jump="rdv"><i>📅</i><strong>${number(rdvsToday)}</strong><span>مواعيد اليوم</span></button>
       <div class="la-stat la-stat-reg"><i>🎓</i><strong>${number(registered)}</strong><span>تسجيلات الشهر</span></div>
     </div>
     ${ranking.length > 1 ? `<div class="la-rank"><span class="la-rank-title">🏆 اليوم</span>${ranking.map((row, index) => `<span class="la-rank-row${me && row.agentId === me.id ? " is-me" : ""}"><b>${row.rdvsToday || row.actionsToday ? medals[index] || "•" : "•"}</b><i style="--agent:${leadAgentColor(row.agentId)}">${escapeHtml(rankCode(row))}</i>${escapeHtml(rankName(row))}<em>${number(row.rdvsToday)}📅 · ${number(row.actionsToday)}📞</em></span>`).join("")}</div>` : ""}
-    ${hot && leadAdminView() ? `<button type="button" class="la-hot-nudge" data-lead-jump="new"><span class="la-flame">🔥</span> عندك ${number(hot)} ${hot === 1 ? "ليد سخون" : "ليدز سخونين"}، عيطي ليهم دابا قبل ما يبردو</button>` : ""}
-    ${reminders ? `<button type="button" class="la-reminder-alert" data-lead-jump="rdv"><span>⚠️</span><div><strong>${number(reminders)} ${reminders === 1 ? "موعد" : "مواعيد"} بلا رسالة التذكير</strong><small>صيفطيها دابا باش يجيو 👇</small></div></button>` : ""}
+    ${hot && leadAdminView() ? `<button type="button" class="la-hot-nudge" data-lead-jump="new"><span class="la-flame">🔥</span> لديك ${number(hot)} ${hot === 1 ? "طلب ساخن" : "طلبات ساخنة"}، اتصلي بهم الآن قبل أن يبردوا</button>` : ""}
+    ${reminders ? `<button type="button" class="la-reminder-alert" data-lead-jump="rdv"><span>⚠️</span><div><strong>${number(reminders)} ${reminders === 1 ? "موعد" : "مواعيد"} بدون رسالة تذكير</strong><small>أرسليها الآن ليحضروا 👇</small></div></button>` : ""}
   </section>`;
 }
 
@@ -305,30 +305,55 @@ function leadNextBarHtml() {
   const phone = lead.phone ? `+${lead.phone}` : "";
   return `<div class="la-next${heat ? ` heat-${heat.key}` : ""}">
     <button type="button" class="la-next-who" data-lead-open="${escapeHtml(lead.id)}">
-      <small>${next.kind === "new" ? "🔥 الليد الجاي" : "⏳ عاودي الاتصال"}${next.left ? ` · باقي ${number(next.left)}` : ""}</small>
+      <small>${next.kind === "new" ? "🔥 الطلب التالي" : "⏳ أعيدي الاتصال"}${next.left ? ` · متبقٍّ ${number(next.left)}` : ""}</small>
       <strong>${escapeHtml(lead.name || leadPhoneLabel(lead.phone))}</strong>
-      <span>${heat ? `${heat.icon} ` : ""}من ${escapeHtml(leadAge(lead.createdAt))}</span>
+      <span>${heat ? `${heat.icon} ` : ""}منذ ${escapeHtml(leadAge(lead.createdAt))}</span>
     </button>
     <a class="la-next-wa" href="${escapeHtml(leadWhatsAppUrl(lead, "first"))}" target="_blank" rel="noopener" data-lead-contact="${escapeHtml(lead.id)}" data-kind="whatsapp" aria-label="واتساب">${svgIcon.wa}</a>
-    <a class="la-next-call" href="tel:${escapeHtml(phone)}" data-lead-contact="${escapeHtml(lead.id)}" data-kind="call">${svgIcon.call}<span>عيطي</span></a>
+    <a class="la-next-call" href="tel:${escapeHtml(phone)}" data-lead-contact="${escapeHtml(lead.id)}" data-kind="call">${svgIcon.call}<span>اتصلي</span></a>
   </div>`;
 }
 
 function leadsToolbarHtml() {
-  const views = [["today", "اليوم"], ["board", "كل الليدز"], ["list", "القائمة"]];
+  const views = [["today", "اليوم"], ["board", "كل الطلبات"], ["list", "القائمة"]];
   const agents = leadAgents();
   return `<div class="la-toolbar">
     <div class="la-views" role="tablist">${views.map(([key, label]) => `<button type="button" role="tab" class="${LEAD_UI.view === key ? "active" : ""}" aria-selected="${LEAD_UI.view === key}" data-lead-view="${key}">${label}</button>`).join("")}</div>
-    <label class="la-search"><input type="search" placeholder="🔎 قلّبي بالاسم ولا الرقم…" value="${escapeHtml(LEAD_UI.search)}" data-lead-filter="search" aria-label="بحث" /></label>
-    <button type="button" class="la-add" data-lead-new>＋ زيدي ليد واتساب</button>
-    ${leadAdminView() ? `<button type="button" class="la-transfer-btn" data-transfer-from="">🔀 تحويل الليدز</button>` : ""}
-    ${leadAdminView() ? (leadsList().some((lead) => lead.demo) ? `<button type="button" class="la-demo-btn" data-demo="remove">🗑️ حيدي الليدز التجريبية (${leadsList().filter((lead) => lead.demo).length})</button>` : `<button type="button" class="la-demo-btn" data-demo="create">🧪 ليدز تجريبية</button>`) : ""}
-    ${leadAdminView() || LEAD_UI.view !== "today" ? `<div class="la-filters">
-      ${leadAdminView() ? `<select data-lead-filter="agent" aria-label="المستشارة"><option value="">كل المستشارات</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${LEAD_UI.agent === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}<option value="__none" ${LEAD_UI.agent === "__none" ? "selected" : ""}>بلا مستشارة</option></select>` : ""}
-      <select data-lead-filter="source" aria-label="المصدر"><option value="">كل المصادر</option><option value="form" ${LEAD_UI.source === "form" ? "selected" : ""}>فورمولير</option><option value="whatsapp" ${LEAD_UI.source === "whatsapp" ? "selected" : ""}>واتساب</option></select>
+    <label class="la-search"><input type="search" placeholder="🔎 ابحثي بالاسم أو الرقم…" value="${escapeHtml(LEAD_UI.search)}" data-lead-filter="search" aria-label="بحث" /></label>
+    <button type="button" class="la-add" data-lead-new>＋ طلب واتساب</button>
+    ${leadAdminView() ? `<button type="button" class="la-transfer-btn" data-transfer-from="">🔀 تحويل الطلبات</button>` : ""}
+    ${leadAdminView() ? (leadsList().some((lead) => lead.demo) ? `<button type="button" class="la-demo-btn" data-demo="remove">🗑️ حذف الطلبات التجريبية (${leadsList().filter((lead) => lead.demo).length})</button>` : `<button type="button" class="la-demo-btn" data-demo="create">🧪 طلبات تجريبية</button>`) : ""}
+    ${leadAdminView() ? `<div class="la-filters">
+      ${leadAdminView() ? `<select data-lead-filter="agent" aria-label="المستشارة"><option value="">كل المستشارات</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${LEAD_UI.agent === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}<option value="__none" ${LEAD_UI.agent === "__none" ? "selected" : ""}>بدون مستشارة</option></select>` : ""}
+      <select data-lead-filter="source" aria-label="المصدر"><option value="">كل المصادر</option><option value="form" ${LEAD_UI.source === "form" ? "selected" : ""}>استمارة</option><option value="whatsapp" ${LEAD_UI.source === "whatsapp" ? "selected" : ""}>واتساب</option></select>
       <select data-lead-filter="status" aria-label="الحالة"><option value="">كل الحالات</option>${Object.entries(LEAD_STATUS).map(([key, value]) => `<option value="${key}" ${LEAD_UI.status === key ? "selected" : ""}>${value.icon} ${escapeHtml(value.label)}</option>`).join("")}</select>
     </div>` : ""}
   </div>`;
+}
+
+// Quick filter cards: one tap to see only new leads, no answer, callbacks, RDVs…
+const QUICK_FILTERS = [
+  ["", "🗂️", "الكل"],
+  ["new", "🆕", "جديدة"],
+  ["no_answer", "📵", "لم يُجب"],
+  ["callback", "⏳", "إعادة الاتصال"],
+  ["booked", "📅", "مواعيد"],
+  ["contacted", "💭", "يفكّر"],
+  ["visited", "🚶", "حضر"],
+  ["registered", "🎓", "سجّل"],
+];
+function leadQuickFiltersHtml() {
+  const pool = leadsList().filter((lead) => (LEAD_UI.viewAs ? lead.agentId === LEAD_UI.viewAs : leadAdminView() ? (!LEAD_UI.agent || lead.agentId === LEAD_UI.agent) : true));
+  return `<div class="la-quick" role="tablist" aria-label="تصفية سريعة">${QUICK_FILTERS.map(([key, icon, label]) => {
+    const count = key ? pool.filter((lead) => lead.status === key).length : pool.length;
+    if (["contacted", "visited", "registered"].includes(key) && !count && LEAD_UI.status !== key) return "";
+    return `<button type="button" role="tab" class="la-q la-q-${key || "all"}${LEAD_UI.status === key ? " is-on" : ""}" aria-selected="${LEAD_UI.status === key}" data-quick-status="${key}"><span>${icon}</span><strong>${number(count)}</strong><small>${label}</small></button>`;
+  }).join("")}</div>`;
+}
+function leadsFilteredHtml(leads) {
+  const status = LEAD_STATUS[LEAD_UI.status];
+  const sorted = [...leads].sort((a, b) => LEAD_UI.status === "booked" ? String(a.appointmentAt).localeCompare(String(b.appointmentAt)) : String(b.statusAt || b.createdAt).localeCompare(String(a.statusAt || a.createdAt)));
+  return leadSection("filter", status.icon, status.label, "", sorted, "لا توجد طلبات بهذه الحالة.");
 }
 
 function renderLeads() {
@@ -338,19 +363,20 @@ function renderLeads() {
   root.setAttribute("lang", "ar");
   const leads = leadsVisible();
   const unassigned = leadsList().filter((lead) => !lead.agentId && !["registered", "not_interested", "other_city", "not_qualified", "wrong_number"].includes(lead.status)).length;
-  const body = LEAD_UI.view === "board" ? leadsBoardHtml(leads) : LEAD_UI.view === "list" ? leadsListHtml(leads) : leadsTodayHtml(leads);
-  const empty = !leadsList().length ? `<div class="la-onboarding"><strong>ما كاين حتى ليد دابا</strong><p>${leadAdminView() ? "ربطي ورقة Google «CMCG Leads» من «الربط والتوزيع» تحت، وكل ليد جديد من الفورمولير غادي يوصل هنا ويتوزع أوتوماتيكياً." : "الليدز اللي كيتوزعو عليك غادي يبانو هنا."}</p></div>` : "";
-  const viewAsBanner = leadReadOnly() ? `<div class="la-viewas"><span>👁️</span><div><strong>كتشوفي الشاشة ديال ${escapeHtml(leadAgentName(LEAD_UI.viewAs))} بحال ما كتشوفها هي</strong><small>وضع المشاهدة فقط: ما يمكنش تبدّلي والو.</small></div><button type="button" data-view-as-exit>رجوع للوحة ديالي</button></div>` : "";
+  const body = LEAD_UI.status && LEAD_UI.view === "today" ? leadsFilteredHtml(leads) : LEAD_UI.view === "board" ? leadsBoardHtml(leads) : LEAD_UI.view === "list" ? leadsListHtml(leads) : leadsTodayHtml(leads);
+  const empty = !leadsList().length ? `<div class="la-onboarding"><strong>لا توجد طلبات حالياً</strong><p>${leadAdminView() ? "اربطي ورقة Google «CMCG Leads» من «الربط والتوزيع» أدناه، وسيصل كل طلب جديد من الاستمارة إلى هنا ويُوزَّع تلقائياً." : "ستظهر هنا الطلبات الموزّعة عليك."}</p></div>` : "";
+  const viewAsBanner = leadReadOnly() ? `<div class="la-viewas"><span>👁️</span><div><strong>تشاهدين شاشة ${escapeHtml(leadAgentName(LEAD_UI.viewAs))} كما تراها هي</strong><small>وضع المشاهدة فقط: لا يمكنك تعديل أي شيء.</small></div><button type="button" data-view-as-exit>العودة إلى لوحتي</button></div>` : "";
   const nextBar = leadNextBarHtml();
   root.classList.toggle("has-next", Boolean(nextBar));
   root.innerHTML = `${viewAsBanner}${leadHeroHtml()}
     ${leadAdminView() ? leadMonitorHtml() : ""}
-    ${leadAdminView() && unassigned ? `<div class="la-alert">⚠️ <strong>${number(unassigned)} ليد بلا مستشارة.</strong> <button type="button" data-lead-redistribute>وزّعيهم دابا</button></div>` : ""}
+    ${leadAdminView() && unassigned ? `<div class="la-alert">⚠️ <strong>${number(unassigned)} طلب بدون مستشارة.</strong> <button type="button" data-lead-redistribute>وزّعيها الآن</button></div>` : ""}
     ${leadsToolbarHtml()}
+    ${leadsList().length ? leadQuickFiltersHtml() : ""}
     ${empty}
     <div class="la-body">${body}</div>
     ${nextBar}
-    ${leadAdminView() ? `<div id="leadSplitTest">${leadSplitTestHtml()}</div><details class="la-settings" ${LEAD_UI.settingsOpen ? "open" : ""} data-lead-settings><summary><strong>⚙️ الربط والتوزيع</strong><small>Google Sheets، توزيع الليدز، رسائل واتساب</small></summary>${leadSettingsHtml()}</details>` : ""}`;
+    ${leadAdminView() ? `<div id="leadSplitTest">${leadSplitTestHtml()}</div><details class="la-settings" ${LEAD_UI.settingsOpen ? "open" : ""} data-lead-settings><summary><strong>⚙️ الربط والتوزيع</strong><small>Google Sheets، توزيع الطلبات، رسائل واتساب</small></summary>${leadSettingsHtml()}</details>` : ""}`;
   if (LEAD_UI.detailId && document.getElementById("leadDialog")?.open && !LEAD_UI.sheet) renderLeadDetail();
 }
 
@@ -383,12 +409,12 @@ function leadAgentReport(agent) {
   const openNow = hour >= 11 && hour < 20;
   const quietMinutes = lastAction ? (Date.now() - new Date(lastAction).getTime()) / 60000 : Infinity;
   const warnings = [];
-  if (waiting30) warnings.push(["bad", `🔥 ${waiting30} ليد جديد ما تعيطش ليهم من أكثر من 30 دقيقة (أقدم واحد من ${leadAge(oldestNew)})`]);
-  if (openNow && todo && quietMinutes > 90) warnings.push(["bad", `😴 حتى اتصال ${lastAction ? `من ${leadAge(lastAction)}` : "اليوم"} وعندها ${todo} ليد خاصهم اتصال`]);
-  if (speed !== null && speed > 60) warnings.push(["warn", `🐢 كتعيط من بعد ${Math.round(speed)} دقيقة فالمتوسط (الهدف: أقل من 15 دقيقة)`]);
-  if (remindersPending) warnings.push(["warn", `🔔 ${remindersPending} مواعيد بلا رسالة تذكير`]);
-  if (overdueCallbacks) warnings.push(["warn", `⏳ ${overdueCallbacks} إعادة اتصال فات وقتها`]);
-  if (missed) warnings.push(["warn", `❗ ${missed} مواعيد فاتت بلا نتيجة`]);
+  if (waiting30) warnings.push(["bad", `🔥 ${waiting30} طلب جديد دون اتصال منذ أكثر من 30 دقيقة (أقدمها منذ ${leadAge(oldestNew)})`]);
+  if (openNow && todo && quietMinutes > 90) warnings.push(["bad", `😴 لا اتصال ${lastAction ? `منذ ${leadAge(lastAction)}` : "اليوم"} ولديها ${todo} طلب ينتظر الاتصال`]);
+  if (speed !== null && speed > 60) warnings.push(["warn", `🐢 تتصل بعد ${Math.round(speed)} دقيقة في المتوسط (الهدف: أقل من 15 دقيقة)`]);
+  if (remindersPending) warnings.push(["warn", `🔔 ${remindersPending} مواعيد بدون رسالة تذكير`]);
+  if (overdueCallbacks) warnings.push(["warn", `⏳ ${overdueCallbacks} إعادة اتصال فات موعدها`]);
+  if (missed) warnings.push(["warn", `❗ ${missed} مواعيد فائتة بدون نتيجة`]);
   return {
     leads, entries, taps, calls: taps.filter((item) => item.channel === "call").length, whatsapps: taps.filter((item) => item.channel === "whatsapp").length,
     results: todayEntries.filter((item) => item.status).length, fresh: fresh.length, speed, lastAction, lastSeen: stats.lastSeenAt || "",
@@ -397,13 +423,13 @@ function leadAgentReport(agent) {
   };
 }
 function leadActivityText(item) {
-  if (item.type === "tap") return item.channel === "call" ? "📞 ضغطات على اتصال" : item.channel === "whatsapp" ? "💬 فتحات واتساب" : "🔔 تذكير";
-  if (item.type === "created") return "📥 توصلات بالليد";
-  if (item.type === "reassigned") return "🔀 تحوّل الليد";
+  if (item.type === "tap") return item.channel === "call" ? "📞 ضغطت على اتصال" : item.channel === "whatsapp" ? "💬 فتحت واتساب" : "🔔 تذكير";
+  if (item.type === "created") return "📥 استلمت الطلب";
+  if (item.type === "reassigned") return "🔀 حُوّل الطلب";
   const parts = [];
   if (item.status) parts.push(`${LEAD_STATUS[item.status.to]?.icon || ""} ${LEAD_STATUS[item.status.to]?.label || item.status.to}`);
   if (item.appointmentAt?.to) parts.push(`📅 ${leadWhen(item.appointmentAt.to)}`);
-  if (item.reminded) parts.push("🔔 تذكير تصيفط");
+  if (item.reminded) parts.push("🔔 أُرسل التذكير");
   if (item.notes) parts.push("📝 ملاحظة");
   return parts.join(" · ") || "✏️ تعديل";
 }
@@ -411,22 +437,22 @@ function leadMonitorHtml() {
   const agents = leadAgents();
   const hidden = state.agents.filter((agent) => agent.active !== false && leadAgentSetting(agent.id).hidden);
   if (!agents.length && !hidden.length) return "";
-  return `<section class="la-monitor"><div class="la-section-head"><h3><span>👀</span> المستشارات دابا</h3><small>شنو كتدير كل وحدة اليوم. ضغطي «شوفي بحالها» باش تشوفي الشاشة ديالها بلا ما تبدلي والو.</small></div><div class="la-monitor-grid">${agents.map((agent) => {
+  return `<section class="la-monitor"><div class="la-section-head"><h3><span>👀</span> المستشارات الآن</h3><small>ماذا تفعل كل واحدة اليوم. اضغطي «شاهدي شاشتها» لرؤية شاشتها دون تعديل أي شيء.</small></div><div class="la-monitor-grid">${agents.map((agent) => {
     const report = leadAgentReport(agent);
     const online = report.lastSeen && Date.now() - new Date(report.lastSeen).getTime() < 5 * 60000;
     const feed = [...report.entries].filter((item) => item.type !== "created").sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 7);
     const link = leadAgentLink(agent);
     const paused = leadAgentSetting(agent.id).active === false;
     return `<article class="la-agent la-health-${report.health}${paused ? " is-paused" : ""}">
-      ${paused ? `<div class="la-paused">⏸️ موقوفة: ما كتاخدش ليدز جداد</div>` : ""}
-      <header><span class="la-me small" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))}</span><div><strong>${escapeHtml(leadAgentName(agent.id))}</strong><small class="${online ? "is-online" : ""}">${online ? "🟢 متصلة دابا" : report.lastSeen ? `آخر ظهور: قبل ${escapeHtml(leadAge(report.lastSeen))}` : "ما دخلاتش اليوم"}</small></div><span class="la-health">${report.health === "good" ? "✅ مزيان" : report.health === "warn" ? "⚠️ انتباه" : "🚨 خاص تدخل"}</span></header>
-      <div class="la-agent-stats"><div><strong>${report.calls}</strong><span>📞 اتصالات</span></div><div><strong>${report.whatsapps}</strong><span>💬 واتساب</span></div><div><strong>${report.rdvsToday}</strong><span>📅 مواعيد</span></div><div><strong>${report.fresh}</strong><span>🔥 جداد</span></div><div><strong>${report.speed === null ? "—" : `${Math.round(report.speed)}د`}</strong><span>⚡ سرعة الرد</span></div><div><strong>${report.registeredMonth}</strong><span>🎓 الشهر</span></div></div>
-      ${report.warnings.length ? `<ul class="la-warnings">${report.warnings.map(([tone, text]) => `<li class="is-${tone}">${escapeHtml(text)}</li>`).join("")}</ul>` : `<p class="la-ok">كلشي مزيان، ما كاين حتى تنبيه 👌</p>`}
-      <details class="la-feed"><summary>آخر النشاط${report.lastAction ? ` · قبل ${escapeHtml(leadAge(report.lastAction))}` : ""}</summary><ol>${feed.map((item) => `<li><time dir="ltr">${escapeHtml(new Date(item.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }))}</time><span>${escapeHtml(leadActivityText(item))}</span><button type="button" data-lead-open="${escapeHtml(item.lead.id)}">${escapeHtml(item.lead.name || leadPhoneLabel(item.lead.phone))}</button></li>`).join("") || "<li>ما كاين حتى نشاط باقي.</li>"}</ol></details>
-      <div class="la-agent-actions"><button type="button" class="la-confirm small" data-view-as="${escapeHtml(agent.id)}">👁️ شوفي بحالها</button>${link ? `<button type="button" class="la-secondary" data-lead-copy="${escapeHtml(link)}">🔗 نسخ الرابط</button>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">🔗 صاوبي الرابط</button>`}</div>
-      <div class="la-agent-tools"><button type="button" data-agent-pause="${escapeHtml(agent.id)}">${paused ? "▶️ رجعي ليها الليدز" : "⏸️ وقفي الليدز"}</button><button type="button" data-transfer-from="${escapeHtml(agent.id)}">🔀 حوّلي الليدز ديالها</button><button type="button" data-agent-hide="${escapeHtml(agent.id)}">🙈 خبيها</button></div>
+      ${paused ? `<div class="la-paused">⏸️ متوقفة: لا تستقبل طلبات جديدة</div>` : ""}
+      <header><span class="la-me small" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))}</span><div><strong>${escapeHtml(leadAgentName(agent.id))}</strong><small class="${online ? "is-online" : ""}">${online ? "🟢 متصلة الآن" : report.lastSeen ? `آخر ظهور: منذ ${escapeHtml(leadAge(report.lastSeen))}` : "لم تدخل اليوم"}</small></div><span class="la-health">${report.health === "good" ? "✅ جيد" : report.health === "warn" ? "⚠️ انتباه" : "🚨 يلزم تدخّل"}</span></header>
+      <div class="la-agent-stats"><div><strong>${report.calls}</strong><span>📞 اتصالات</span></div><div><strong>${report.whatsapps}</strong><span>💬 واتساب</span></div><div><strong>${report.rdvsToday}</strong><span>📅 مواعيد</span></div><div><strong>${report.fresh}</strong><span>🔥 جديدة</span></div><div><strong>${report.speed === null ? "—" : `${Math.round(report.speed)}د`}</strong><span>⚡ سرعة الرد</span></div><div><strong>${report.registeredMonth}</strong><span>🎓 الشهر</span></div></div>
+      ${report.warnings.length ? `<ul class="la-warnings">${report.warnings.map(([tone, text]) => `<li class="is-${tone}">${escapeHtml(text)}</li>`).join("")}</ul>` : `<p class="la-ok">كل شيء جيد، لا توجد تنبيهات 👌</p>`}
+      <details class="la-feed"><summary>آخر النشاط${report.lastAction ? ` · منذ ${escapeHtml(leadAge(report.lastAction))}` : ""}</summary><ol>${feed.map((item) => `<li><time dir="ltr">${escapeHtml(new Date(item.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }))}</time><span>${escapeHtml(leadActivityText(item))}</span><button type="button" data-lead-open="${escapeHtml(item.lead.id)}">${escapeHtml(item.lead.name || leadPhoneLabel(item.lead.phone))}</button></li>`).join("") || "<li>لا يوجد نشاط بعد.</li>"}</ol></details>
+      <div class="la-agent-actions"><button type="button" class="la-confirm small" data-view-as="${escapeHtml(agent.id)}">👁️ شاهدي شاشتها</button>${link ? `<button type="button" class="la-secondary" data-lead-copy="${escapeHtml(link)}">🔗 نسخ الرابط</button>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">🔗 إنشاء الرابط</button>`}</div>
+      <div class="la-agent-tools"><button type="button" data-agent-pause="${escapeHtml(agent.id)}">${paused ? "▶️ استئناف الطلبات" : "⏸️ إيقاف الطلبات"}</button><button type="button" data-transfer-from="${escapeHtml(agent.id)}">🔀 تحويل طلباتها</button><button type="button" data-agent-hide="${escapeHtml(agent.id)}">🙈 إخفاء</button></div>
     </article>`;
-  }).join("")}</div>${hidden.length ? `<div class="la-hidden-agents"><span>🙈 مخبيين من الليدز:</span>${hidden.map((agent) => `<button type="button" data-agent-show="${escapeHtml(agent.id)}">${escapeHtml(leadAgentName(agent.id))} · إظهار</button>`).join("")}</div>` : ""}</section>`;
+  }).join("")}</div>${hidden.length ? `<div class="la-hidden-agents"><span>🙈 مخفيات من الطلبات:</span>${hidden.map((agent) => `<button type="button" data-agent-show="${escapeHtml(agent.id)}">${escapeHtml(leadAgentName(agent.id))} · إظهار</button>`).join("")}</div>` : ""}</section>`;
 }
 
 // ---------- Transfer leads between agents ----------
@@ -468,19 +494,19 @@ function renderTransfer() {
   const fromIds = t.from === "__all" ? null : [t.from];
   const count = (status) => leadsList().filter((lead) => (fromIds ? fromIds.includes(lead.agentId || "") : true) && lead.status === status).length;
   const { moved, plan } = transferPlan();
-  const fromLabel = (id) => (id === "" ? "بلا مستشارة" : id === "__all" ? "كل المستشارات" : leadAgentName(id));
+  const fromLabel = (id) => (id === "" ? "بدون مستشارة" : id === "__all" ? "كل المستشارات" : leadAgentName(id));
   dialog.innerHTML = `<div class="modal-content la-detail">
-    <div class="la-detail-head"><div><small>🔀 تحويل الليدز</small><h2>نقلي الليدز من مستشارة لأخرى</h2><p>الليدز الجداد هوما الأساس. المواعيد ما كتحوّلش إلا إلا اخترتيها، باش ما يضيعش المجهود ديال اللي حجزاتها.</p></div><button class="la-close" type="button" data-lead-close aria-label="سدّي">×</button></div>
-    <section class="la-block"><h3>1 · من عند شكون؟</h3><div class="la-chips">${["__all", ...agents.map((agent) => agent.id), ""].map((id) => `<button type="button" class="la-chip${t.from === id ? " is-on" : ""}" data-transfer-set-from="${escapeHtml(id)}">${escapeHtml(fromLabel(id))}</button>`).join("")}</div></section>
-    <section class="la-block"><h3>2 · أشمن ليدز؟</h3><div class="la-chips">${TRANSFER_STATUSES.map((status) => `<button type="button" class="la-chip la-${LEAD_STATUS[status].tone}${t.statuses.includes(status) ? " is-on" : ""}" data-transfer-status="${status}">${LEAD_STATUS[status].icon} ${escapeHtml(LEAD_STATUS[status].label)} <b>${count(status)}</b></button>`).join("")}</div>${t.statuses.includes("booked") ? `<p class="la-warn-note">⚠️ غادي تحوّلي حتى المواعيد اللي حجزاتهم المستشارة.</p>` : `<p class="la-hint">📅 المواعيد ما غاديش تتحوّل.</p>`}</section>
-    <section class="la-block"><h3>3 · لمين؟</h3>
-      <div class="la-chips"><button type="button" class="la-chip${t.mode === "spread" ? " is-on" : ""}" data-transfer-mode="spread">⚖️ وزعي بالتساوي</button><button type="button" class="la-chip${t.mode === "one" ? " is-on" : ""}" data-transfer-mode="one">👤 لمستشارة وحدة</button></div>
+    <div class="la-detail-head"><div><small>🔀 تحويل الطلبات</small><h2>نقل الطلبات من مستشارة إلى أخرى</h2><p>الطلبات الجديدة هي الأساس. لا تُحوَّل المواعيد إلا إذا اخترتِها، حتى لا يضيع جهد من حجزتها.</p></div><button class="la-close" type="button" data-lead-close aria-label="إغلاق">×</button></div>
+    <section class="la-block"><h3>1 · من أي مستشارة؟</h3><div class="la-chips">${["__all", ...agents.map((agent) => agent.id), ""].map((id) => `<button type="button" class="la-chip${t.from === id ? " is-on" : ""}" data-transfer-set-from="${escapeHtml(id)}">${escapeHtml(fromLabel(id))}</button>`).join("")}</div></section>
+    <section class="la-block"><h3>2 · أي طلبات؟</h3><div class="la-chips">${TRANSFER_STATUSES.map((status) => `<button type="button" class="la-chip la-${LEAD_STATUS[status].tone}${t.statuses.includes(status) ? " is-on" : ""}" data-transfer-status="${status}">${LEAD_STATUS[status].icon} ${escapeHtml(LEAD_STATUS[status].label)} <b>${count(status)}</b></button>`).join("")}</div>${t.statuses.includes("booked") ? `<p class="la-warn-note">⚠️ ستُحوَّل أيضاً المواعيد التي حجزتها المستشارة.</p>` : `<p class="la-hint">📅 لن تُحوَّل المواعيد.</p>`}</section>
+    <section class="la-block"><h3>3 · إلى من؟</h3>
+      <div class="la-chips"><button type="button" class="la-chip${t.mode === "spread" ? " is-on" : ""}" data-transfer-mode="spread">⚖️ توزيع بالتساوي</button><button type="button" class="la-chip${t.mode === "one" ? " is-on" : ""}" data-transfer-mode="one">👤 لمستشارة واحدة</button></div>
       ${t.mode === "spread"
         ? `<div class="la-chips">${agents.map((agent) => `<button type="button" class="la-chip${t.to.includes(agent.id) ? " is-on" : ""}" data-transfer-to="${escapeHtml(agent.id)}"><i class="la-dot" style="--agent:${leadAgentColor(agent.id)}"></i>${escapeHtml(leadAgentName(agent.id))}${leadAgentSetting(agent.id).active === false ? " ⏸️" : ""}</button>`).join("")}</div>`
         : `<div class="la-chips">${agents.map((agent) => `<button type="button" class="la-chip${t.one === agent.id ? " is-on" : ""}" data-transfer-one="${escapeHtml(agent.id)}"><i class="la-dot" style="--agent:${leadAgentColor(agent.id)}"></i>${escapeHtml(leadAgentName(agent.id))}${leadAgentSetting(agent.id).active === false ? " ⏸️" : ""}</button>`).join("")}</div>`}
     </section>
-    <div class="la-transfer-summary">${moved ? `<strong>غادي يتحوّلو ${moved} ليد</strong><span>${Object.entries(plan).map(([agentId, n]) => `${escapeHtml(leadAgentName(agentId))}: ${n}`).join(" · ")}</span>` : `<strong>ما كاين حتى ليد يتحوّل بهاد الاختيارات</strong>`}</div>
-    <button type="button" class="la-confirm" data-transfer-confirm ${moved ? "" : "disabled"}>🔀 حوّلي ${moved || ""} ليد</button>
+    <div class="la-transfer-summary">${moved ? `<strong>سيُحوَّل ${moved} طلب</strong><span>${Object.entries(plan).map(([agentId, n]) => `${escapeHtml(leadAgentName(agentId))}: ${n}`).join(" · ")}</span>` : `<strong>لا توجد طلبات للتحويل بهذه الاختيارات</strong>`}</div>
+    <button type="button" class="la-confirm" data-transfer-confirm ${moved ? "" : "disabled"}>🔀 تحويل ${moved || ""} طلب</button>
   </div>`;
 }
 
@@ -489,7 +515,7 @@ function rdvDays() {
   return Array.from({ length: 8 }, (_, offset) => {
     const day = leadTodayKey(offset);
     const date = new Date(`${day}T12:00:00`);
-    const label = offset === 0 ? "اليوم" : offset === 1 ? "غدا" : date.toLocaleDateString(AR_LOCALE, { weekday: "long" });
+    const label = offset === 0 ? "اليوم" : offset === 1 ? "غداً" : date.toLocaleDateString(AR_LOCALE, { weekday: "long" });
     return { day, label, sub: date.toLocaleDateString(AR_LOCALE, { day: "numeric", month: "short" }) };
   });
 }
@@ -507,15 +533,15 @@ function rdvPickerHtml(current = "") {
   const { day, time } = LEAD_UI.pick;
   const summary = time ? `📅 ${leadDayName(day)} على الساعة ${time}` : "اختاري الساعة 👇";
   return `<div class="la-picker">
-    <div class="la-days" role="listbox" aria-label="النهار">${rdvDays().map((item) => `<button type="button" class="la-day${item.day === day ? " is-on" : ""}" data-pick-day="${item.day}" aria-selected="${item.day === day}"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.sub)}</small></button>`).join("")}</div>
+    <div class="la-days" role="listbox" aria-label="اليوم">${rdvDays().map((item) => `<button type="button" class="la-day${item.day === day ? " is-on" : ""}" data-pick-day="${item.day}" aria-selected="${item.day === day}"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.sub)}</small></button>`).join("")}</div>
     ${OPEN_SLOTS.map(([period, times]) => `<div class="la-period"><span>${period}</span><div class="la-times">${times.map((slot) => { const past = rdvSlotPast(day, slot); return `<button type="button" class="la-time${slot === time ? " is-on" : ""}" data-pick-time="${slot}" ${past ? "disabled" : ""}>${slot}</button>`; }).join("")}</div></div>`).join("")}
-    <p class="la-picker-note">المركز مفتوح من 11:00 حتى 20:00</p>
+    <p class="la-picker-note">المركز مفتوح من 11:00 إلى 20:00</p>
     <div class="la-picker-foot"><span class="la-picker-summary">${escapeHtml(summary)}</span><button type="button" class="la-confirm" data-pick-confirm ${time ? "" : "disabled"}>✓ تأكيد الموعد</button></div>
   </div>`;
 }
 function callbackOptions() {
   const plus = (hours) => { const d = new Date(Date.now() + hours * 3600000); return `${dateInputValue(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
-  return [["من بعد ساعة", plus(1)], ["من بعد 3 سوايع", plus(3)], ["غدا 11:00", `${leadTodayKey(1)}T11:00`], ["غدا 15:00", `${leadTodayKey(1)}T15:00`], ["غدا 18:00", `${leadTodayKey(1)}T18:00`], ["بعد غد 11:00", `${leadTodayKey(2)}T11:00`]];
+  return [["بعد ساعة", plus(1)], ["بعد 3 ساعات", plus(3)], ["غداً 11:00", `${leadTodayKey(1)}T11:00`], ["غداً 15:00", `${leadTodayKey(1)}T15:00`], ["غداً 18:00", `${leadTodayKey(1)}T18:00`], ["بعد غد 11:00", `${leadTodayKey(2)}T11:00`]];
 }
 
 // ---------- After-call sheet: the agent must pick the result ----------
@@ -549,16 +575,16 @@ function renderCallSheet() {
   const sheet = LEAD_UI.sheet;
   const lead = sheet && leadById(sheet.leadId);
   if (!lead) { if (dialog.open) dialog.close(); return; }
-  const head = `<div class="la-sheet-head"><span class="la-avatar" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadInitials(lead.name))}</span><div><small>${sheet.kind === "call" ? "📞 رجعتي من المكالمة" : "💬 رجعتي من واتساب"}</small><h3>شنو كانت النتيجة مع ${escapeHtml(lead.name || "هاد الشخص")}؟</h3></div></div>`;
+  const head = `<div class="la-sheet-head"><span class="la-avatar" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadInitials(lead.name))}</span><div><small>${sheet.kind === "call" ? "📞 عدتِ من المكالمة" : "💬 عدتِ من واتساب"}</small><h3>ما نتيجة التواصل مع ${escapeHtml(lead.name || "هذا الشخص")}؟</h3></div></div>`;
   let body;
   if (sheet.step === "booked") {
-    body = `<button type="button" class="la-back" data-sheet-back>→ رجوع</button><h4 class="la-sheet-sub">📅 إمتى الموعد؟</h4>${rdvPickerHtml(lead.appointmentAt)}`;
+    body = `<button type="button" class="la-back" data-sheet-back>→ رجوع</button><h4 class="la-sheet-sub">📅 متى الموعد؟</h4>${rdvPickerHtml(lead.appointmentAt)}`;
   } else if (sheet.step === "callback") {
-    body = `<button type="button" class="la-back" data-sheet-back>→ رجوع</button><h4 class="la-sheet-sub">⏳ إمتى نعاودو نعيطو؟</h4><div class="la-callback">${callbackOptions().map(([label, value]) => `<button type="button" data-callback-at="${value}">${escapeHtml(label)}</button>`).join("")}</div>`;
+    body = `<button type="button" class="la-back" data-sheet-back>→ رجوع</button><h4 class="la-sheet-sub">⏳ متى نعيد الاتصال؟</h4><div class="la-callback">${callbackOptions().map(([label, value]) => `<button type="button" data-callback-at="${value}">${escapeHtml(label)}</button>`).join("")}</div>`;
   } else {
     body = `<div class="la-results">${CALL_RESULTS.map(([key, label, hint]) => `<button type="button" class="la-result la-${LEAD_STATUS[key].tone}" data-call-result="${key}"><span class="la-result-icon">${LEAD_STATUS[key].icon}</span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></button>`).join("")}</div>
-      <label class="la-sheet-note"><span>ملاحظة (اختياري)</span><input type="text" data-sheet-note placeholder="مثلاً: بغا التكوين ديال المحاسبة، فاضي العشية…" /></label>
-      <button type="button" class="la-skip" data-call-skip>ما تمّش الاتصال</button>`;
+      <label class="la-sheet-note"><span>ملاحظة (اختياري)</span><input type="text" data-sheet-note placeholder="مثلاً: يريد تكوين المحاسبة، متاح مساءً…" /></label>
+      <button type="button" class="la-skip" data-call-skip>لم يتم الاتصال</button>`;
   }
   dialog.innerHTML = `<div class="la-sheet-body">${head}${body}</div>`;
 }
@@ -623,11 +649,11 @@ function renderLeadDetail() {
   const answers = Object.entries(lead.answers || {});
   const history = [...(lead.history || [])].reverse().slice(0, 25).map((item) => {
     const parts = [];
-    if (item.type === "created") parts.push(`وصل الليد${item.agentId ? ` · تعطى لـ ${leadAgentName(item.agentId)}` : ""}`);
-    if (item.type === "reassigned") parts.push(`تحوّل من ${item.from || "حتى واحد"} لـ ${item.to || "حتى واحد"}`);
+    if (item.type === "created") parts.push(`وصل الطلب${item.agentId ? ` · أُسند إلى ${leadAgentName(item.agentId)}` : ""}`);
+    if (item.type === "reassigned") parts.push(`حُوّل من ${item.from || "لا أحد"} إلى ${item.to || "لا أحد"}`);
     if (item.contact) parts.push(item.contact === "call" ? "📞 مكالمة" : item.contact === "reminder" ? "🔔 تذكير واتساب" : "💬 واتساب");
     if (item.status) parts.push(`${LEAD_STATUS[item.status.to]?.icon || ""} ${LEAD_STATUS[item.status.to]?.label || item.status.to}`);
-    if (item.appointmentAt) parts.push(item.appointmentAt.to ? `📅 موعد: ${leadWhen(item.appointmentAt.to)}` : "تحيّد الموعد");
+    if (item.appointmentAt) parts.push(item.appointmentAt.to ? `📅 موعد: ${leadWhen(item.appointmentAt.to)}` : "أُلغي الموعد");
     if (item.callbackAt) parts.push(`⏳ إعادة الاتصال: ${leadWhen(item.callbackAt)}`);
     if (item.notes) parts.push("📝 ملاحظة");
     return `<li><time dir="ltr">${escapeHtml(new Date(item.at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</time><span>${escapeHtml(parts.join(" · ") || item.type)}${item.by ? ` <em>· ${escapeHtml(item.by)}</em>` : ""}</span></li>`;
@@ -637,20 +663,20 @@ function renderLeadDetail() {
   const statusSection = step === "rdv"
     ? `<section class="la-block"><button type="button" class="la-back" data-detail-back>→ رجوع</button><h3>📅 اختاري الموعد</h3>${rdvPickerHtml(lead.appointmentAt)}</section>`
     : step === "callback"
-      ? `<section class="la-block"><button type="button" class="la-back" data-detail-back>→ رجوع</button><h3>⏳ إمتى نعاودو نعيطو؟</h3><div class="la-callback">${callbackOptions().map(([label, value]) => `<button type="button" data-callback-at="${value}">${escapeHtml(label)}</button>`).join("")}</div></section>`
-      : `<section class="la-block"><h3>الحالة ${leadStatusPill(lead)}</h3><div class="la-results is-compact">${CALL_RESULTS.map(([key, label]) => `<button type="button" class="la-result la-${LEAD_STATUS[key].tone}${lead.status === key ? " is-current" : ""}" data-detail-status="${key}"><span class="la-result-icon">${LEAD_STATUS[key].icon}</span><strong>${escapeHtml(label)}</strong></button>`).join("")}<button type="button" class="la-result la-visited${lead.status === "visited" ? " is-current" : ""}" data-detail-status="visited"><span class="la-result-icon">🚶</span><strong>جا وما تسجلش</strong></button><button type="button" class="la-result la-good${lead.status === "registered" ? " is-current" : ""}" data-detail-status="registered"><span class="la-result-icon">🎓</span><strong>تسجّل</strong></button></div><small class="la-hint">الموعد، «جا» و«تسجّل» كيتزادو أوتوماتيكياً فنتائج الإعلان${ad ? ` «${escapeHtml(ad.name)}»` : ""}.</small></section>`;
+      ? `<section class="la-block"><button type="button" class="la-back" data-detail-back>→ رجوع</button><h3>⏳ متى نعيد الاتصال؟</h3><div class="la-callback">${callbackOptions().map(([label, value]) => `<button type="button" data-callback-at="${value}">${escapeHtml(label)}</button>`).join("")}</div></section>`
+      : `<section class="la-block"><h3>الحالة ${leadStatusPill(lead)}</h3><div class="la-results is-compact">${CALL_RESULTS.map(([key, label]) => `<button type="button" class="la-result la-${LEAD_STATUS[key].tone}${lead.status === key ? " is-current" : ""}" data-detail-status="${key}"><span class="la-result-icon">${LEAD_STATUS[key].icon}</span><strong>${escapeHtml(label)}</strong></button>`).join("")}<button type="button" class="la-result la-visited${lead.status === "visited" ? " is-current" : ""}" data-detail-status="visited"><span class="la-result-icon">🚶</span><strong>حضر ولم يسجّل</strong></button><button type="button" class="la-result la-good${lead.status === "registered" ? " is-current" : ""}" data-detail-status="registered"><span class="la-result-icon">🎓</span><strong>سجّل</strong></button></div><small class="la-hint">الموعد و«حضر» و«سجّل» تُضاف تلقائياً إلى نتائج الإعلان${ad ? ` «${escapeHtml(ad.name)}»` : ""}.</small></section>`;
   dialog.innerHTML = `<div class="modal-content la-detail">
-    <div class="la-detail-head"><span class="la-avatar big" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadInitials(lead.name))}</span><div><small>${escapeHtml(leadSource(lead).channel)} · وصل ${escapeHtml(leadWhen(dateInputValue(new Date(lead.createdAt)) + "T" + new Date(lead.createdAt).toTimeString().slice(0, 5)))}</small><h2>${escapeHtml(lead.name || "بلا اسم")}</h2><p dir="ltr" class="la-phone">${escapeHtml(leadPhoneLabel(lead.phone))}</p></div><button class="la-close" type="button" data-lead-close aria-label="سدّي">×</button></div>
+    <div class="la-detail-head"><span class="la-avatar big" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadInitials(lead.name))}</span><div><small>${escapeHtml(leadSource(lead).channel)} · وصل ${escapeHtml(leadWhen(dateInputValue(new Date(lead.createdAt)) + "T" + new Date(lead.createdAt).toTimeString().slice(0, 5)))}</small><h2>${escapeHtml(lead.name || "بدون اسم")}</h2><p dir="ltr" class="la-phone">${escapeHtml(leadPhoneLabel(lead.phone))}</p></div><button class="la-close" type="button" data-lead-close aria-label="إغلاق">×</button></div>
     ${leadActionsHtml(lead, { big: true })}
-    ${reminderDue ? `<a class="la-reminder-big" href="${escapeHtml(leadWhatsAppUrl(lead, "reminder"))}" target="_blank" rel="noopener" data-lead-contact="${escapeHtml(lead.id)}" data-kind="reminder"><span>⚠️</span><div><strong>ما تصيفطاتش رسالة التذكير!</strong><small>الموعد ${escapeHtml(leadWhen(lead.appointmentAt))}. ضغطي هنا باش تصيفطيها فواتساب.</small></div></a>` : ""}
-    ${lead.status === "booked" && lead.appointmentAt && step !== "rdv" ? `<div class="la-rdv-box"><div>📅 <strong>${escapeHtml(leadWhen(lead.appointmentAt))}</strong>${lead.remindedAt ? `<small>✓ التذكير تصيفط</small>` : ""}</div><button type="button" data-detail-step="rdv">بدّلي الموعد</button></div>` : ""}
+    ${reminderDue ? `<a class="la-reminder-big" href="${escapeHtml(leadWhatsAppUrl(lead, "reminder"))}" target="_blank" rel="noopener" data-lead-contact="${escapeHtml(lead.id)}" data-kind="reminder"><span>⚠️</span><div><strong>لم تُرسل رسالة التذكير!</strong><small>الموعد ${escapeHtml(leadWhen(lead.appointmentAt))}. اضغطي هنا لإرسالها عبر واتساب.</small></div></a>` : ""}
+    ${lead.status === "booked" && lead.appointmentAt && step !== "rdv" ? `<div class="la-rdv-box"><div>📅 <strong>${escapeHtml(leadWhen(lead.appointmentAt))}</strong>${lead.remindedAt ? `<small>✓ أُرسل التذكير</small>` : ""}</div><button type="button" data-detail-step="rdv">تغيير الموعد</button></div>` : ""}
     ${statusSection}
-    <form class="la-block" data-lead-notes-form><h3>📝 ملاحظات</h3><textarea name="notes" rows="3" placeholder="التكوين اللي بغا، الوقت اللي فاضي فيه، الأسئلة ديالو…">${escapeHtml(lead.notes || "")}</textarea><button class="la-save-note" type="submit">حفظ الملاحظة</button></form>
-    ${answers.length ? `<section class="la-block"><h3>📋 الأجوبة ديال الفورمولير</h3><dl class="la-answers">${answers.map(([question, answer]) => `<div><dt>${escapeHtml(question)}</dt><dd>${escapeHtml(answer)}</dd></div>`).join("")}</dl></section>` : ""}
-    <section class="la-block"><h3>📣 منين جا</h3><dl class="la-answers"><div><dt>الإعلان</dt><dd>${escapeHtml(ad?.name || lead.meta?.adName || "—")}</dd></div><div><dt>المجموعة الإعلانية</dt><dd>${escapeHtml(adSet?.name || lead.meta?.adSetName || "—")}</dd></div><div><dt>الحملة</dt><dd>${escapeHtml(campaign?.name || lead.meta?.campaignName || "—")}</dd></div></dl>
-      ${leadAdminView() ? `<label class="la-reassign"><span>المستشارة</span><select data-lead-reassign="${escapeHtml(lead.id)}"><option value="">بلا مستشارة</option>${state.agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${lead.agentId === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}</section>
+    <form class="la-block" data-lead-notes-form><h3>📝 ملاحظات</h3><textarea name="notes" rows="3" placeholder="التكوين المطلوب، الوقت المناسب، أسئلته…">${escapeHtml(lead.notes || "")}</textarea><button class="la-save-note" type="submit">حفظ الملاحظة</button></form>
+    ${answers.length ? `<section class="la-block"><h3>📋 أجوبة الاستمارة</h3><dl class="la-answers">${answers.map(([question, answer]) => `<div><dt>${escapeHtml(question)}</dt><dd>${escapeHtml(answer)}</dd></div>`).join("")}</dl></section>` : ""}
+    <section class="la-block"><h3>📣 المصدر</h3><dl class="la-answers"><div><dt>الإعلان</dt><dd>${escapeHtml(ad?.name || lead.meta?.adName || "—")}</dd></div><div><dt>المجموعة الإعلانية</dt><dd>${escapeHtml(adSet?.name || lead.meta?.adSetName || "—")}</dd></div><div><dt>الحملة</dt><dd>${escapeHtml(campaign?.name || lead.meta?.campaignName || "—")}</dd></div></dl>
+      ${leadAdminView() ? `<label class="la-reassign"><span>المستشارة</span><select data-lead-reassign="${escapeHtml(lead.id)}"><option value="">بدون مستشارة</option>${state.agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${lead.agentId === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}</section>
     ${history ? `<section class="la-block"><h3>🕘 التاريخ</h3><ol class="la-history">${history}</ol></section>` : ""}
-    ${leadAdminView() ? `<button class="la-delete" type="button" data-lead-delete>حذف الليد</button>` : ""}
+    ${leadAdminView() ? `<button class="la-delete" type="button" data-lead-delete>حذف الطلب</button>` : ""}
   </div>`;
 }
 
@@ -670,20 +696,20 @@ function openNewLeadForm() {
   LEAD_UI.detailId = "";
   const agents = leadAgents();
   const adSets = state.adSets.filter((adSet) => adSet.metaAdSetId).sort((a, b) => a.name.localeCompare(b.name));
-  dialog.innerHTML = `<form class="modal-content la-detail" data-lead-new-form><div class="la-detail-head"><div><small>💬 واتساب</small><h2>زيدي ليد جديد</h2><p>للناس اللي كيتواصلو فواتساب. الليدز ديال الفورمولير كيوصلو بوحدهم.</p></div><button class="la-close" type="button" data-lead-close aria-label="سدّي">×</button></div>
+  dialog.innerHTML = `<form class="modal-content la-detail" data-lead-new-form><div class="la-detail-head"><div><small>💬 واتساب</small><h2>إضافة طلب جديد</h2><p>لمن يتواصل عبر واتساب. طلبات الاستمارة تصل تلقائياً.</p></div><button class="la-close" type="button" data-lead-close aria-label="إغلاق">×</button></div>
     <div class="la-form"><label><span>الاسم</span><input name="name" autocomplete="off" placeholder="الاسم الكامل" /></label><label><span>رقم الهاتف</span><input name="phone" inputmode="tel" dir="ltr" required placeholder="06 12 34 56 78" /></label>
-    ${leadAdminView() ? `<label><span>المستشارة</span><select name="agentId"><option value="">بلا مستشارة</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}
-    <label><span>المجموعة الإعلانية (اختياري)</span><select name="adSetId"><option value="">ما عرفتش</option>${adSets.map((adSet) => `<option value="${escapeHtml(adSet.id)}">${escapeHtml(adSet.name)}</option>`).join("")}</select></label>
+    ${leadAdminView() ? `<label><span>المستشارة</span><select name="agentId"><option value="">بدون مستشارة</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}
+    <label><span>المجموعة الإعلانية (اختياري)</span><select name="adSetId"><option value="">غير معروف</option>${adSets.map((adSet) => `<option value="${escapeHtml(adSet.id)}">${escapeHtml(adSet.name)}</option>`).join("")}</select></label>
     <label><span>ملاحظة (اختياري)</span><input name="notes" autocomplete="off" /></label></div>
-    <button class="la-confirm" type="submit">＋ زيدي الليد</button></form>`;
+    <button class="la-confirm" type="submit">＋ إضافة الطلب</button></form>`;
   if (!dialog.open) dialog.showModal();
 }
 
 // ---------- Admin: Google Sheets, distribution, messages ----------
 function leadAppsScript(url) {
-  return `// CMCG CRM · كيصيفط الليدز الجداد من هاد الورقة للـ CRM.
-// 1) Extensions > Apps Script، لصقي هاد الكود، Enregistrer.
-// 2) اختاري الدالة "installer" ومن بعد Exécuter (وقبلي الإذن).
+  return `// CMCG CRM · يرسل الطلبات الجديدة من هذه الورقة إلى CRM.
+// 1) Extensions > Apps Script، الصقي هذا الكود، Enregistrer.
+// 2) اختاري الدالة "installer" ثم Exécuter (واقبلي الإذن).
 const CRM_URL = "${url}";
 
 function envoyerNouveauxLeads() {
@@ -718,33 +744,33 @@ function leadSettingsHtml() {
   const url = token ? `${window.location.origin}/api/lead-intake?token=${token}` : "";
   const since = (days) => new Date(Date.now() - days * 86400000).toISOString();
   const modes = [
-    ["balanced", "بالتساوي", "كل ليد جديد كيمشي للمستشارة اللي خدات أقل اليوم."],
-    ["weighted", "بالنسبة", "على حساب الوزن ديال كل وحدة (2 = الضعف)."],
-    ["adset", "مستشارة الإعلان", "المستشارة اللي سميتها فالمجموعة الإعلانية، وإلا بالتساوي."],
-    ["manual", "يدوي", "الليدز كيوصلو بلا مستشارة وأنتِ كتوزعيهم."],
+    ["balanced", "بالتساوي", "كل طلب جديد يذهب إلى المستشارة التي استلمت أقل اليوم."],
+    ["weighted", "بالنسبة", "حسب وزن كل مستشارة (2 = الضعف)."],
+    ["adset", "مستشارة الإعلان", "المستشارة المذكورة في اسم المجموعة الإعلانية، وإلا بالتساوي."],
+    ["manual", "يدوي", "تصل الطلبات بدون مستشارة وتوزّعينها أنتِ."],
   ];
   const agentRows = leadAgents().map((agent) => {
     const setting = distribution.agents?.[agent.id] || { active: true, weight: 1 };
     const count = (days) => leadsList().filter((lead) => lead.agentId === agent.id && lead.source === "form" && (lead.assignedAt || lead.createdAt) >= since(days)).length;
-    return `<tr><td><span class="la-owner" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))} · ${escapeHtml(leadAgentName(agent.id))}</span></td><td><label class="la-switch"><input type="checkbox" name="active:${escapeHtml(agent.id)}" ${setting.active !== false ? "checked" : ""} /><span>كتاخد ليدز</span></label></td><td><input type="number" min="0" step="0.5" name="weight:${escapeHtml(agent.id)}" value="${setting.weight ?? 1}" class="la-weight" aria-label="الوزن" /></td><td>${number(count(1))}</td><td>${number(count(7))}</td></tr>`;
+    return `<tr><td><span class="la-owner" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))} · ${escapeHtml(leadAgentName(agent.id))}</span></td><td><label class="la-switch"><input type="checkbox" name="active:${escapeHtml(agent.id)}" ${setting.active !== false ? "checked" : ""} /><span>تستقبل طلبات</span></label></td><td><input type="number" min="0" step="0.5" name="weight:${escapeHtml(agent.id)}" value="${setting.weight ?? 1}" class="la-weight" aria-label="الوزن" /></td><td>${number(count(1))}</td><td>${number(count(7))}</td></tr>`;
   }).join("");
   return `<div class="la-settings-grid">
     <section class="la-setting"><h3>1 · ربط ورقة Google «CMCG Leads»</h3>
-      <ol class="la-steps"><li>صاوبي رابط الاستقبال (خليه سري).</li><li>فالورقة: <b>Extensions → Apps Script</b>، لصقي الكود وسجّلي.</li><li>اختاري <b>installer</b> وضغطي <b>Exécuter</b>. من بعد الليدز كيوصلو كل دقيقة وموزعين.</li></ol>
-      ${url ? `<div class="la-copy"><input readonly dir="ltr" value="${escapeHtml(url)}" aria-label="رابط الاستقبال" /><button type="button" data-lead-copy="${escapeHtml(url)}">نسخ</button></div><details class="la-script"><summary>شوفي كود Apps Script</summary><pre dir="ltr">${escapeHtml(leadAppsScript(url))}</pre><button type="button" class="la-confirm" data-lead-copy-script>نسخ الكود</button></details>` : ""}
-      <div class="la-row"><button type="button" class="la-secondary" data-lead-token>${url ? "بدّلي الرابط" : "صاوبي رابط الاستقبال"}</button><label class="la-secondary la-file">استيراد CSV<input type="file" accept=".csv,text/csv" data-lead-csv /></label></div>
+      <ol class="la-steps"><li>أنشئي رابط الاستقبال (احتفظي به سرياً).</li><li>في الورقة: <b>Extensions → Apps Script</b>، الصقي الكود واحفظيه.</li><li>اختاري <b>installer</b> واضغطي <b>Exécuter</b>. بعدها تصل الطلبات كل دقيقة موزّعة.</li></ol>
+      ${url ? `<div class="la-copy"><input readonly dir="ltr" value="${escapeHtml(url)}" aria-label="رابط الاستقبال" /><button type="button" data-lead-copy="${escapeHtml(url)}">نسخ</button></div><details class="la-script"><summary>عرض كود Apps Script</summary><pre dir="ltr">${escapeHtml(leadAppsScript(url))}</pre><button type="button" class="la-confirm" data-lead-copy-script>نسخ الكود</button></details>` : ""}
+      <div class="la-row"><button type="button" class="la-secondary" data-lead-token>${url ? "تغيير الرابط" : "إنشاء رابط الاستقبال"}</button><label class="la-secondary la-file">استيراد CSV<input type="file" accept=".csv,text/csv" data-lead-csv /></label></div>
     </section>
-    <section class="la-setting"><h3>🔗 الروابط ديال المستشارات</h3>
-      <p class="la-hint">كل مستشارة عندها رابط خاص بيها: كتحلو فالتليفون ديالها مرة وحدة وكتبقى داخلة. ما كتشوف غير الليدز ديالها، بلا كلمة سر. إلا تبدّل الرابط، القديم ما بقاش خدام.</p>
-      ${leadAgents().map((agent) => { const link = leadAgentLink(agent); const share = `https://wa.me/${encodeURIComponent(String(agent.whatsapp || "").replace(/\D/g, ""))}?text=${encodeURIComponent(`السلام ${leadAgentName(agent.id)} 👋 هادا الرابط ديال الليدز ديالك، حليه فالتليفون وخليه عندك:\n${link}`)}`; return `<div class="la-link-row"><span class="la-owner" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))} · ${escapeHtml(leadAgentName(agent.id))}</span>${link ? `<div class="la-copy"><input readonly dir="ltr" value="${escapeHtml(link)}" aria-label="الرابط" /><button type="button" data-lead-copy="${escapeHtml(link)}">نسخ</button></div><div class="la-row"><a class="la-secondary la-link-btn" href="${escapeHtml(share)}" target="_blank" rel="noopener">💬 صيفطيه ليها فواتساب</a><button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">بدّلي الرابط</button><button type="button" class="la-secondary" data-agent-link-revoke="${escapeHtml(agent.id)}">حبسي الرابط</button></div>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">صاوبي الرابط</button>`}</div>`; }).join("")}
+    <section class="la-setting"><h3>🔗 روابط المستشارات</h3>
+      <p class="la-hint">لكل مستشارة رابط خاص: تفتحه في هاتفها مرة واحدة وتبقى متصلة. لا ترى إلا طلباتها، دون كلمة سر. إذا تغيّر الرابط يتوقف القديم عن العمل.</p>
+      ${leadAgents().map((agent) => { const link = leadAgentLink(agent); const share = `https://wa.me/${encodeURIComponent(String(agent.whatsapp || "").replace(/\D/g, ""))}?text=${encodeURIComponent(`السلام ${leadAgentName(agent.id)} 👋 هذا رابط طلباتك، افتحيه في هاتفك واحتفظي به:\n${link}`)}`; return `<div class="la-link-row"><span class="la-owner" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))} · ${escapeHtml(leadAgentName(agent.id))}</span>${link ? `<div class="la-copy"><input readonly dir="ltr" value="${escapeHtml(link)}" aria-label="الرابط" /><button type="button" data-lead-copy="${escapeHtml(link)}">نسخ</button></div><div class="la-row"><a class="la-secondary la-link-btn" href="${escapeHtml(share)}" target="_blank" rel="noopener">💬 أرسليه لها عبر واتساب</a><button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">تغيير الرابط</button><button type="button" class="la-secondary" data-agent-link-revoke="${escapeHtml(agent.id)}">إيقاف الرابط</button></div>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">إنشاء الرابط</button>`}</div>`; }).join("")}
     </section>
-    <form class="la-setting" data-lead-distribution-form><h3>2 · توزيع الليدز</h3>
+    <form class="la-setting" data-lead-distribution-form><h3>2 · توزيع الطلبات</h3>
       <div class="la-modes">${modes.map(([key, label, hint]) => `<label class="la-mode${distribution.mode === key ? " is-on" : ""}"><input type="radio" name="mode" value="${key}" ${distribution.mode === key ? "checked" : ""} /><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></label>`).join("")}</div>
       <div class="table-wrap la-table-wrap"><table class="la-table"><thead><tr><th>المستشارة</th><th>نشيطة</th><th>الوزن</th><th>اليوم</th><th>7 أيام</th></tr></thead><tbody>${agentRows}</tbody></table></div>
       <button type="submit" class="la-confirm">حفظ التوزيع</button>
     </form>
     <form class="la-setting" data-lead-templates-form><h3>3 · رسائل واتساب</h3>
-      <p class="la-hint">{name} الاسم · {agent} المستشارة · {day} النهار · {time} الساعة</p>
+      <p class="la-hint">{name} الاسم · {agent} المستشارة · {day} اليوم · {time} الساعة</p>
       <label><span>أول رسالة</span><textarea name="first" rows="5">${escapeHtml(distribution.templates?.first || "")}</textarea></label>
       <label><span>رسالة التذكير بالموعد</span><textarea name="reminder" rows="9">${escapeHtml(distribution.templates?.reminder || "")}</textarea></label>
       <button type="submit" class="la-confirm">حفظ الرسائل</button>
@@ -784,13 +810,13 @@ function leadSplitData() {
 function leadSplitTestHtml() {
   const sides = leadSplitData();
   if (!sides.form.spend && !sides.form.contacts) {
-    return `<section class="la-split"><h3>🧪 واتساب ضد الفورمولير</h3><p class="la-empty">المقارنة غادي تبان ملي تبدا حملة الفورمولير تصرف ولا تجيب ليدز فالفترة اللي مختارة الفوق.</p></section>`;
+    return `<section class="la-split"><h3>🧪 واتساب ضد الاستمارة</h3><p class="la-empty">ستظهر المقارنة عندما تبدأ حملة الاستمارة بالإنفاق أو بجلب طلبات في الفترة المختارة أعلاه.</p></section>`;
   }
   const per = (spend, count) => (count ? spend / count : null);
   const rate = (a, b) => (b ? a / b : null);
   const rows = [
     ["المصروف", (s) => s.spend, "money", null, false],
-    ["التواصلات (رسائل / ليدز)", (s) => s.contacts, "count", "high", false],
+    ["التواصلات (رسائل / طلبات)", (s) => s.contacts, "count", "high", false],
     ["ثمن التواصل", (s) => per(s.spend, s.contacts), "money", "low", false],
     ["المواعيد", (s) => s.booked, "count", "high", false],
     ["تواصل ← موعد", (s) => rate(s.booked, s.contacts), "pct", "high", false],
@@ -813,12 +839,12 @@ function leadSplitTestHtml() {
   }).join("");
   const enough = sides.whatsapp.registered >= 5 && sides.form.registered >= 5;
   const verdict = !enough
-    ? `باقي بكري باش نحكمو: خاص 5 مسجلين على الأقل فكل جهة (دابا ${sides.whatsapp.registered} واتساب، ${sides.form.registered} فورمولير). شوفي ثمن الموعد قبل.`
-    : wins.whatsapp === wins.form ? "تعادل فالمؤشرات المهمة." : `${wins.whatsapp > wins.form ? "واتساب" : "الفورمولير"} رابح فـ ${Math.max(wins.whatsapp, wins.form)} من 4 مؤشرات مهمة.`;
+    ? `من المبكر الحكم: يلزم 5 مسجلين على الأقل في كل جهة (حالياً ${sides.whatsapp.registered} واتساب، ${sides.form.registered} استمارة). راقبي تكلفة الموعد أولاً.`
+    : wins.whatsapp === wins.form ? "تعادل في المؤشرات المهمة." : `${wins.whatsapp > wins.form ? "واتساب" : "الاستمارة"} متفوّق في ${Math.max(wins.whatsapp, wins.form)} من 4 مؤشرات مهمة.`;
   const campaigns = state.campaigns.filter((campaign) => campaign.metaCampaignId).sort((a, b) => a.name.localeCompare(b.name));
-  return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الفورمولير</h3><p class="${enough ? "is-ready" : ""}">${escapeHtml(verdict)}</p></div>
-    <div class="table-wrap la-table-wrap"><table class="la-table la-split-table"><thead><tr><th></th><th><span class="la-src la-src-whatsapp">واتساب</span></th><th><span class="la-src la-src-form">فورمولير</span></th></tr></thead><tbody>${body}</tbody></table></div>
-    <details class="la-channels"><summary>شمن حملة فشمن جهة؟</summary><div class="la-channel-list">${campaigns.map((campaign) => `<label><span>${escapeHtml(campaign.name)}</span><select data-lead-channel="${escapeHtml(campaign.id)}"><option value="">أوتوماتيك (${leadAutoChannel(campaign) === "form" ? "فورمولير" : "واتساب"})</option><option value="whatsapp" ${state.settings?.channelOverrides?.[campaign.id] === "whatsapp" ? "selected" : ""}>واتساب</option><option value="form" ${state.settings?.channelOverrides?.[campaign.id] === "form" ? "selected" : ""}>فورمولير</option><option value="exclude" ${state.settings?.channelOverrides?.[campaign.id] === "exclude" ? "selected" : ""}>برا المقارنة</option></select></label>`).join("")}</div></details>
+  return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3><p class="${enough ? "is-ready" : ""}">${escapeHtml(verdict)}</p></div>
+    <div class="table-wrap la-table-wrap"><table class="la-table la-split-table"><thead><tr><th></th><th><span class="la-src la-src-whatsapp">واتساب</span></th><th><span class="la-src la-src-form">استمارة</span></th></tr></thead><tbody>${body}</tbody></table></div>
+    <details class="la-channels"><summary>أي حملة في أي جهة؟</summary><div class="la-channel-list">${campaigns.map((campaign) => `<label><span>${escapeHtml(campaign.name)}</span><select data-lead-channel="${escapeHtml(campaign.id)}"><option value="">تلقائي (${leadAutoChannel(campaign) === "form" ? "استمارة" : "واتساب"})</option><option value="whatsapp" ${state.settings?.channelOverrides?.[campaign.id] === "whatsapp" ? "selected" : ""}>واتساب</option><option value="form" ${state.settings?.channelOverrides?.[campaign.id] === "form" ? "selected" : ""}>استمارة</option><option value="exclude" ${state.settings?.channelOverrides?.[campaign.id] === "exclude" ? "selected" : ""}>خارج المقارنة</option></select></label>`).join("")}</div></details>
   </section>`;
 }
 
@@ -834,7 +860,7 @@ async function leadSave(id, body, message) {
 }
 const cheer = () => CHEERS[Math.floor(Math.random() * CHEERS.length)];
 
-const LEAD_VIEW_ONLY_OK = "[data-lead-view], [data-lead-close], [data-lead-jump], [data-detail-back], [data-view-as-exit], [data-lead-open]";
+const LEAD_VIEW_ONLY_OK = "[data-lead-view], [data-lead-close], [data-lead-jump], [data-detail-back], [data-view-as-exit], [data-lead-open], [data-quick-status]";
 async function handleLeadClick(event) {
   const target = event.target;
   if (leadReadOnly()) {
@@ -842,17 +868,17 @@ async function handleLeadClick(event) {
     if (control && !control.matches(LEAD_VIEW_ONLY_OK)) {
       event.preventDefault();
       event.stopPropagation();
-      toast("👁️ وضع المشاهدة: ما يمكنش تبدّلي والو", "error");
+      toast("👁️ وضع المشاهدة: لا يمكنك تعديل أي شيء", "error");
       return;
     }
   }
   const demoBtn = target.closest("[data-demo]");
   if (demoBtn) {
     const remove = demoBtn.dataset.demo === "remove";
-    if (remove && !window.confirm("نحيدو كاع الليدز التجريبية؟")) return;
+    if (remove && !window.confirm("حذف كل الطلبات التجريبية؟")) return;
     try {
       const res = await api("/api/crm-leads/demo", { method: "POST", body: JSON.stringify({ action: remove ? "remove" : "create" }) });
-      toast(remove ? `🗑️ تحيدو ${res.removed} ليد تجريبي` : `🧪 تزادو ${res.created} ليدز تجريبية (2 لكل مستشارة)`);
+      toast(remove ? `🗑️ حُذف ${res.removed} طلب تجريبي` : `🧪 أُضيف ${res.created} طلبات تجريبية (2 لكل مستشارة)`);
       await load();
     } catch (error) { toast(error.message, "error"); }
     return;
@@ -861,7 +887,7 @@ async function handleLeadClick(event) {
   if (pauseBtn) {
     const id = pauseBtn.dataset.agentPause;
     const paused = leadAgentSetting(id).active === false;
-    try { await saveAgentSetting(id, { active: paused }, paused ? `▶️ ${leadAgentName(id)} رجعات كتاخد الليدز` : `⏸️ ${leadAgentName(id)} ما بقاتش كتاخد ليدز جداد`); } catch (error) { toast(error.message, "error"); }
+    try { await saveAgentSetting(id, { active: paused }, paused ? `▶️ ${leadAgentName(id)} عادت تستقبل الطلبات` : `⏸️ ${leadAgentName(id)} لم تعد تستقبل طلبات جديدة`); } catch (error) { toast(error.message, "error"); }
     return;
   }
   const hideBtn = target.closest("[data-agent-hide], [data-agent-show]");
@@ -870,9 +896,9 @@ async function handleLeadClick(event) {
     const id = hideBtn.dataset.agentHide || hideBtn.dataset.agentShow;
     if (hide) {
       const open = leadsList().filter((lead) => lead.agentId === id && !["registered", "not_interested", "other_city", "not_qualified", "wrong_number"].includes(lead.status)).length;
-      if (!window.confirm(`نخبيو ${leadAgentName(id)} من الليدز؟ ما غاديش تاخد ليدز جداد${open ? `، وعندها ${open} ليد مفتوح: حوّليهم من «🔀 تحويل الليدز»` : ""}.`)) return;
+      if (!window.confirm(`إخفاء ${leadAgentName(id)} من الطلبات؟ لن تستقبل طلبات جديدة${open ? `، ولديها ${open} طلب مفتوح: حوّليها من «🔀 تحويل الطلبات»` : ""}.`)) return;
     }
-    try { await saveAgentSetting(id, hide ? { hidden: true, active: false } : { hidden: false }, hide ? "🙈 تخبات من الليدز" : "👀 رجعات للّيدز"); } catch (error) { toast(error.message, "error"); }
+    try { await saveAgentSetting(id, hide ? { hidden: true, active: false } : { hidden: false }, hide ? "🙈 أُخفيت من الطلبات" : "👀 عادت إلى الطلبات"); } catch (error) { toast(error.message, "error"); }
     return;
   }
   const transferFrom = target.closest("[data-transfer-from]");
@@ -895,7 +921,7 @@ async function handleLeadClick(event) {
         const result = await api("/api/crm-leads/transfer", { method: "POST", body: JSON.stringify({ from: fromIds, statuses: t.statuses, to: targets }) });
         LEAD_UI.transfer = null;
         document.getElementById("leadDialog")?.close();
-        toast(`🔀 تحوّلو ${result.moved} ليد`);
+        toast(`🔀 حُوّل ${result.moved} طلب`);
         await load();
       } catch (error) { toast(error.message, "error"); }
       return;
@@ -909,8 +935,8 @@ async function handleLeadClick(event) {
     const revoke = Boolean(linkButton.dataset.agentLinkRevoke);
     const agentId = linkButton.dataset.agentLink || linkButton.dataset.agentLinkRevoke;
     const agent = leadAgent(agentId);
-    if ((revoke || agent?.accessToken) && !window.confirm(revoke ? "نحبسو هاد الرابط؟ المستشارة ما غاديش تقدر تدخل حتى تصيفطي ليها رابط جديد." : "نبدلو الرابط؟ القديم ما غاديش يبقى خدام.")) return;
-    try { await api(`/api/agents/${encodeURIComponent(agentId)}/access-link`, { method: revoke ? "DELETE" : "POST", body: "{}" }); LEAD_UI.settingsOpen = true; await load(); toast(revoke ? "الرابط تحبس" : "الرابط واجد ✓"); } catch (error) { toast(error.message, "error"); }
+    if ((revoke || agent?.accessToken) && !window.confirm(revoke ? "إيقاف هذا الرابط؟ لن تتمكن المستشارة من الدخول حتى ترسلي لها رابطاً جديداً." : "تغيير الرابط؟ سيتوقف القديم عن العمل.")) return;
+    try { await api(`/api/agents/${encodeURIComponent(agentId)}/access-link`, { method: revoke ? "DELETE" : "POST", body: "{}" }); LEAD_UI.settingsOpen = true; await load(); toast(revoke ? "أُوقف الرابط" : "الرابط جاهز ✓"); } catch (error) { toast(error.message, "error"); }
     return;
   }
   const contact = target.closest("[data-lead-contact]");
@@ -918,7 +944,7 @@ async function handleLeadClick(event) {
     const kind = contact.dataset.kind;
     const id = contact.dataset.leadContact;
     if (kind === "reminder") {
-      leadSave(id, { contacted: "reminder", reminded: true }, "🔔 تسجّل بلي التذكير تصيفط").catch(() => {});
+      leadSave(id, { contacted: "reminder", reminded: true }, "🔔 سُجّل إرسال التذكير").catch(() => {});
     } else {
       // Log the tap right away (traceable), then ask for the result when the agent comes back.
       api(`/api/crm-leads/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ tap: kind === "call" ? "call" : "whatsapp" }) }).catch(() => {});
@@ -958,7 +984,7 @@ async function handleLeadClick(event) {
   }
   const callbackAt = target.closest("[data-callback-at]");
   if (callbackAt) {
-    const message = `⏳ غادي نفكروك ${leadWhen(callbackAt.dataset.callbackAt)}`;
+    const message = `⏳ سنذكّرك ${leadWhen(callbackAt.dataset.callbackAt)}`;
     if (LEAD_UI.sheet) await saveCallResult({ status: "callback", callbackAt: callbackAt.dataset.callbackAt }, message);
     else if (LEAD_UI.detailId) {
       try { await leadSave(LEAD_UI.detailId, { status: "callback", callbackAt: callbackAt.dataset.callbackAt }, message); LEAD_UI.detailStep = ""; renderLeadDetail(); } catch (error) { toast(error.message, "error"); }
@@ -980,30 +1006,32 @@ async function handleLeadClick(event) {
 
   // Page
   const jump = target.closest("[data-lead-jump]");
-  if (jump) { LEAD_UI.view = "today"; renderLeads(); document.getElementById(`la-sec-${jump.dataset.leadJump}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  if (jump) { LEAD_UI.view = "today"; LEAD_UI.status = ""; renderLeads(); document.getElementById(`la-sec-${jump.dataset.leadJump}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  const quick = target.closest("[data-quick-status]");
+  if (quick) { LEAD_UI.status = LEAD_UI.status === quick.dataset.quickStatus ? "" : quick.dataset.quickStatus; renderLeads(); return; }
   const view = target.closest("[data-lead-view]");
   if (view) { LEAD_UI.view = view.dataset.leadView; try { localStorage.setItem("cmcg-leads-view", LEAD_UI.view); } catch {} renderLeads(); return; }
   if (target.closest("[data-lead-new]")) { openNewLeadForm(); return; }
   if (target.closest("[data-lead-delete]") && LEAD_UI.detailId) {
     const lead = leadById(LEAD_UI.detailId);
-    if (!lead || !window.confirm(`نحذفو ${lead.name || leadPhoneLabel(lead.phone)} نهائياً؟`)) return;
-    try { await api(`/api/crm-leads/${encodeURIComponent(lead.id)}`, { method: "DELETE" }); document.getElementById("leadDialog")?.close(); toast("تحذف الليد"); await load(); } catch (error) { toast(error.message, "error"); }
+    if (!lead || !window.confirm(`حذف ${lead.name || leadPhoneLabel(lead.phone)} نهائياً؟`)) return;
+    try { await api(`/api/crm-leads/${encodeURIComponent(lead.id)}`, { method: "DELETE" }); document.getElementById("leadDialog")?.close(); toast("حُذف الطلب"); await load(); } catch (error) { toast(error.message, "error"); }
     return;
   }
   if (target.closest("[data-lead-redistribute]")) {
-    try { const res = await api("/api/crm-leads/redistribute", { method: "POST", body: "{}" }); toast(`تعطاو ${res.assigned} ليد`); await load(); } catch (error) { toast(error.message, "error"); }
+    try { const res = await api("/api/crm-leads/redistribute", { method: "POST", body: "{}" }); toast(`وُزّع ${res.assigned} طلب`); await load(); } catch (error) { toast(error.message, "error"); }
     return;
   }
   if (target.closest("[data-lead-token]")) {
-    if (state.settings?.leadIntake?.token && !window.confirm("نبدلو الرابط؟ خاصك تبدليه حتى فالكود اللي فالورقة.")) return;
-    try { await api("/api/lead-intake/token", { method: "POST", body: "{}" }); LEAD_UI.settingsOpen = true; await load(); toast("الرابط واجد"); } catch (error) { toast(error.message, "error"); }
+    if (state.settings?.leadIntake?.token && !window.confirm("تغيير الرابط؟ يجب تغييره أيضاً في الكود داخل الورقة.")) return;
+    try { await api("/api/lead-intake/token", { method: "POST", body: "{}" }); LEAD_UI.settingsOpen = true; await load(); toast("الرابط جاهز"); } catch (error) { toast(error.message, "error"); }
     return;
   }
   const copy = target.closest("[data-lead-copy], [data-lead-copy-script]");
   if (copy) {
     const token = state.settings?.leadIntake?.token || "";
     const text = copy.dataset.leadCopy || leadAppsScript(`${window.location.origin}/api/lead-intake?token=${token}`);
-    try { await navigator.clipboard.writeText(text); toast("تنسخ ✓"); } catch { toast("حدّدي النص ونسخيه بيدك", "error"); }
+    try { await navigator.clipboard.writeText(text); toast("تم النسخ ✓"); } catch { toast("حدّدي النص وانسخيه يدوياً", "error"); }
     return;
   }
   const settings = target.closest("[data-lead-settings] > summary");
@@ -1022,7 +1050,7 @@ async function handleLeadChange(event) {
   const filter = target.closest("[data-lead-filter]");
   if (filter && filter.dataset.leadFilter !== "search") { LEAD_UI[filter.dataset.leadFilter] = filter.value; renderLeads(); return; }
   if (target.matches("[data-lead-reassign]")) {
-    try { await leadSave(target.dataset.leadReassign, { agentId: target.value }, "تحوّل الليد"); } catch (error) { toast(error.message, "error"); }
+    try { await leadSave(target.dataset.leadReassign, { agentId: target.value }, "حُوّل الطلب"); } catch (error) { toast(error.message, "error"); }
     return;
   }
   if (target.matches("[data-lead-channel]")) {
@@ -1033,7 +1061,7 @@ async function handleLeadChange(event) {
     try {
       const csv = await target.files[0].text();
       const res = await api("/api/crm-leads/import", { method: "POST", body: JSON.stringify({ csv }) });
-      toast(`${res.added} ليد جديد، ${res.updated} كانو ديجا${res.test ? `، ${res.test} ليد تجريبي تخطيناه` : ""}`);
+      toast(`${res.added} طلب جديد، ${res.updated} موجود مسبقاً${res.test ? `، ${res.test} طلب تجريبي تم تجاهله` : ""}`);
       await load();
     } catch (error) { toast(error.message, "error"); }
     target.value = "";
@@ -1059,16 +1087,16 @@ async function handleLeadSubmit(event) {
   if (!form.matches("[data-lead-notes-form], [data-lead-new-form], [data-lead-distribution-form], [data-lead-templates-form]")) return;
   event.preventDefault();
   event.stopPropagation(); // keep the app's generic form handler out of it
-  if (leadReadOnly()) { toast("👁️ وضع المشاهدة: ما يمكنش تبدّلي والو", "error"); return; }
+  if (leadReadOnly()) { toast("👁️ وضع المشاهدة: لا يمكنك تعديل أي شيء", "error"); return; }
   const button = form.querySelector('button[type="submit"]');
   if (button) button.disabled = true;
   try {
     if (form.matches("[data-lead-notes-form]")) {
-      await leadSave(LEAD_UI.detailId, { notes: form.elements.notes.value }, "📝 الملاحظة تسجلات");
+      await leadSave(LEAD_UI.detailId, { notes: form.elements.notes.value }, "📝 حُفظت الملاحظة");
     } else if (form.matches("[data-lead-new-form]")) {
       const body = Object.fromEntries(new FormData(form).entries());
       const lead = await api("/api/crm-leads", { method: "POST", body: JSON.stringify({ ...body, source: "whatsapp" }) });
-      toast(`تزاد الليد · ${cheer()}`);
+      toast(`أُضيف الطلب · ${cheer()}`);
       await load();
       openLeadDetail(lead.id);
     } else if (form.matches("[data-lead-distribution-form]")) {
@@ -1080,12 +1108,12 @@ async function handleLeadSubmit(event) {
       });
       await api("/api/settings/lead-distribution", { method: "POST", body: JSON.stringify({ mode: data.get("mode"), agents }) });
       LEAD_UI.settingsOpen = true;
-      toast("التوزيع تسجّل ✓");
+      toast("حُفظ التوزيع ✓");
       await load();
     } else if (form.matches("[data-lead-templates-form]")) {
       await api("/api/settings/lead-distribution", { method: "POST", body: JSON.stringify({ templates: { first: form.elements.first.value, reminder: form.elements.reminder.value } }) });
       LEAD_UI.settingsOpen = true;
-      toast("الرسائل تسجلات ✓");
+      toast("حُفظت الرسائل ✓");
       await load();
     }
   } catch (error) {

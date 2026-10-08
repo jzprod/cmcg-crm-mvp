@@ -287,5 +287,5 @@ test("each agent gets a personal link that only opens her leads", async (t) => {
   const expired = await fetch(`${base}/`, { headers: { Cookie: cookie } });
   assert.equal(expired.status, 403);
   assert.equal(expired.headers.get("www-authenticate"), null);
-  assert.match(await expired.text(), /الرابط ديالك تبدّل/);
+  assert.match(await expired.text(), /تغيّر رابطك/);
 });

@@ -161,7 +161,7 @@ function appointmentError(value) {
   const match = String(value || "").match(/T(\d{2}):(\d{2})/);
   if (!match) return null;
   const time = `${match[1]}:${match[2]}`;
-  return time < OPENING.open || time > OPENING.lastSlot ? "المركز مفتوح من 11:00 حتى 20:00، اختاري موعداً بين 11:00 و 19:30" : null;
+  return time < OPENING.open || time > OPENING.lastSlot ? "المركز مفتوح من 11:00 إلى 20:00، اختاري موعداً بين 11:00 و19:30" : null;
 }
 
 function defaultDistribution() {
@@ -333,7 +333,7 @@ function updateLead(state, lead, body = {}, by = "") {
   }
   if (body.appointmentAt !== undefined) {
     const at = clean(body.appointmentAt);
-    if (at && Number.isNaN(new Date(at).getTime())) throw new Error("اختاري تاريخ ووقت الموعد");
+    if (at && Number.isNaN(new Date(at).getTime())) throw new Error("اختاري تاريخ الموعد ووقته");
     if (at && appointmentError(at)) throw new Error(appointmentError(at));
     if (at !== lead.appointmentAt) {
       changes.appointmentAt = { from: lead.appointmentAt, to: at };
@@ -372,7 +372,7 @@ function updateLead(state, lead, body = {}, by = "") {
 
 function createManualLead(state, body = {}, { by = "", agentId = "" } = {}) {
   const data = normalizeLeadRow({ full_name: body.name, phone_number: body.phone, email: body.email, city: body.city });
-  if (!data.phone) throw new Error("دخلي رقم الهاتف ديال الشخص");
+  if (!data.phone) throw new Error("أدخلي رقم هاتف الشخص");
   const lead = {
     id: newId("lea"),
     source: body.source === "form" ? "form" : "whatsapp",
@@ -468,7 +468,7 @@ function createDemoLeads(state, agentIds, at = new Date()) {
         creativeId: "", adSetId: "", campaignId: "",
         status: "new", statusAt: now(), agentId, assignedAt: now(),
         appointmentAt: "", bookedAt: "", remindedAt: "", callAttempts: 0,
-        notes: n === 1 ? `ليد تجريبي (${arabic}): موعد باش تجربي رسالة التذكير.` : `ليد تجريبي (${arabic}): ليد سخون باش تجربي الاتصال.`,
+        notes: n === 1 ? `طلب تجريبي (${arabic}): موعد لتجربة رسالة التذكير.` : `طلب تجريبي (${arabic}): طلب ساخن لتجربة الاتصال.`,
         history: [], importedAt: now(), updatedAt: now(),
       };
       pushHistory(lead, "created", { agentId, demo: true });
@@ -494,8 +494,8 @@ function transferLeads(state, { from = [], statuses = ["new"], to = [], by = "",
   const fromSet = new Set(from);
   const statusSet = new Set(statuses.filter((status) => LEAD_STATUSES.includes(status)));
   const targets = to.filter((agentId) => state.agents.some((agent) => agent.id === agentId));
-  if (!statusSet.size) throw new Error("اختاري على الأقل حالة وحدة");
-  if (!targets.length) throw new Error("اختاري لمين غادي يمشيو الليدز");
+  if (!statusSet.size) throw new Error("اختاري حالة واحدة على الأقل");
+  if (!targets.length) throw new Error("اختاري إلى من ستُحوَّل الطلبات");
   const leads = (state.crmLeads || [])
     .filter((lead) => fromSet.has(lead.agentId || "") && statusSet.has(lead.status))
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));

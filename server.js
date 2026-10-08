@@ -2195,7 +2195,7 @@ function sendAgentLinkExpired(res) {
     "Cache-Control": "no-store",
     "Set-Cookie": `${AGENT_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
   }));
-  res.end(`<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0b4f4a;color:#fff;display:grid;min-height:100vh;place-items:center;text-align:center"><main style="padding:28px;max-width:420px"><h1>الرابط ديالك تبدّل 🔗</h1><p style="opacity:.85;line-height:1.7">طلبي من الإدارة الرابط الجديد ديالك، وحليه مرة وحدة فالتليفون. ما كاين حتى كلمة سر.</p></main></body></html>`);
+  res.end(`<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0b4f4a;color:#fff;display:grid;min-height:100vh;place-items:center;text-align:center"><main style="padding:28px;max-width:420px"><h1>تغيّر رابطك 🔗</h1><p style="opacity:.85;line-height:1.7">اطلبي رابطك الجديد من الإدارة، وافتحيه مرة واحدة في هاتفك. لا حاجة لكلمة سر.</p></main></body></html>`);
 }
 
 async function handleAgentLink(req, res, token) {
@@ -2203,11 +2203,11 @@ async function handleAgentLink(req, res, token) {
     res.writeHead(403, securityHeaders({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }));
     res.end(`<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0b4f4a;color:#fff;display:grid;min-height:100vh;place-items:center;text-align:center"><main style="padding:28px;max-width:420px"><h1>${title}</h1><p style="opacity:.85;line-height:1.7">${text}</p></main></body></html>`);
   };
-  if (!storageReady) return page("لحظة…", "النظام كيتشعل، عاودي فتحي الرابط من بعد ثواني.");
+  if (!storageReady) return page("لحظة…", "النظام قيد التشغيل، أعيدي فتح الرابط بعد ثوانٍ.");
   const state = await storage.read();
   refreshAgentTokens(state);
   const agent = state.agents.find((item) => item.accessToken === token && item.active !== false);
-  if (!agent) return page("الرابط ماشي صالح", "هاد الرابط تبدّل ولا تحيّد. طلبي رابط جديد من الإدارة.");
+  if (!agent) return page("الرابط غير صالح", "تم تغيير هذا الرابط أو إلغاؤه. اطلبي رابطاً جديداً من الإدارة.");
   res.writeHead(302, securityHeaders({
     "Set-Cookie": agentCookie(req, token),
     Location: "/#view=leads",
