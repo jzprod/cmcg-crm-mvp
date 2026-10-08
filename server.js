@@ -2152,6 +2152,20 @@ async function handleApi(req, res) {
   }
 }
 
+function agentCookie(req, token) {
+  const secure = req.socket.encrypted || String(req.headers["x-forwarded-proto"] || "").includes("https");
+  return `${AGENT_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 180}${secure ? "; Secure" : ""}`;
+}
+
+function sendAgentLinkExpired(res) {
+  res.writeHead(403, securityHeaders({
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Set-Cookie": `${AGENT_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+  }));
+  res.end(`<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0b4f4a;color:#fff;display:grid;min-height:100vh;place-items:center;text-align:center"><main style="padding:28px;max-width:420px"><h1>الرابط ديالك تبدّل 🔗</h1><p style="opacity:.85;line-height:1.7">طلبي من الإدارة الرابط الجديد ديالك، وحليه مرة وحدة فالتليفون. ما كاين حتى كلمة سر.</p></main></body></html>`);
+}
+
 async function handleAgentLink(req, res, token) {
   const page = (title, text) => {
     res.writeHead(403, securityHeaders({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }));
@@ -2162,9 +2176,8 @@ async function handleAgentLink(req, res, token) {
   refreshAgentTokens(state);
   const agent = state.agents.find((item) => item.accessToken === token && item.active !== false);
   if (!agent) return page("الرابط ماشي صالح", "هاد الرابط تبدّل ولا تحيّد. طلبي رابط جديد من الإدارة.");
-  const secure = req.socket.encrypted || String(req.headers["x-forwarded-proto"] || "").includes("https");
   res.writeHead(302, securityHeaders({
-    "Set-Cookie": `${AGENT_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 180}${secure ? "; Secure" : ""}`,
+    "Set-Cookie": agentCookie(req, token),
     Location: "/#view=leads",
     "Cache-Control": "no-store",
   }));
@@ -2177,6 +2190,15 @@ const server = http.createServer((req, res) => {
   if (linkMatch) return handleAgentLink(req, res, linkMatch[1]);
   if (req.url.startsWith("/api/")) return handleApi(req, res);
   if (OPERATIONS_ROUTES.has(url.pathname) && !hasAuth()) return sendOperationsLockedPage(res);
+  const agentToken = cookieValue(req, AGENT_COOKIE);
+  if (agentToken && !basicCredentials(req).username) {
+    const viaLink = agentFromCookie(req);
+    // A changed or blocked link: explain instead of showing a password box.
+    if (!viaLink) return sendAgentLinkExpired(res);
+    // Each visit renews the login for another 180 days, so agents never log in again.
+    if (url.pathname === "/" || url.pathname === "/index.html") res.setHeader("Set-Cookie", agentCookie(req, agentToken));
+    return serveStatic(req, res);
+  }
   if (!requireAuth(req, res)) return;
   return serveStatic(req, res);
 });

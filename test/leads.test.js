@@ -238,7 +238,16 @@ test("each agent gets a personal link that only opens her leads", async (t) => {
   assert.equal((await fetch(`${base}/api/crm-leads`, { method: "POST", headers: agent, body: JSON.stringify({ name: "Karim", phone: "0633333333" }) })).status, 201);
   const adminView = await (await fetch(`${base}/api/state`, { headers: admin })).json();
   assert.ok(adminView.leadStats.find((row) => row.agentId === "souad").lastSeenAt);
-  // A new link cuts the old one off.
+  // Opening the CRM renews the login, so the agent never types a password.
+  const home = await fetch(`${base}/`, { headers: { Cookie: cookie } });
+  assert.equal(home.status, 200);
+  assert.match(home.headers.get("set-cookie") || "", /cmcg_agent=.*Max-Age=15552000/);
+  assert.equal(home.headers.get("www-authenticate"), null);
+  // A new link cuts the old one off with a friendly page, not a password box.
   await fetch(`${base}/api/agents/souad/access-link`, { method: "POST", headers: admin });
   assert.equal((await fetch(`${base}/api/state`, { headers: agent })).status, 401);
+  const expired = await fetch(`${base}/`, { headers: { Cookie: cookie } });
+  assert.equal(expired.status, 403);
+  assert.equal(expired.headers.get("www-authenticate"), null);
+  assert.match(await expired.text(), /الرابط ديالك تبدّل/);
 });
