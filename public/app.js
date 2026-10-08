@@ -1311,10 +1311,10 @@ function applyLanguage(root = document.body) {
 function applyRoleAccess() {
   const salesOnly = currentUser?.role === "sales";
   document.body.classList.toggle("role-sales", salesOnly);
-  document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("hidden", salesOnly && !["groups", "students", "leads"].includes(tab.dataset.tab)));
+  document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("hidden", salesOnly && tab.dataset.tab !== "leads"));
   document.querySelectorAll("[data-open-import], [data-add-outcome], [data-go-performance], [data-seed-screenshot]").forEach((item) => item.classList.toggle("hidden", salesOnly));
   document.querySelector(".period-card")?.classList.toggle("hidden", salesOnly);
-  if (salesOnly && !["groups", "students", "leads"].some((panel) => document.getElementById(panel)?.classList.contains("active"))) showPanel("leads", false);
+  if (salesOnly && !document.getElementById("leads")?.classList.contains("active")) showPanel("leads", false);
 }
 
 function normalizeState() {
@@ -4501,7 +4501,7 @@ function render() {
 }
 
 function showPanel(name, updateHash = true) {
-  if (currentUser?.role === "sales" && !["groups", "students", "leads"].includes(name)) name = "leads";
+  if (currentUser?.role === "sales" && name !== "leads") name = "leads";
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
   document.querySelectorAll(".panel").forEach((item) => item.classList.toggle("active", item.id === name));
   const meta = pageMeta[name] || ["CMCG CRM", ""];

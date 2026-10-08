@@ -201,3 +201,44 @@ test("Google Sheets pushes leads with a token; agents only see and change their 
   const outcomes = (await call("/api/state")).data.state.outcomes;
   assert.deepEqual(outcomes.map((o) => [o.type, o.leadId]), [["booked", mine[0].id]]);
 });
+
+test("each agent gets a personal link that only opens her leads", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cmcg-link-test-"));
+  const dataFile = path.join(tempDir, "crm.json");
+  const state = { ...baseState(), students: [{ id: "st1", name: "Secret", agentId: "souad", groupId: "g1" }], settings: { leadDistribution: { mode: "balanced" } } };
+  fs.writeFileSync(dataFile, JSON.stringify(state));
+  const port = await freePort();
+  const child = spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
+    env: { ...process.env, PORT: String(port), CRM_DATA_FILE: dataFile, CRM_USER: "admin", CRM_PASSWORD: "pw", CRM_SALES_USER: "", CRM_SALES_PASSWORD: "", DB_HOST: "", DB_USER: "", DB_PASSWORD: "", DB_NAME: "" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(() => { child.kill(); fs.rmSync(tempDir, { recursive: true, force: true }); });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Server start timed out")), 5000);
+    child.stdout.on("data", (chunk) => { if (String(chunk).includes("CMCG CRM running")) { clearTimeout(timer); resolve(); } });
+  });
+  const base = `http://127.0.0.1:${port}`;
+  const admin = { Authorization: `Basic ${Buffer.from("admin:pw").toString("base64")}`, "Content-Type": "application/json" };
+  const { token, path: linkPath } = await (await fetch(`${base}/api/agents/souad/access-link`, { method: "POST", headers: admin })).json();
+  assert.match(token, /^[a-f0-9]{32}$/);
+  assert.equal((await fetch(`${base}/a/${"0".repeat(32)}`, { redirect: "manual" })).status, 403);
+  const login = await fetch(`${base}${linkPath}`, { redirect: "manual" });
+  assert.equal(login.status, 302);
+  assert.equal(login.headers.get("location"), "/#view=leads");
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  assert.match(login.headers.get("set-cookie"), /HttpOnly/);
+  const agent = { Cookie: cookie, "Content-Type": "application/json" };
+  assert.equal((await fetch(`${base}/`, { headers: { Cookie: cookie } })).status, 200);
+  const view = await (await fetch(`${base}/api/state`, { headers: agent })).json();
+  assert.equal(view.currentUser.role, "sales");
+  assert.equal(view.currentUser.agentId, "souad");
+  assert.deepEqual(view.state.students, []);
+  assert.ok(view.state.agents.every((item) => !item.accessToken));
+  assert.equal((await fetch(`${base}/api/students`, { method: "POST", headers: agent, body: "{}" })).status, 403);
+  assert.equal((await fetch(`${base}/api/crm-leads`, { method: "POST", headers: agent, body: JSON.stringify({ name: "Karim", phone: "0633333333" }) })).status, 201);
+  const adminView = await (await fetch(`${base}/api/state`, { headers: admin })).json();
+  assert.ok(adminView.leadStats.find((row) => row.agentId === "souad").lastSeenAt);
+  // A new link cuts the old one off.
+  await fetch(`${base}/api/agents/souad/access-link`, { method: "POST", headers: admin });
+  assert.equal((await fetch(`${base}/api/state`, { headers: agent })).status, 401);
+});

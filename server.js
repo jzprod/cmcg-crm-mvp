@@ -293,7 +293,34 @@ function resolveAgentForUser(state, context) {
   return { ...context, agentId: agent?.id || "", agentName: agent?.name || context.agentName || context.username };
 }
 
+// Personal agent links: /a/<token> sets a cookie that logs the agent in to the
+// Leads screen only. Tokens live on the agents; this cache serves static requests.
+const AGENT_COOKIE = "cmcg_agent";
+let agentTokens = new Map();
+const agentLastSeen = new Map();
+function refreshAgentTokens(state) {
+  agentTokens = new Map((state?.agents || []).filter((agent) => agent.accessToken).map((agent) => [agent.accessToken, agent.id]));
+}
+function cookieValue(req, name) {
+  const match = String(req.headers.cookie || "").split(/;\s*/).find((part) => part.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : "";
+}
+function agentFromCookie(req, state = null) {
+  const token = cookieValue(req, AGENT_COOKIE);
+  if (!token || !/^[a-f0-9]{32}$/.test(token)) return null;
+  const agentId = agentTokens.get(token);
+  if (!agentId) return null;
+  const agent = state?.agents?.find((item) => item.id === agentId && item.accessToken === token);
+  if (state && !agent) return null;
+  return { authenticated: true, authConfigured: hasAuth(), role: "sales", linkLogin: true, username: agent?.name || agentId, label: agent?.name || agentId, agentId, agentName: agent?.name || "" };
+}
+
 function authContext(req, state = null) {
+  const credentialsGiven = basicCredentials(req).username;
+  if (!credentialsGiven) {
+    const viaLink = agentFromCookie(req, state);
+    if (viaLink) return viaLink;
+  }
   if (!hasAuth()) {
     return { authenticated: true, authConfigured: false, role: "admin", username: "local", label: "Local admin", agentId: "", agentName: "" };
   }
@@ -352,8 +379,13 @@ function requireConfiguredAuthForStudentData(res, pathname) {
   });
 }
 
-function salesCanAccessApi(method, pathname) {
+function salesCanAccessApi(method, pathname, context = {}) {
   if (method === "GET" && pathname === "/api/state") return true;
+  // Agents who log in with their personal link only work on their leads.
+  if (context.linkLogin) {
+    if ((method === "PATCH" || method === "POST") && /^\/api\/crm-leads(?:\/[^/]+)?$/.test(pathname) && !/\/(?:import|redistribute)$/.test(pathname)) return true;
+    return method === "GET" && /^\/api\/crm-leads\/[^/]+\/vcard$/.test(pathname);
+  }
   if ((method === "POST" || method === "PATCH") && /^\/api\/programs(?:\/|$)/.test(pathname)) return true;
   if ((method === "POST" || method === "PATCH") && /^\/api\/groups(?:\/|$)/.test(pathname)) return true;
   if ((method === "POST" || method === "PATCH") && /^\/api\/students(?:\/|$)/.test(pathname)) return true;
@@ -398,6 +430,14 @@ function stateForUser(state, context) {
   safe.payments = state.payments.filter((payment) => studentIds.has(payment.studentId));
   safe.events = state.events.filter((event) => event.studentId && studentIds.has(event.studentId));
   safe.crmLeads = context.agentId ? (state.crmLeads || []).filter((lead) => lead.agentId === context.agentId) : [];
+  safe.agents = safe.agents.map(({ accessToken, ...agent }) => agent);
+  if (context.linkLogin) {
+    safe.programs = [];
+    safe.groups = [];
+    safe.students = [];
+    safe.payments = [];
+    safe.events = [];
+  }
   safe.settings = { ...safe.settings, leadIntake: { token: "" }, leadDistribution: { ...safe.settings.leadDistribution, agents: {} } };
   return safe;
 }
@@ -1180,10 +1220,12 @@ async function handleApi(req, res) {
 
   try {
     let state = await storage.read();
+    refreshAgentTokens(state);
     const context = authContext(req, state);
-    if (context.role === "sales" && !salesCanAccessApi(method, url.pathname)) {
+    if (context.role === "sales" && !salesCanAccessApi(method, url.pathname, context)) {
       return json(res, 403, { error: "This login can only access student operations." });
     }
+    if (context.role === "sales" && context.agentId) agentLastSeen.set(context.agentId, now());
     if (method === "GET" && url.pathname === "/api/state") {
       const sensitiveLocked = !hasAuth() && hasSensitiveStudentData(state);
       return json(res, 200, {
@@ -1191,7 +1233,7 @@ async function handleApi(req, res) {
         authEnabled: hasAuth(),
         sensitiveLocked,
         currentUser: publicUser(context),
-        leadStats: sensitiveLocked ? [] : Leads.leadStats(state),
+        leadStats: sensitiveLocked ? [] : Leads.leadStats(state).map((row) => ({ ...row, lastSeenAt: agentLastSeen.get(row.agentId) || "" })),
         security: { operationsPath: "/groups", studentDataRequiresAuth: true },
         storage: storage.info(),
       });
@@ -1883,6 +1925,16 @@ async function handleApi(req, res) {
       await storage.write(state);
       return json(res, 201, lead);
     }
+    const agentLinkMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/access-link$/);
+    if (agentLinkMatch && (method === "POST" || method === "DELETE")) {
+      if (!isAdmin) return json(res, 403, { error: "Only an admin can manage agent links" });
+      const agent = state.agents.find((item) => item.id === agentLinkMatch[1]);
+      if (!agent) return json(res, 404, { error: "Agent not found" });
+      agent.accessToken = method === "POST" ? crypto.randomBytes(16).toString("hex") : "";
+      await storage.write(state);
+      refreshAgentTokens(state);
+      return json(res, 200, { token: agent.accessToken, path: agent.accessToken ? `/a/${agent.accessToken}` : "" });
+    }
     const crmLeadVcard = url.pathname.match(/^\/api\/crm-leads\/([^/]+)\/vcard$/);
     if (method === "GET" && crmLeadVcard) {
       const lead = state.crmLeads.find((item) => item.id === crmLeadVcard[1]);
@@ -2100,8 +2152,29 @@ async function handleApi(req, res) {
   }
 }
 
+async function handleAgentLink(req, res, token) {
+  const page = (title, text) => {
+    res.writeHead(403, securityHeaders({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }));
+    res.end(`<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0b4f4a;color:#fff;display:grid;min-height:100vh;place-items:center;text-align:center"><main style="padding:28px;max-width:420px"><h1>${title}</h1><p style="opacity:.85;line-height:1.7">${text}</p></main></body></html>`);
+  };
+  if (!storageReady) return page("لحظة…", "النظام كيتشعل، عاودي فتحي الرابط من بعد ثواني.");
+  const state = await storage.read();
+  refreshAgentTokens(state);
+  const agent = state.agents.find((item) => item.accessToken === token && item.active !== false);
+  if (!agent) return page("الرابط ماشي صالح", "هاد الرابط تبدّل ولا تحيّد. طلبي رابط جديد من الإدارة.");
+  const secure = req.socket.encrypted || String(req.headers["x-forwarded-proto"] || "").includes("https");
+  res.writeHead(302, securityHeaders({
+    "Set-Cookie": `${AGENT_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 180}${secure ? "; Secure" : ""}`,
+    Location: "/#view=leads",
+    "Cache-Control": "no-store",
+  }));
+  return res.end();
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const linkMatch = url.pathname.match(/^\/a\/([a-f0-9]{32})\/?$/);
+  if (linkMatch) return handleAgentLink(req, res, linkMatch[1]);
   if (req.url.startsWith("/api/")) return handleApi(req, res);
   if (OPERATIONS_ROUTES.has(url.pathname) && !hasAuth()) return sendOperationsLockedPage(res);
   if (!requireAuth(req, res)) return;
@@ -2112,8 +2185,9 @@ server.listen(PORT, () => {
   console.log(`CMCG CRM listening on http://localhost:${PORT}`);
 });
 
-storage.init().then(() => {
+storage.init().then(async () => {
   storageReady = true;
+  try { refreshAgentTokens(await storage.read()); } catch {}
   console.log(`CMCG CRM running with ${storage.info().label}`);
 }).catch((error) => {
   storageError = error;

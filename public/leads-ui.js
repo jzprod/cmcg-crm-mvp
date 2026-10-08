@@ -45,7 +45,7 @@ const AR_LOCALE = "ar-MA-u-nu-latn";
 const LEAD_UI = {
   view: (() => { try { return localStorage.getItem("cmcg-leads-view") || "today"; } catch { return "today"; } })(),
   agent: "", source: "", status: "", search: "",
-  detailId: "", settingsOpen: false,
+  detailId: "", settingsOpen: false, viewAs: "",
   sheet: null, // { leadId, step: "pick" | "booked" | "callback", pick: {day,time} }
   pick: { day: "", time: "" },
 };
@@ -54,6 +54,10 @@ const LEAD_UI = {
 const leadsList = () => (Array.isArray(state?.crmLeads) ? state.crmLeads : []);
 const leadById = (id) => leadsList().find((lead) => lead.id === id) || null;
 const leadIsAdmin = () => currentUser?.role !== "sales";
+// Admin can look at an agent's screen ("view as"), read-only.
+const leadAdminView = () => leadIsAdmin() && !LEAD_UI.viewAs;
+const leadReadOnly = () => leadIsAdmin() && Boolean(LEAD_UI.viewAs);
+const leadViewerId = () => (leadIsAdmin() ? LEAD_UI.viewAs : currentUser?.agentId || "");
 const leadTodayKey = (offset = 0) => dateInputValue(addDays(new Date(), offset));
 const leadDayOf = (value) => (value ? String(value).slice(0, 10) : "");
 const leadNowLocal = () => { const d = new Date(); return `${dateInputValue(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
@@ -121,12 +125,23 @@ function leadUrgency(lead) {
   const minutes = (Date.now() - new Date(lead.createdAt).getTime()) / 60000;
   return minutes > 120 ? "late" : minutes > 15 ? "soon" : "fresh";
 }
+// How hot a new lead still is: call it while it is hot. Only new leads have a heat.
+function leadHeat(lead) {
+  if (lead.status !== "new") return null;
+  const minutes = (Date.now() - new Date(lead.createdAt).getTime()) / 60000;
+  if (minutes < 15) return { key: "h3", icon: "🔥🔥🔥", label: "ساخن بزاف" };
+  if (minutes < 60) return { key: "h2", icon: "🔥🔥", label: "ساخن" };
+  if (minutes < 180) return { key: "h1", icon: "🔥", label: "دافي" };
+  if (minutes < 1440) return { key: "cool", icon: "🌤️", label: "بدا كيبرد" };
+  return { key: "cold", icon: "🧊", label: "برد" };
+}
 function leadCallbackDue(lead) {
   return lead.status === "no_answer" || (lead.status === "callback" && (!lead.callbackAt || lead.callbackAt <= `${leadTodayKey()}T23:59`));
 }
 function leadsVisible() {
   const query = LEAD_UI.search.trim().toLocaleLowerCase();
   return leadsList().filter((lead) => {
+    if (LEAD_UI.viewAs && lead.agentId !== LEAD_UI.viewAs) return false;
     if (LEAD_UI.agent === "__none" ? lead.agentId : LEAD_UI.agent && lead.agentId !== LEAD_UI.agent) return false;
     if (LEAD_UI.source && lead.source !== LEAD_UI.source) return false;
     if (LEAD_UI.status && lead.status !== LEAD_UI.status) return false;
@@ -164,7 +179,7 @@ function leadCardHtml(lead) {
   const source = leadSource(lead);
   const urgency = leadUrgency(lead);
   const needsReminder = leadNeedsReminder(lead);
-  return `<article class="la-card${urgency ? ` is-${urgency}` : ""}${needsReminder ? " needs-reminder" : ""}" data-lead-open="${escapeHtml(lead.id)}" tabindex="0">
+  return `<article class="la-card${urgency ? ` is-${urgency}` : ""}${leadHeat(lead) ? ` heat-${leadHeat(lead).key}` : ""}${needsReminder ? " needs-reminder" : ""}" data-lead-open="${escapeHtml(lead.id)}" tabindex="0">
     ${needsReminder ? `<div class="la-remind-flag">⚠️ خاصك تصيفطي رسالة التذكير</div>` : ""}
     <header class="la-card-head">
       <span class="la-avatar" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadInitials(lead.name))}</span>
@@ -174,8 +189,8 @@ function leadCardHtml(lead) {
     <div class="la-meta">
       <span class="la-src la-src-${lead.source}">${escapeHtml(source.channel)}</span>
       ${source.where ? `<span class="la-where">${escapeHtml(source.where)}</span>` : ""}
-      <span class="la-age${urgency ? ` is-${urgency}` : ""}">${urgency === "late" ? "⚠️ " : ""}من ${escapeHtml(leadAge(lead.createdAt))}</span>
-      ${leadIsAdmin() ? `<span class="la-owner" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadAgentCode(leadAgent(lead.agentId)) === "?" ? "بلا مستشارة" : leadAgentName(lead.agentId))}</span>` : ""}
+      ${leadHeat(lead) ? `<span class="la-heat la-heat-${leadHeat(lead).key}" title="${escapeHtml(leadHeat(lead).label)}"><b>${leadHeat(lead).icon}</b> ${escapeHtml(leadHeat(lead).label)} · ${escapeHtml(leadAge(lead.createdAt))}</span>` : `<span class="la-age">من ${escapeHtml(leadAge(lead.createdAt))}</span>`}
+      ${leadAdminView() ? `<span class="la-owner" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadAgentCode(leadAgent(lead.agentId)) === "?" ? "بلا مستشارة" : leadAgentName(lead.agentId))}</span>` : ""}
     </div>
     ${lead.status === "booked" && lead.appointmentAt ? `<div class="la-rdv${leadDayOf(lead.appointmentAt) < leadTodayKey() ? " is-past" : ""}">📅 <strong>${escapeHtml(leadWhen(lead.appointmentAt))}</strong>${lead.remindedAt ? '<em>✓ تذكير مبعوث</em>' : ""}</div>` : ""}
     ${lead.status === "callback" && lead.callbackAt ? `<div class="la-rdv is-callback">⏳ عاودي الاتصال <strong>${escapeHtml(leadWhen(lead.callbackAt))}</strong></div>` : ""}
@@ -200,7 +215,7 @@ function leadsTodayHtml(leads) {
   const thinking = leads.filter((lead) => lead.status === "contacted");
   return [
     leadSection("rdv", "⏰", "مواعيد اليوم", "صيفطي التذكير، ومن بعد بدّلي الحالة لـ «جا» ولا «تسجّل».", rdvToday, "ما كاين حتى موعد اليوم."),
-    leadSection("new", "🆕", "ليدز جداد خاصهم اتصال", "الأقدم هو الأول. اللي كنعيطو ليه فـ 15 دقيقة الأولى كيجاوب بزاف أكثر.", fresh, "برافو! كاع الليدز الجداد تعيط ليهم 🎉"),
+    leadSection("new", "🔥", "ليدز جداد خاصهم اتصال", "عيطي ليهم وهوما سخونين: اللي كنعيطو ليه فـ 15 دقيقة الأولى كيجاوب بزاف أكثر.", fresh, "برافو! كاع الليدز الجداد تعيط ليهم 🎉"),
     leadSection("callback", "📞", "عاودي الاتصال", "ما جاوبوش، ولا طلبو نعيطو ليهم اليوم.", callback, "ما كاين حتى واحد خاصو إعادة الاتصال."),
     leadSection("tomorrow", "📅", "مواعيد غدا", "صيفطي رسالة التذكير اليوم.", tomorrow, ""),
     leadSection("missed", "❗", "مواعيد فاتت بلا نتيجة", "الموعد فات: واش جا؟ تسجّل؟ ولا خاصو موعد جديد؟", missed, ""),
@@ -218,9 +233,9 @@ function leadsBoardHtml(leads) {
 function leadsListHtml(leads) {
   const rows = [...leads].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 400).map((lead) => {
     const source = leadSource(lead);
-    return `<tr data-lead-open="${escapeHtml(lead.id)}" class="clickable-row"><td><strong>${escapeHtml(lead.name || "بلا اسم")}</strong><small dir="ltr">${escapeHtml(leadPhoneLabel(lead.phone))}</small></td><td><span class="la-src la-src-${lead.source}">${escapeHtml(source.channel)}</span><small>${escapeHtml(source.where)}</small></td>${leadIsAdmin() ? `<td>${escapeHtml(leadAgentName(lead.agentId) || "بلا مستشارة")}</td>` : ""}<td>${leadStatusPill(lead)}</td><td>${escapeHtml(lead.appointmentAt ? leadWhen(lead.appointmentAt) : "—")}</td><td>${escapeHtml(leadWhen(dateInputValue(new Date(lead.createdAt)) + "T" + new Date(lead.createdAt).toTimeString().slice(0, 5)))}</td></tr>`;
+    return `<tr data-lead-open="${escapeHtml(lead.id)}" class="clickable-row"><td><strong>${escapeHtml(lead.name || "بلا اسم")}</strong><small dir="ltr">${escapeHtml(leadPhoneLabel(lead.phone))}</small></td><td><span class="la-src la-src-${lead.source}">${escapeHtml(source.channel)}</span><small>${escapeHtml(source.where)}</small></td>${leadAdminView() ? `<td>${escapeHtml(leadAgentName(lead.agentId) || "بلا مستشارة")}</td>` : ""}<td>${leadStatusPill(lead)}</td><td>${escapeHtml(lead.appointmentAt ? leadWhen(lead.appointmentAt) : "—")}</td><td>${escapeHtml(leadWhen(dateInputValue(new Date(lead.createdAt)) + "T" + new Date(lead.createdAt).toTimeString().slice(0, 5)))}</td></tr>`;
   }).join("");
-  return `<div class="table-wrap la-table-wrap"><table class="la-table"><thead><tr><th>الشخص</th><th>المصدر</th>${leadIsAdmin() ? "<th>المستشارة</th>" : ""}<th>الحالة</th><th>الموعد</th><th>وصل</th></tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty">ما كاين حتى ليد بهاد الفلاتر.</td></tr>`}</tbody></table></div>`;
+  return `<div class="table-wrap la-table-wrap"><table class="la-table"><thead><tr><th>الشخص</th><th>المصدر</th>${leadAdminView() ? "<th>المستشارة</th>" : ""}<th>الحالة</th><th>الموعد</th><th>وصل</th></tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty">ما كاين حتى ليد بهاد الفلاتر.</td></tr>`}</tbody></table></div>`;
 }
 
 // Personal header: greeting, daily goal ring, today's numbers, friendly ranking.
@@ -228,7 +243,7 @@ function leadHeroHtml() {
   const stats = Array.isArray(window.leadStats) ? window.leadStats : [];
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "صباح الخير" : hour < 18 ? "مساء النور" : "مساء الخير";
-  const me = leadIsAdmin() ? null : leadAgent(currentUser?.agentId);
+  const me = leadAdminView() ? null : leadAgent(leadViewerId());
   const mine = leadsList().filter((lead) => !me || lead.agentId === me.id);
   const myStats = me ? stats.find((row) => row.agentId === me.id) : null;
   const done = me ? Number(myStats?.actionsToday || 0) : stats.reduce((sum, row) => sum + Number(row.actionsToday || 0), 0);
@@ -255,6 +270,7 @@ function leadHeroHtml() {
       <div><strong>${number(registered)}</strong><span>تسجيلات هاد الشهر</span></div>
     </div>
     ${ranking.length > 1 ? `<div class="la-rank"><span class="la-rank-title">ترتيب اليوم</span>${ranking.map((row, index) => `<span class="la-rank-row${me && row.agentId === me.id ? " is-me" : ""}"><b>${row.rdvsToday || row.actionsToday ? medals[index] || "•" : "•"}</b><i style="--agent:${leadAgentColor(row.agentId)}">${escapeHtml(row.code || leadAgentCode(leadAgent(row.agentId)))}</i>${escapeHtml(leadAgentName(row.agentId))}<em>${number(row.rdvsToday)} موعد · ${number(row.actionsToday)} اتصال</em></span>`).join("")}</div>` : ""}
+    ${(() => { const hot = mine.filter((lead) => ["h3", "h2"].includes(leadHeat(lead)?.key)).length; return hot ? `<button type="button" class="la-hot-nudge" data-lead-jump="new">🔥 عندك ${number(hot)} ${hot === 1 ? "ليد سخون" : "ليدز سخونين"}، عيطي ليهم دابا قبل ما يبردو</button>` : ""; })()}
     ${reminders ? `<button type="button" class="la-reminder-alert" data-lead-jump="rdv"><span>⚠️</span><div><strong>عندك ${number(reminders)} ${reminders === 1 ? "موعد" : "مواعيد"} ما تصيفطاتش ليهم رسالة التذكير</strong><small>التذكير كيخلّي الناس يجيو للموعد. صيفطيه دابا 👇</small></div></button>` : ""}
   </section>`;
 }
@@ -267,7 +283,7 @@ function leadsToolbarHtml() {
     <label class="la-search"><input type="search" placeholder="🔎 قلّبي بالاسم ولا الرقم…" value="${escapeHtml(LEAD_UI.search)}" data-lead-filter="search" aria-label="بحث" /></label>
     <button type="button" class="la-add" data-lead-new>＋ زيدي ليد واتساب</button>
     <div class="la-filters">
-      ${leadIsAdmin() ? `<select data-lead-filter="agent" aria-label="المستشارة"><option value="">كل المستشارات</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${LEAD_UI.agent === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}<option value="__none" ${LEAD_UI.agent === "__none" ? "selected" : ""}>بلا مستشارة</option></select>` : ""}
+      ${leadAdminView() ? `<select data-lead-filter="agent" aria-label="المستشارة"><option value="">كل المستشارات</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${LEAD_UI.agent === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}<option value="__none" ${LEAD_UI.agent === "__none" ? "selected" : ""}>بلا مستشارة</option></select>` : ""}
       <select data-lead-filter="source" aria-label="المصدر"><option value="">كل المصادر</option><option value="form" ${LEAD_UI.source === "form" ? "selected" : ""}>فورمولير</option><option value="whatsapp" ${LEAD_UI.source === "whatsapp" ? "selected" : ""}>واتساب</option></select>
       <select data-lead-filter="status" aria-label="الحالة"><option value="">كل الحالات</option>${Object.entries(LEAD_STATUS).map(([key, value]) => `<option value="${key}" ${LEAD_UI.status === key ? "selected" : ""}>${value.icon} ${escapeHtml(value.label)}</option>`).join("")}</select>
     </div>
@@ -282,14 +298,87 @@ function renderLeads() {
   const leads = leadsVisible();
   const unassigned = leadsList().filter((lead) => !lead.agentId && !["registered", "not_interested", "other_city", "not_qualified", "wrong_number"].includes(lead.status)).length;
   const body = LEAD_UI.view === "board" ? leadsBoardHtml(leads) : LEAD_UI.view === "list" ? leadsListHtml(leads) : leadsTodayHtml(leads);
-  const empty = !leadsList().length ? `<div class="la-onboarding"><strong>ما كاين حتى ليد دابا</strong><p>${leadIsAdmin() ? "ربطي ورقة Google «CMCG Leads» من «الربط والتوزيع» تحت، وكل ليد جديد من الفورمولير غادي يوصل هنا ويتوزع أوتوماتيكياً." : "الليدز اللي كيتوزعو عليك غادي يبانو هنا."}</p></div>` : "";
-  root.innerHTML = `${leadHeroHtml()}
-    ${leadIsAdmin() && unassigned ? `<div class="la-alert">⚠️ <strong>${number(unassigned)} ليد بلا مستشارة.</strong> <button type="button" data-lead-redistribute>وزّعيهم دابا</button></div>` : ""}
+  const empty = !leadsList().length ? `<div class="la-onboarding"><strong>ما كاين حتى ليد دابا</strong><p>${leadAdminView() ? "ربطي ورقة Google «CMCG Leads» من «الربط والتوزيع» تحت، وكل ليد جديد من الفورمولير غادي يوصل هنا ويتوزع أوتوماتيكياً." : "الليدز اللي كيتوزعو عليك غادي يبانو هنا."}</p></div>` : "";
+  const viewAsBanner = leadReadOnly() ? `<div class="la-viewas"><span>👁️</span><div><strong>كتشوفي الشاشة ديال ${escapeHtml(leadAgentName(LEAD_UI.viewAs))} بحال ما كتشوفها هي</strong><small>وضع المشاهدة فقط: ما يمكنش تبدّلي والو.</small></div><button type="button" data-view-as-exit>رجوع للوحة ديالي</button></div>` : "";
+  root.innerHTML = `${viewAsBanner}${leadHeroHtml()}
+    ${leadAdminView() ? leadMonitorHtml() : ""}
+    ${leadAdminView() && unassigned ? `<div class="la-alert">⚠️ <strong>${number(unassigned)} ليد بلا مستشارة.</strong> <button type="button" data-lead-redistribute>وزّعيهم دابا</button></div>` : ""}
     ${leadsToolbarHtml()}
     ${empty}
     <div class="la-body">${body}</div>
-    ${leadIsAdmin() ? `<div id="leadSplitTest">${leadSplitTestHtml()}</div><details class="la-settings" ${LEAD_UI.settingsOpen ? "open" : ""} data-lead-settings><summary><strong>⚙️ الربط والتوزيع</strong><small>Google Sheets، توزيع الليدز، رسائل واتساب</small></summary>${leadSettingsHtml()}</details>` : ""}`;
+    ${leadAdminView() ? `<div id="leadSplitTest">${leadSplitTestHtml()}</div><details class="la-settings" ${LEAD_UI.settingsOpen ? "open" : ""} data-lead-settings><summary><strong>⚙️ الربط والتوزيع</strong><small>Google Sheets، توزيع الليدز، رسائل واتساب</small></summary>${leadSettingsHtml()}</details>` : ""}`;
   if (LEAD_UI.detailId && document.getElementById("leadDialog")?.open && !LEAD_UI.sheet) renderLeadDetail();
+}
+
+// ---------- Admin: what each agent is doing ----------
+const localDay = (iso) => (iso ? dateInputValue(new Date(iso)) : "");
+function leadAgentLink(agent) { return agent?.accessToken ? `${window.location.origin}/a/${agent.accessToken}` : ""; }
+function leadAgo(iso) { return iso ? leadAge(iso) : "—"; }
+function leadAgentReport(agent) {
+  const today = leadTodayKey();
+  const leads = leadsList().filter((lead) => lead.agentId === agent.id);
+  const entries = leads.flatMap((lead) => (lead.history || []).map((item) => ({ ...item, lead })));
+  const todayEntries = entries.filter((item) => localDay(item.at) === today);
+  const taps = todayEntries.filter((item) => item.type === "tap");
+  const fresh = leads.filter((lead) => lead.status === "new");
+  const oldestNew = fresh.reduce((oldest, lead) => (!oldest || lead.createdAt < oldest ? lead.createdAt : oldest), "");
+  const waiting30 = fresh.filter((lead) => Date.now() - new Date(lead.createdAt).getTime() > 30 * 60000).length;
+  // Speed to lead: minutes from assignment to the first call / WhatsApp tap, for leads received today.
+  const speeds = leads.filter((lead) => localDay(lead.assignedAt || lead.createdAt) === today).map((lead) => {
+    const first = (lead.history || []).find((item) => item.type === "tap" || item.contact);
+    return first ? (new Date(first.at) - new Date(lead.assignedAt || lead.createdAt)) / 60000 : null;
+  }).filter((value) => value !== null).sort((a, b) => a - b);
+  const speed = speeds.length ? speeds[Math.floor(speeds.length / 2)] : null;
+  const lastAction = entries.filter((item) => item.type === "tap" || item.contact || item.status).map((item) => item.at).sort().pop() || "";
+  const stats = (window.leadStats || []).find((row) => row.agentId === agent.id) || {};
+  const remindersPending = leads.filter(leadNeedsReminder).length;
+  const overdueCallbacks = leads.filter((lead) => lead.status === "callback" && lead.callbackAt && lead.callbackAt < leadNowLocal()).length;
+  const missed = leads.filter((lead) => lead.status === "booked" && lead.appointmentAt && leadDayOf(lead.appointmentAt) < today).length;
+  const todo = fresh.length + leads.filter(leadCallbackDue).length;
+  const hour = new Date().getHours();
+  const openNow = hour >= 11 && hour < 20;
+  const quietMinutes = lastAction ? (Date.now() - new Date(lastAction).getTime()) / 60000 : Infinity;
+  const warnings = [];
+  if (waiting30) warnings.push(["bad", `🔥 ${waiting30} ليد جديد ما تعيطش ليهم من أكثر من 30 دقيقة (أقدم واحد من ${leadAge(oldestNew)})`]);
+  if (openNow && todo && quietMinutes > 90) warnings.push(["bad", `😴 حتى اتصال ${lastAction ? `من ${leadAge(lastAction)}` : "اليوم"} وعندها ${todo} ليد خاصهم اتصال`]);
+  if (speed !== null && speed > 60) warnings.push(["warn", `🐢 كتعيط من بعد ${Math.round(speed)} دقيقة فالمتوسط (الهدف: أقل من 15 دقيقة)`]);
+  if (remindersPending) warnings.push(["warn", `🔔 ${remindersPending} مواعيد بلا رسالة تذكير`]);
+  if (overdueCallbacks) warnings.push(["warn", `⏳ ${overdueCallbacks} إعادة اتصال فات وقتها`]);
+  if (missed) warnings.push(["warn", `❗ ${missed} مواعيد فاتت بلا نتيجة`]);
+  return {
+    leads, entries, taps, calls: taps.filter((item) => item.channel === "call").length, whatsapps: taps.filter((item) => item.channel === "whatsapp").length,
+    results: todayEntries.filter((item) => item.status).length, fresh: fresh.length, speed, lastAction, lastSeen: stats.lastSeenAt || "",
+    rdvsToday: Number(stats.rdvsToday || 0), registeredMonth: Number(stats.registeredMonth || 0), warnings,
+    health: warnings.some(([tone]) => tone === "bad") ? "bad" : warnings.length ? "warn" : "good",
+  };
+}
+function leadActivityText(item) {
+  if (item.type === "tap") return item.channel === "call" ? "📞 ضغطات على اتصال" : item.channel === "whatsapp" ? "💬 فتحات واتساب" : "🔔 تذكير";
+  if (item.type === "created") return "📥 توصلات بالليد";
+  if (item.type === "reassigned") return "🔀 تحوّل الليد";
+  const parts = [];
+  if (item.status) parts.push(`${LEAD_STATUS[item.status.to]?.icon || ""} ${LEAD_STATUS[item.status.to]?.label || item.status.to}`);
+  if (item.appointmentAt?.to) parts.push(`📅 ${leadWhen(item.appointmentAt.to)}`);
+  if (item.reminded) parts.push("🔔 تذكير تصيفط");
+  if (item.notes) parts.push("📝 ملاحظة");
+  return parts.join(" · ") || "✏️ تعديل";
+}
+function leadMonitorHtml() {
+  const agents = state.agents.filter((agent) => agent.active !== false);
+  if (!agents.length) return "";
+  return `<section class="la-monitor"><div class="la-section-head"><h3><span>👀</span> المستشارات دابا</h3><small>شنو كتدير كل وحدة اليوم. ضغطي «شوفي بحالها» باش تشوفي الشاشة ديالها بلا ما تبدلي والو.</small></div><div class="la-monitor-grid">${agents.map((agent) => {
+    const report = leadAgentReport(agent);
+    const online = report.lastSeen && Date.now() - new Date(report.lastSeen).getTime() < 5 * 60000;
+    const feed = [...report.entries].filter((item) => item.type !== "created").sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 7);
+    const link = leadAgentLink(agent);
+    return `<article class="la-agent la-health-${report.health}">
+      <header><span class="la-me small" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))}</span><div><strong>${escapeHtml(leadAgentName(agent.id))}</strong><small class="${online ? "is-online" : ""}">${online ? "🟢 متصلة دابا" : report.lastSeen ? `آخر ظهور: قبل ${escapeHtml(leadAge(report.lastSeen))}` : "ما دخلاتش اليوم"}</small></div><span class="la-health">${report.health === "good" ? "✅ مزيان" : report.health === "warn" ? "⚠️ انتباه" : "🚨 خاص تدخل"}</span></header>
+      <div class="la-agent-stats"><div><strong>${report.calls}</strong><span>📞 اتصالات</span></div><div><strong>${report.whatsapps}</strong><span>💬 واتساب</span></div><div><strong>${report.rdvsToday}</strong><span>📅 مواعيد</span></div><div><strong>${report.fresh}</strong><span>🔥 جداد</span></div><div><strong>${report.speed === null ? "—" : `${Math.round(report.speed)}د`}</strong><span>⚡ سرعة الرد</span></div><div><strong>${report.registeredMonth}</strong><span>🎓 الشهر</span></div></div>
+      ${report.warnings.length ? `<ul class="la-warnings">${report.warnings.map(([tone, text]) => `<li class="is-${tone}">${escapeHtml(text)}</li>`).join("")}</ul>` : `<p class="la-ok">كلشي مزيان، ما كاين حتى تنبيه 👌</p>`}
+      <details class="la-feed"><summary>آخر النشاط${report.lastAction ? ` · قبل ${escapeHtml(leadAge(report.lastAction))}` : ""}</summary><ol>${feed.map((item) => `<li><time dir="ltr">${escapeHtml(new Date(item.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }))}</time><span>${escapeHtml(leadActivityText(item))}</span><button type="button" data-lead-open="${escapeHtml(item.lead.id)}">${escapeHtml(item.lead.name || leadPhoneLabel(item.lead.phone))}</button></li>`).join("") || "<li>ما كاين حتى نشاط باقي.</li>"}</ol></details>
+      <div class="la-agent-actions"><button type="button" class="la-confirm small" data-view-as="${escapeHtml(agent.id)}">👁️ شوفي بحالها</button>${link ? `<button type="button" class="la-secondary" data-lead-copy="${escapeHtml(link)}">🔗 نسخ الرابط ديالها</button>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">🔗 صاوبي الرابط ديالها</button>`}</div>
+    </article>`;
+  }).join("")}</div></section>`;
 }
 
 // ---------- RDV & callback pickers ----------
@@ -456,9 +545,9 @@ function renderLeadDetail() {
     <form class="la-block" data-lead-notes-form><h3>📝 ملاحظات</h3><textarea name="notes" rows="3" placeholder="التكوين اللي بغا، الوقت اللي فاضي فيه، الأسئلة ديالو…">${escapeHtml(lead.notes || "")}</textarea><button class="la-save-note" type="submit">حفظ الملاحظة</button></form>
     ${answers.length ? `<section class="la-block"><h3>📋 الأجوبة ديال الفورمولير</h3><dl class="la-answers">${answers.map(([question, answer]) => `<div><dt>${escapeHtml(question)}</dt><dd>${escapeHtml(answer)}</dd></div>`).join("")}</dl></section>` : ""}
     <section class="la-block"><h3>📣 منين جا</h3><dl class="la-answers"><div><dt>الإعلان</dt><dd>${escapeHtml(ad?.name || lead.meta?.adName || "—")}</dd></div><div><dt>المجموعة الإعلانية</dt><dd>${escapeHtml(adSet?.name || lead.meta?.adSetName || "—")}</dd></div><div><dt>الحملة</dt><dd>${escapeHtml(campaign?.name || lead.meta?.campaignName || "—")}</dd></div></dl>
-      ${leadIsAdmin() ? `<label class="la-reassign"><span>المستشارة</span><select data-lead-reassign="${escapeHtml(lead.id)}"><option value="">بلا مستشارة</option>${state.agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${lead.agentId === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}</section>
+      ${leadAdminView() ? `<label class="la-reassign"><span>المستشارة</span><select data-lead-reassign="${escapeHtml(lead.id)}"><option value="">بلا مستشارة</option>${state.agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${lead.agentId === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}</section>
     ${history ? `<section class="la-block"><h3>🕘 التاريخ</h3><ol class="la-history">${history}</ol></section>` : ""}
-    ${leadIsAdmin() ? `<button class="la-delete" type="button" data-lead-delete>حذف الليد</button>` : ""}
+    ${leadAdminView() ? `<button class="la-delete" type="button" data-lead-delete>حذف الليد</button>` : ""}
   </div>`;
 }
 
@@ -478,7 +567,7 @@ function openNewLeadForm() {
   const adSets = state.adSets.filter((adSet) => adSet.metaAdSetId).sort((a, b) => a.name.localeCompare(b.name));
   dialog.innerHTML = `<form class="modal-content la-detail" data-lead-new-form><div class="la-detail-head"><div><small>💬 واتساب</small><h2>زيدي ليد جديد</h2><p>للناس اللي كيتواصلو فواتساب. الليدز ديال الفورمولير كيوصلو بوحدهم.</p></div><button class="la-close" type="button" data-lead-close aria-label="سدّي">×</button></div>
     <div class="la-form"><label><span>الاسم</span><input name="name" autocomplete="off" placeholder="الاسم الكامل" /></label><label><span>رقم الهاتف</span><input name="phone" inputmode="tel" dir="ltr" required placeholder="06 12 34 56 78" /></label>
-    ${leadIsAdmin() ? `<label><span>المستشارة</span><select name="agentId"><option value="">بلا مستشارة</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}
+    ${leadAdminView() ? `<label><span>المستشارة</span><select name="agentId"><option value="">بلا مستشارة</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}
     <label><span>المجموعة الإعلانية (اختياري)</span><select name="adSetId"><option value="">ما عرفتش</option>${adSets.map((adSet) => `<option value="${escapeHtml(adSet.id)}">${escapeHtml(adSet.name)}</option>`).join("")}</select></label>
     <label><span>ملاحظة (اختياري)</span><input name="notes" autocomplete="off" /></label></div>
     <button class="la-confirm" type="submit">＋ زيدي الليد</button></form>`;
@@ -539,6 +628,10 @@ function leadSettingsHtml() {
       <ol class="la-steps"><li>صاوبي رابط الاستقبال (خليه سري).</li><li>فالورقة: <b>Extensions → Apps Script</b>، لصقي الكود وسجّلي.</li><li>اختاري <b>installer</b> وضغطي <b>Exécuter</b>. من بعد الليدز كيوصلو كل دقيقة وموزعين.</li></ol>
       ${url ? `<div class="la-copy"><input readonly dir="ltr" value="${escapeHtml(url)}" aria-label="رابط الاستقبال" /><button type="button" data-lead-copy="${escapeHtml(url)}">نسخ</button></div><details class="la-script"><summary>شوفي كود Apps Script</summary><pre dir="ltr">${escapeHtml(leadAppsScript(url))}</pre><button type="button" class="la-confirm" data-lead-copy-script>نسخ الكود</button></details>` : ""}
       <div class="la-row"><button type="button" class="la-secondary" data-lead-token>${url ? "بدّلي الرابط" : "صاوبي رابط الاستقبال"}</button><label class="la-secondary la-file">استيراد CSV<input type="file" accept=".csv,text/csv" data-lead-csv /></label></div>
+    </section>
+    <section class="la-setting"><h3>🔗 الروابط ديال المستشارات</h3>
+      <p class="la-hint">كل مستشارة عندها رابط خاص بيها: كتحلو فالتليفون ديالها مرة وحدة وكتبقى داخلة. ما كتشوف غير الليدز ديالها، بلا كلمة سر. إلا تبدّل الرابط، القديم ما بقاش خدام.</p>
+      ${state.agents.filter((agent) => agent.active !== false).map((agent) => { const link = leadAgentLink(agent); const share = `https://wa.me/${encodeURIComponent(String(agent.whatsapp || "").replace(/\D/g, ""))}?text=${encodeURIComponent(`السلام ${leadAgentName(agent.id)} 👋 هادا الرابط ديال الليدز ديالك، حليه فالتليفون وخليه عندك:\n${link}`)}`; return `<div class="la-link-row"><span class="la-owner" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))} · ${escapeHtml(leadAgentName(agent.id))}</span>${link ? `<div class="la-copy"><input readonly dir="ltr" value="${escapeHtml(link)}" aria-label="الرابط" /><button type="button" data-lead-copy="${escapeHtml(link)}">نسخ</button></div><div class="la-row"><a class="la-secondary la-link-btn" href="${escapeHtml(share)}" target="_blank" rel="noopener">💬 صيفطيه ليها فواتساب</a><button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">بدّلي الرابط</button><button type="button" class="la-secondary" data-agent-link-revoke="${escapeHtml(agent.id)}">حبسي الرابط</button></div>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">صاوبي الرابط</button>`}</div>`; }).join("")}
     </section>
     <form class="la-setting" data-lead-distribution-form><h3>2 · توزيع الليدز</h3>
       <div class="la-modes">${modes.map(([key, label, hint]) => `<label class="la-mode${distribution.mode === key ? " is-on" : ""}"><input type="radio" name="mode" value="${key}" ${distribution.mode === key ? "checked" : ""} /><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></label>`).join("")}</div>
@@ -636,8 +729,30 @@ async function leadSave(id, body, message) {
 }
 const cheer = () => CHEERS[Math.floor(Math.random() * CHEERS.length)];
 
+const LEAD_VIEW_ONLY_OK = "[data-lead-view], [data-lead-close], [data-lead-jump], [data-detail-back], [data-view-as-exit], [data-lead-open]";
 async function handleLeadClick(event) {
   const target = event.target;
+  if (leadReadOnly()) {
+    const control = target.closest("a, button");
+    if (control && !control.matches(LEAD_VIEW_ONLY_OK)) {
+      event.preventDefault();
+      event.stopPropagation();
+      toast("👁️ وضع المشاهدة: ما يمكنش تبدّلي والو", "error");
+      return;
+    }
+  }
+  if (target.closest("[data-view-as-exit]")) { LEAD_UI.viewAs = ""; renderLeads(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  const viewAs = target.closest("[data-view-as]");
+  if (viewAs) { LEAD_UI.viewAs = viewAs.dataset.viewAs; LEAD_UI.view = "today"; renderLeads(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  const linkButton = target.closest("[data-agent-link], [data-agent-link-revoke]");
+  if (linkButton) {
+    const revoke = Boolean(linkButton.dataset.agentLinkRevoke);
+    const agentId = linkButton.dataset.agentLink || linkButton.dataset.agentLinkRevoke;
+    const agent = leadAgent(agentId);
+    if ((revoke || agent?.accessToken) && !window.confirm(revoke ? "نحبسو هاد الرابط؟ المستشارة ما غاديش تقدر تدخل حتى تصيفطي ليها رابط جديد." : "نبدلو الرابط؟ القديم ما غاديش يبقى خدام.")) return;
+    try { await api(`/api/agents/${encodeURIComponent(agentId)}/access-link`, { method: revoke ? "DELETE" : "POST", body: "{}" }); LEAD_UI.settingsOpen = true; await load(); toast(revoke ? "الرابط تحبس" : "الرابط واجد ✓"); } catch (error) { toast(error.message, "error"); }
+    return;
+  }
   const contact = target.closest("[data-lead-contact]");
   if (contact) {
     const kind = contact.dataset.kind;
@@ -645,7 +760,8 @@ async function handleLeadClick(event) {
     if (kind === "reminder") {
       leadSave(id, { contacted: "reminder", reminded: true }, "🔔 تسجّل بلي التذكير تصيفط").catch(() => {});
     } else {
-      // The link opens the dialer / WhatsApp; when the agent comes back, the result sheet waits.
+      // Log the tap right away (traceable), then ask for the result when the agent comes back.
+      api(`/api/crm-leads/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ tap: kind === "call" ? "call" : "whatsapp" }) }).catch(() => {});
       setPendingCall({ leadId: id, kind, at: Date.now() });
       setTimeout(() => { if (pendingCall()?.leadId === id) openCallSheet(id, kind); }, 900);
     }
@@ -783,6 +899,7 @@ async function handleLeadSubmit(event) {
   if (!form.matches("[data-lead-notes-form], [data-lead-new-form], [data-lead-distribution-form], [data-lead-templates-form]")) return;
   event.preventDefault();
   event.stopPropagation(); // keep the app's generic form handler out of it
+  if (leadReadOnly()) { toast("👁️ وضع المشاهدة: ما يمكنش تبدّلي والو", "error"); return; }
   const button = form.querySelector('button[type="submit"]');
   if (button) button.disabled = true;
   try {
@@ -821,7 +938,7 @@ async function handleLeadSubmit(event) {
 // When the agent comes back from the phone or WhatsApp, ask for the result.
 function resumePendingCall() {
   const pending = pendingCall();
-  if (!pending || !state) return;
+  if (!pending || !state || leadReadOnly()) return;
   if (Date.now() - pending.at > 6 * 3600000) { setPendingCall(null); return; }
   if (!document.getElementById("leadSheet")?.open) openCallSheet(pending.leadId, pending.kind);
 }

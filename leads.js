@@ -356,6 +356,12 @@ function updateLead(state, lead, body = {}, by = "") {
   if (body.lostReason !== undefined) lead.lostReason = clean(body.lostReason);
   if (body.contacted) { lead.callAttempts = Number(lead.callAttempts || 0) + 1; lead.lastContactAt = now(); changes.contact = clean(body.contacted); }
   if (body.reminded) { lead.remindedAt = now(); changes.reminded = true; }
+  // Every tap on call / WhatsApp is logged, even before the result is chosen.
+  if (body.tap) {
+    const channel = clean(body.tap) === "whatsapp" ? "whatsapp" : clean(body.tap) === "reminder" ? "reminder" : "call";
+    lead.lastTapAt = now();
+    pushHistory(lead, "tap", { channel }, by);
+  }
   lead.updatedAt = now();
   if (Object.keys(changes).length) pushHistory(lead, "updated", changes, by);
   syncLeadOutcomes(state, lead);
