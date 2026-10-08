@@ -1365,6 +1365,7 @@ async function load() {
   sensitiveLocked = Boolean(data.sensitiveLocked);
   currentUser = data.currentUser || { role: "admin", canSeeAdvertising: true, canManageStudentData: true };
   window.leadStats = Array.isArray(data.leadStats) ? data.leadStats : [];
+  window.leadSheetSync = data.leadSheetSync || null;
   // The sales dashboard is always in Arabic.
   if (currentUser.role === "sales") currentLanguage = "ar";
   storageInfo = data.storage;

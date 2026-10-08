@@ -134,7 +134,8 @@ function normalizeState(input) {
   });
   state.settings.profit = normalizeProfitSettings(state.settings.profit || {});
   state.settings.leadDistribution = Leads.normalizeDistribution(state.settings.leadDistribution || {});
-  state.settings.leadIntake = { token: cleanText(state.settings.leadIntake?.token) };
+  const sheetUrl = state.settings.leadIntake?.sheetUrl;
+  state.settings.leadIntake = { token: cleanText(state.settings.leadIntake?.token), sheetUrl: typeof sheetUrl === "string" ? cleanText(sheetUrl) : DEFAULT_LEAD_SHEET };
   state.settings.channelOverrides = state.settings.channelOverrides && typeof state.settings.channelOverrides === "object" ? state.settings.channelOverrides : {};
   ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "crmLeads", "dailyLogs", "events", "goals"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
@@ -173,6 +174,10 @@ function normalizeState(input) {
 
 const storage = createStorage({ dataFile: DATA_FILE, createEmptyState: emptyState, normalizeState });
 let storageReady = false;
+// The "CMCG Leads" Google Sheet (Meta lead forms write into it). Readable by link,
+// so the server pulls it every minute: no Apps Script needed.
+const DEFAULT_LEAD_SHEET = "https://docs.google.com/spreadsheets/d/1AVwE6OB-IsIWKeRFZ-yAFmp2Q01p3P_z0HnPhFwQzgE/edit#gid=0";
+let lastSheetSync = { at: "", added: 0, rows: 0, error: "" };
 let storageError = null;
 
 function now() {
@@ -363,7 +368,7 @@ function publicStateWithoutStudentData(state) {
   safe.payments = [];
   safe.events = safe.events.filter((event) => !event.studentId);
   safe.crmLeads = [];
-  safe.settings = { ...safe.settings, leadIntake: { token: "" } };
+  safe.settings = { ...safe.settings, leadIntake: { token: "", sheetUrl: "" } };
   safe.meta = { ...safe.meta, sensitiveDataLocked: true };
   return safe;
 }
@@ -438,7 +443,7 @@ function stateForUser(state, context) {
     safe.payments = [];
     safe.events = [];
   }
-  safe.settings = { ...safe.settings, leadIntake: { token: "" }, leadDistribution: { ...safe.settings.leadDistribution, agents: {} } };
+  safe.settings = { ...safe.settings, leadIntake: { token: "", sheetUrl: "" }, leadDistribution: { ...safe.settings.leadDistribution, agents: {} } };
   return safe;
 }
 
@@ -1233,6 +1238,7 @@ async function handleApi(req, res) {
         authEnabled: hasAuth(),
         sensitiveLocked,
         currentUser: publicUser(context),
+        leadSheetSync: context.role === "sales" ? null : lastSheetSync,
         leadStats: sensitiveLocked ? [] : Leads.leadStats(state).map((row) => ({ ...row, lastSeenAt: agentLastSeen.get(row.agentId) || "" })),
         security: { operationsPath: "/groups", studentDataRequiresAuth: true },
         storage: storage.info(),
@@ -1893,6 +1899,16 @@ async function handleApi(req, res) {
       await storage.write(state);
       return json(res, 200, { settings: state.settings });
     }
+    if (method === "POST" && url.pathname === "/api/crm-leads/sync") {
+      if (!isAdmin) return json(res, 403, { error: "Only an admin can sync the sheet" });
+      const body = await parseBody(req);
+      if (typeof body.sheetUrl === "string") {
+        if (body.sheetUrl && !sheetCsvUrl(body.sheetUrl)) return json(res, 400, { error: "Paste the Google Sheet link" });
+        state.settings.leadIntake = { ...state.settings.leadIntake, sheetUrl: cleanText(body.sheetUrl) };
+        await storage.write(state);
+      }
+      return json(res, 200, { sync: await syncLeadSheet(state) });
+    }
     if (method === "POST" && url.pathname === "/api/crm-leads/import") {
       if (!isAdmin) return json(res, 403, { error: "Only an admin can import leads" });
       const body = await parseBody(req);
@@ -2235,6 +2251,40 @@ const server = http.createServer((req, res) => {
   return serveStatic(req, res);
 });
 
+function sheetCsvUrl(link) {
+  const id = String(link || "").match(/\/d\/([\w-]{20,})/)?.[1] || (/^[\w-]{20,}$/.test(String(link || "")) ? link : "");
+  if (!id) return "";
+  const gid = String(link).match(/[#&?]gid=(\d+)/)?.[1] || "0";
+  return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
+}
+
+// heldState: called from a request that already holds the mutation lock.
+async function syncLeadSheet(heldState = null) {
+  if (!storageReady) return lastSheetSync;
+  const csvUrl = sheetCsvUrl((heldState || await storage.read()).settings?.leadIntake?.sheetUrl);
+  if (!csvUrl) return lastSheetSync;
+  try {
+    const response = await fetch(csvUrl, { redirect: "follow", signal: AbortSignal.timeout(20000) });
+    const text = await response.text();
+    if (!response.ok || /^\s*</.test(text)) throw new Error("لا يمكن قراءة الورقة: شاركيها «أي شخص لديه الرابط · عارض»");
+    const rows = parseCsv(text);
+    const release = heldState ? () => {} : await acquireMutationLock();
+    try {
+      const state = heldState || await storage.read();
+      const summary = Leads.ingestLeadRows(state, rows, { distribution: state.settings.leadDistribution, source: "form" });
+      if (summary.added) await storage.write(state);
+      lastSheetSync = { at: new Date().toISOString(), added: summary.added, rows: rows.length, error: "" };
+      if (summary.added) console.log(`Google Sheet: ${summary.added} new lead(s)`);
+    } finally {
+      release();
+    }
+  } catch (error) {
+    const message = /fetch failed|timeout|abort|ENOTFOUND|ECONN/i.test(error.message || "") ? "تعذّر الوصول إلى Google، ستُعاد المحاولة بعد دقيقة" : error.message;
+    lastSheetSync = { ...lastSheetSync, at: new Date().toISOString(), error: message || "فشلت المزامنة" };
+  }
+  return lastSheetSync;
+}
+
 server.listen(PORT, () => {
   console.log(`CMCG CRM listening on http://localhost:${PORT}`);
 });
@@ -2242,22 +2292,20 @@ server.listen(PORT, () => {
 storage.init().then(async () => {
   storageReady = true;
   try { refreshAgentTokens(await storage.read()); } catch {}
-  // One-time demo: give every agent two test leads so their screen can be shown
-  // right after deploy. Tagged demo, kept out of ad results, removable in one tap.
+  // One-time clean-up: the demo leads have done their job.
   try {
     const state = await storage.read();
-    state.settings = state.settings || {};
-    if (process.env.CRM_DEMO_SEED !== "0" && !state.settings.demoLeadsSeededAt) {
-      const hidden = state.settings.leadDistribution?.agents || {};
-      const agentIds = (state.agents || []).filter((agent) => agent.active !== false && !hidden[agent.id]?.hidden).map((agent) => agent.id);
-      if (agentIds.length) {
-        if (!(state.crmLeads || []).some((lead) => lead.demo)) Leads.createDemoLeads(state, agentIds);
-        state.settings.demoLeadsSeededAt = new Date().toISOString();
-        await storage.write(state);
-        console.log(`Demo leads added for ${agentIds.length} agent(s)`);
-      }
+    if (!state.settings?.demoLeadsWipedAt && (state.crmLeads || []).some((lead) => lead.demo)) {
+      const removed = Leads.removeDemoLeads(state);
+      state.settings.demoLeadsWipedAt = new Date().toISOString();
+      await storage.write(state);
+      console.log(`Removed ${removed} demo lead(s)`);
     }
-  } catch (error) { console.error("Demo leads seed failed:", error.message); }
+  } catch (error) { console.error("Demo leads clean-up failed:", error.message); }
+  if (process.env.CRM_SHEET_SYNC !== "0") {
+    syncLeadSheet().catch(() => {});
+    setInterval(() => syncLeadSheet().catch(() => {}), 60 * 1000).unref();
+  }
   console.log(`CMCG CRM running with ${storage.info().label}`);
 }).catch((error) => {
   storageError = error;

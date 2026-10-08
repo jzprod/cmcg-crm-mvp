@@ -1,4 +1,4 @@
-process.env.CRM_DEMO_SEED = "0"; // no demo leads in test servers
+process.env.CRM_SHEET_SYNC = "0"; // test servers never call Google
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

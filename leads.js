@@ -110,7 +110,10 @@ function normalizeLeadRow(row) {
     }
   });
   ["externalId", "adId", "adSetId", "campaignId", "formId"].forEach((field) => { if (lead[field]) lead[field] = stripMetaPrefix(lead[field]); });
-  const fullName = clean(lead.fullName || [lead.firstName, lead.lastName].filter(Boolean).join(" "));
+  // Meta writes spaces as "_" and people type names in fancy Unicode (ℂ𝕠𝕟 → Con).
+  const tidy = (value) => clean(String(value || "").normalize("NFKC").replace(/_+/g, " ").replace(/\s+/g, " "));
+  const fullName = tidy(lead.fullName || [lead.firstName, lead.lastName].filter(Boolean).join(" "));
+  Object.keys(lead.answers).forEach((question) => { lead.answers[question] = tidy(lead.answers[question]); });
   return {
     externalId: lead.externalId || "",
     createdAt: toIsoDate(lead.createdTime) || now(),

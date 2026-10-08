@@ -209,9 +209,32 @@ function leadCardHtml(lead) {
   </article>`;
 }
 
+// Compact row: who, status/when on one line, call + WhatsApp. Tap the row for details.
+function leadRowHtml(lead) {
+  const heat = leadHeat(lead);
+  const needsReminder = leadNeedsReminder(lead);
+  const reminder = needsReminder || (lead.status === "booked" && [leadTodayKey(), leadTodayKey(1)].includes(leadDayOf(lead.appointmentAt)));
+  const status = LEAD_STATUS[lead.status] || LEAD_STATUS.new;
+  const when = lead.status === "booked" && lead.appointmentAt ? `📅 ${leadWhen(lead.appointmentAt)}`
+    : lead.status === "callback" && lead.callbackAt ? `⏳ ${leadWhen(lead.callbackAt)}`
+    : heat ? `${heat.icon} منذ ${leadAge(lead.createdAt)}` : `منذ ${leadAge(lead.statusAt || lead.createdAt)}`;
+  const phone = lead.phone ? `+${lead.phone}` : "";
+  return `<article class="la-item${heat ? ` heat-${heat.key}` : ""}${needsReminder ? " needs-reminder" : ""}">
+    <button type="button" class="la-item-main" data-lead-open="${escapeHtml(lead.id)}">
+      <span class="la-item-avatar" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadInitials(lead.name))}</span>
+      <span class="la-item-text">
+        <strong>${lead.demo ? "🧪 " : ""}${escapeHtml(lead.name || leadPhoneLabel(lead.phone))}</strong>
+        <span class="la-item-meta">${(lead.status === "booked" && lead.appointmentAt) || (lead.status === "callback" && lead.callbackAt) ? "" : `<i class="la-dot-pill la-${status.tone}">${status.icon} ${escapeHtml(status.label)}</i>`}<em>${escapeHtml(when)}</em>${leadAdminView() && lead.agentId ? `<i class="la-item-owner" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadAgentCode(leadAgent(lead.agentId)))}</i>` : ""}</span>
+      </span>
+    </button>
+    <a class="la-ibtn la-ibtn-wa${reminder ? " is-reminder" : ""}" href="${escapeHtml(leadWhatsAppUrl(lead, reminder ? "reminder" : "first"))}" target="_blank" rel="noopener" data-lead-contact="${escapeHtml(lead.id)}" data-kind="${reminder ? "reminder" : "whatsapp"}" aria-label="${reminder ? "التذكير" : "واتساب"}">${reminder ? svgIcon.bell : svgIcon.wa}</a>
+    <a class="la-ibtn la-ibtn-call" href="tel:${escapeHtml(phone)}" data-lead-contact="${escapeHtml(lead.id)}" data-kind="call" aria-label="اتصال">${svgIcon.call}</a>
+  </article>`;
+}
+
 function leadSection(id, icon, title, hint, leads, empty) {
-  if (!leads.length && !empty) return "";
-  return `<section class="la-section" id="la-sec-${id}"><div class="la-section-head"><h3><span>${icon}</span> ${escapeHtml(title)} <b>${leads.length}</b></h3>${hint ? `<small>${escapeHtml(hint)}</small>` : ""}</div>${leads.length ? `<div class="la-grid">${leads.map(leadCardHtml).join("")}</div>` : `<p class="la-empty">${escapeHtml(empty)}</p>`}</section>`;
+  if (!leads.length && (!empty || id !== "filter")) return "";
+  return `<section class="la-section" id="la-sec-${id}"><div class="la-section-head"><h3><span>${icon}</span> ${escapeHtml(title)} <b>${leads.length}</b></h3>${hint ? `<small>${escapeHtml(hint)}</small>` : ""}</div>${leads.length ? `<div class="la-list">${leads.map(leadRowHtml).join("")}</div>` : `<p class="la-empty">${escapeHtml(empty)}</p>`}</section>`;
 }
 
 function leadsTodayHtml(leads) {
@@ -230,14 +253,13 @@ function leadsTodayHtml(leads) {
     leadSection("tomorrow", "📅", "مواعيد الغد", "أرسلي رسالة التذكير اليوم.", tomorrow, ""),
     leadSection("missed", "❗", "مواعيد فائتة بدون نتيجة", "فات الموعد: هل حضر؟ هل سجّل؟ أم يحتاج موعداً جديداً؟", missed, ""),
     leadSection("thinking", "💭", "يفكّرون", "تواصلتِ معهم ولم يقرّروا بعد. أعيدي التواصل معهم.", thinking, ""),
-  ].join("");
+  ].join("") || '<p class="la-empty">🎉 لا شيء ينتظرك الآن. ستظهر هنا كل رسالة جديدة تلقائياً.</p>';
 }
 
 function leadsBoardHtml(leads) {
-  return `<div class="la-board">${LEAD_BOARD.map(([key, title, statuses]) => {
-    const column = leads.filter((lead) => statuses.includes(lead.status)).sort((a, b) => String(b.statusAt || b.createdAt).localeCompare(String(a.statusAt || a.createdAt)));
-    return `<section class="la-column la-col-${key}"><h3>${escapeHtml(title)} <b>${column.length}</b></h3><div class="la-column-body">${column.slice(0, 60).map(leadCardHtml).join("") || '<p class="la-empty">فارغ</p>'}</div></section>`;
-  }).join("")}</div>`;
+  const closed = ["registered", "not_interested", "other_city", "not_qualified", "wrong_number"];
+  const sorted = [...leads].sort((a, b) => (closed.includes(a.status) - closed.includes(b.status)) || String(b.statusAt || b.createdAt).localeCompare(String(a.statusAt || a.createdAt)));
+  return sorted.length ? `<div class="la-list">${sorted.slice(0, 300).map(leadRowHtml).join("")}</div>` : '<p class="la-empty">لا توجد رسائل.</p>';
 }
 
 function leadsListHtml(leads) {
@@ -315,7 +337,7 @@ function leadNextBarHtml() {
 }
 
 function leadsToolbarHtml() {
-  const views = [["today", "اليوم"], ["board", "كل الرسائل"], ["list", "القائمة"]];
+  const views = [["today", "اليوم"], ["board", "كل الرسائل"], ...(leadAdminView() ? [["list", "جدول"]] : [])];
   const agents = leadAgents();
   return `<div class="la-toolbar">
     <div class="la-views" role="tablist">${views.map(([key, label]) => `<button type="button" role="tab" class="${LEAD_UI.view === key ? "active" : ""}" aria-selected="${LEAD_UI.view === key}" data-lead-view="${key}">${label}</button>`).join("")}</div>
@@ -354,6 +376,26 @@ function leadsFilteredHtml(leads) {
   const status = LEAD_STATUS[LEAD_UI.status];
   const sorted = [...leads].sort((a, b) => LEAD_UI.status === "booked" ? String(a.appointmentAt).localeCompare(String(b.appointmentAt)) : String(b.statusAt || b.createdAt).localeCompare(String(a.statusAt || a.createdAt)));
   return leadSection("filter", status.icon, status.label, "", sorted, "لا توجد رسائل بهذه الحالة.");
+}
+
+// Auto-sync: pull fresh data every 30s while the Leads screen is open.
+async function refreshLeadsQuietly() {
+  if (!state || document.hidden || !document.getElementById("leads")?.classList.contains("active")) return;
+  if (document.getElementById("leadDialog")?.open || document.getElementById("leadSheet")?.open || document.activeElement?.matches?.("input, textarea, select")) return;
+  try {
+    const known = new Set(leadsList().map((lead) => lead.id));
+    const data = await api("/api/state");
+    state = data.state;
+    normalizeState();
+    window.leadStats = Array.isArray(data.leadStats) ? data.leadStats : [];
+    window.leadSheetSync = data.leadSheetSync || null;
+    const fresh = leadsList().filter((lead) => !known.has(lead.id) && (leadAdminView() || lead.agentId === leadViewerId()));
+    renderLeads();
+    if (fresh.length) {
+      toast(`🔔 ${fresh.length === 1 ? "رسالة جديدة" : `${fresh.length} رسائل جديدة`}: ${fresh[0].name || leadPhoneLabel(fresh[0].phone)}`);
+      try { navigator.vibrate?.([120, 60, 120]); } catch {}
+    }
+  } catch {}
 }
 
 function renderLeads() {
@@ -756,9 +798,16 @@ function leadSettingsHtml() {
   }).join("");
   return `<div class="la-settings-grid">
     <section class="la-setting"><h3>1 · ربط ورقة Google «CMCG Leads»</h3>
+      ${(() => { const sync = window.leadSheetSync || {}; const sheet = state.settings?.leadIntake?.sheetUrl || ""; return `<form class="la-sync" data-lead-sheet-form>
+        <p class="la-hint">🔄 مزامنة تلقائية كل دقيقة من الورقة (يجب أن تكون مشاركة: «أي شخص لديه الرابط · عارض»).</p>
+        <div class="la-copy"><input name="sheetUrl" dir="ltr" value="${escapeHtml(sheet)}" placeholder="https://docs.google.com/spreadsheets/d/…" aria-label="رابط الورقة" /><button type="submit">مزامنة الآن</button></div>
+        <small class="la-sync-status${sync.error ? " is-bad" : ""}">${sync.error ? `⚠️ ${escapeHtml(sync.error)}` : sync.at ? `✅ آخر مزامنة ${escapeHtml(leadAge(sync.at))} · ${number(sync.rows || 0)} صف في الورقة` : "⏳ في انتظار أول مزامنة…"}</small>
+      </form>`; })()}
+      <details class="la-script"><summary>طريقة بديلة: Apps Script</summary>
       <ol class="la-steps"><li>أنشئي رابط الاستقبال (احتفظي به سرياً).</li><li>في الورقة: <b>Extensions → Apps Script</b>، الصقي الكود واحفظيه.</li><li>اختاري <b>installer</b> واضغطي <b>Exécuter</b>. بعدها تصل الرسائل كل دقيقة موزّعة.</li></ol>
       ${url ? `<div class="la-copy"><input readonly dir="ltr" value="${escapeHtml(url)}" aria-label="رابط الاستقبال" /><button type="button" data-lead-copy="${escapeHtml(url)}">نسخ</button></div><details class="la-script"><summary>عرض كود Apps Script</summary><pre dir="ltr">${escapeHtml(leadAppsScript(url))}</pre><button type="button" class="la-confirm" data-lead-copy-script>نسخ الكود</button></details>` : ""}
       <div class="la-row"><button type="button" class="la-secondary" data-lead-token>${url ? "تغيير الرابط" : "إنشاء رابط الاستقبال"}</button><label class="la-secondary la-file">استيراد CSV<input type="file" accept=".csv,text/csv" data-lead-csv /></label></div>
+      </details>
     </section>
     <section class="la-setting"><h3>🔗 روابط المستشارات</h3>
       <p class="la-hint">لكل مستشارة رابط خاص: تفتحه في هاتفها مرة واحدة وتبقى متصلة. لا ترى إلا رسائلها، دون كلمة سر. إذا تغيّر الرابط يتوقف القديم عن العمل.</p>
@@ -1084,14 +1133,19 @@ function handleLeadInput(event) {
 
 async function handleLeadSubmit(event) {
   const form = event.target;
-  if (!form.matches("[data-lead-notes-form], [data-lead-new-form], [data-lead-distribution-form], [data-lead-templates-form]")) return;
+  if (!form.matches("[data-lead-notes-form], [data-lead-new-form], [data-lead-distribution-form], [data-lead-templates-form], [data-lead-sheet-form]")) return;
   event.preventDefault();
   event.stopPropagation(); // keep the app's generic form handler out of it
   if (leadReadOnly()) { toast("👁️ وضع المشاهدة: لا يمكنك تعديل أي شيء", "error"); return; }
   const button = form.querySelector('button[type="submit"]');
   if (button) button.disabled = true;
   try {
-    if (form.matches("[data-lead-notes-form]")) {
+    if (form.matches("[data-lead-sheet-form]")) {
+      const res = await api("/api/crm-leads/sync", { method: "POST", body: JSON.stringify({ sheetUrl: form.elements.sheetUrl.value.trim() }) });
+      LEAD_UI.settingsOpen = true;
+      await load();
+      toast(res.sync?.error ? `⚠️ ${res.sync.error}` : `✅ تمت المزامنة · ${number(res.sync?.added || 0)} رسالة جديدة`, res.sync?.error ? "error" : undefined);
+    } else if (form.matches("[data-lead-notes-form]")) {
       await leadSave(LEAD_UI.detailId, { notes: form.elements.notes.value }, "📝 حُفظت الملاحظة");
     } else if (form.matches("[data-lead-new-form]")) {
       const body = Object.fromEntries(new FormData(form).entries());
@@ -1146,8 +1200,6 @@ function resumePendingCall() {
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") setTimeout(resumePendingCall, 300); });
   window.addEventListener("focus", () => setTimeout(resumePendingCall, 300));
   // Keep ages, today's lists and the goal ring fresh while the page stays open.
-  setInterval(() => {
-    if (document.getElementById("leads")?.classList.contains("active") && !document.getElementById("leadDialog")?.open && !document.getElementById("leadSheet")?.open) renderLeads();
-  }, 60000);
+  setInterval(refreshLeadsQuietly, 30000);
   const waitForState = setInterval(() => { if (state) { clearInterval(waitForState); resumePendingCall(); } }, 500);
 })();
