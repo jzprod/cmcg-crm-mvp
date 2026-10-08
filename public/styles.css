@@ -1565,3 +1565,7 @@ main { width: 100%; }
 .la-transfer-summary { display: grid; gap: 4px; padding: 12px 14px; border-radius: 14px; background: #eef2ff; color: #3730a3; }
 .la-transfer-summary span { font-size: .9rem; }
 @media (max-width: 640px) { .la-transfer-btn { width: 100%; } }
+.la-demo-btn { min-height: 46px; padding: 0 14px; border: 1px dashed #c4b5fd; border-radius: 14px; background: #faf5ff; color: #6d28d9; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.la-demo { padding: 3px 9px; border-radius: 8px; background: #f3e8ff; color: #7c3aed; font-size: .76rem; font-weight: 800; }
+.la-toolbar { grid-template-columns: auto 1fr repeat(3, auto); }
+@media (max-width: 640px) { .la-demo-btn { width: 100%; } .la-toolbar { grid-template-columns: 1fr; } }

@@ -149,6 +149,23 @@ test("leads transfer between agents, keeping RDVs unless asked", () => {
   assert.ok(paused.crmLeads.every((lead) => lead.agentId === "wiam"));
 });
 
+test("demo leads show the agents' screen without touching ad results", () => {
+  const state = baseState();
+  const created = Leads.createDemoLeads(state, ["souad", "wiam"], new Date("2026-10-08T12:00:00"));
+  assert.equal(created.length, 4);
+  assert.deepEqual(created.map((lead) => lead.agentId), ["souad", "souad", "wiam", "wiam"]);
+  assert.equal(created.filter((lead) => lead.status === "new").length, 2);
+  const rdv = created.find((lead) => lead.status === "booked");
+  assert.equal(rdv.appointmentAt, "2026-10-08T13:30");
+  assert.equal(rdv.remindedAt, "");
+  Leads.updateLead(state, rdv, { status: "registered" });
+  assert.equal(state.outcomes.length, 0); // never counted on the ads
+  assert.equal(Leads.removeDemoLeads(state), 4);
+  assert.equal(state.crmLeads.length, 0);
+  // After closing time the demo RDV moves to tomorrow 15:00.
+  assert.match(Leads.createDemoLeads(baseState(), ["souad"], new Date("2026-10-08T19:30:00"))[1].appointmentAt, /T15:00$/);
+});
+
 test("templates, contact cards and the WhatsApp vs form split", () => {
   const lead = { name: "Yassine Amrani", phone: "212612345678", appointmentAt: "2026-10-10T10:00:00", source: "form", createdAt: "2026-10-08T10:00:00Z" };
   const text = Leads.fillTemplate("Bonjour {name}, ici {agent}. RDV {day} à {time}.", lead, { agentName: "Souad" });

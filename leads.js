@@ -225,6 +225,8 @@ function pushHistory(lead, type, details = {}, by = "") {
 // outcome; "visited" adds a "showed" (visited without registering); "registered"
 // replaces it with "registered". Outcomes carry leadId so they never duplicate.
 function syncLeadOutcomes(state, lead) {
+  // Demo leads never touch the ad results.
+  if (lead.demo) { state.outcomes = state.outcomes.filter((outcome) => outcome.leadId !== lead.id); return; }
   const wanted = new Map();
   const day = (iso) => String(iso || "").slice(0, 10);
   const firstContact = day(lead.createdAt);
@@ -435,6 +437,55 @@ function channelOfCampaign(state, campaign, overrides = {}) {
   return /lead/i.test(campaign.objective || "") ? "form" : "whatsapp";
 }
 
+// Demo leads to show the agents' screen: for each agent, one hot new lead and
+// one RDV today (or tomorrow after closing time) still waiting for its reminder.
+const DEMO_PEOPLE = [
+  ["سلمى بناني", "Salma Bennani"], ["ياسين العمراني", "Yassine Amrani"], ["خديجة العلوي", "Khadija Alaoui"],
+  ["مهدي برادة", "Mehdi Berrada"], ["نورة الشرايبي", "Nora Chraibi"], ["حمزة التازي", "Hamza Tazi"],
+  ["إيمان الفاسي", "Imane Fassi"], ["عمر الإدريسي", "Omar El Idrissi"],
+];
+function createDemoLeads(state, agentIds, at = new Date()) {
+  const created = [];
+  const local = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const nextSlot = () => {
+    const slot = new Date(at.getTime() + 90 * 60000);
+    const minutes = slot.getMinutes();
+    if (minutes % 30) slot.setMinutes(minutes < 30 ? 30 : 60, 0, 0); else slot.setSeconds(0, 0);
+    const hhmm = `${String(slot.getHours()).padStart(2, "0")}:${String(slot.getMinutes()).padStart(2, "0")}`;
+    if (hhmm >= OPENING.open && hhmm <= OPENING.lastSlot && local(slot) === local(at)) return `${local(slot)}T${hhmm}`;
+    const tomorrow = new Date(at.getTime() + 86400000);
+    return `${local(tomorrow)}T15:00`;
+  };
+  agentIds.forEach((agentId, index) => {
+    [0, 1].forEach((n) => {
+      const [arabic, latin] = DEMO_PEOPLE[(index * 2 + n) % DEMO_PEOPLE.length];
+      const lead = {
+        id: newId("lea"), demo: true, source: n === 0 ? "form" : "whatsapp",
+        externalId: "", createdAt: new Date(at.getTime() - (n === 0 ? 4 : 26 * 60) * 60000).toISOString(),
+        name: `🧪 ${latin}`, phone: `21260000${String(index * 2 + n).padStart(4, "0")}`, phoneRaw: "", email: "", city: "طنجة",
+        meta: { adName: "إعلان تجريبي", formName: "CMCG First Form" },
+        answers: n === 0 ? { "التكوين حضوري فقط فمدينة طنجة. واش تقدر تحضر للمركز بانتظام؟": "نعم", "2️⃣ شنو هو المستوى الدراسي ديالك؟": "باك" } : {},
+        creativeId: "", adSetId: "", campaignId: "",
+        status: "new", statusAt: now(), agentId, assignedAt: now(),
+        appointmentAt: "", bookedAt: "", remindedAt: "", callAttempts: 0,
+        notes: n === 1 ? `ليد تجريبي (${arabic}): موعد باش تجربي رسالة التذكير.` : `ليد تجريبي (${arabic}): ليد سخون باش تجربي الاتصال.`,
+        history: [], importedAt: now(), updatedAt: now(),
+      };
+      pushHistory(lead, "created", { agentId, demo: true });
+      state.crmLeads.push(lead);
+      if (n === 1) updateLead(state, lead, { appointmentAt: nextSlot() }, "demo");
+      created.push(lead);
+    });
+  });
+  return created;
+}
+function removeDemoLeads(state) {
+  const demoIds = new Set((state.crmLeads || []).filter((lead) => lead.demo).map((lead) => lead.id));
+  state.crmLeads = (state.crmLeads || []).filter((lead) => !demoIds.has(lead.id));
+  state.outcomes = state.outcomes.filter((outcome) => !demoIds.has(outcome.leadId));
+  return demoIds.size;
+}
+
 // Move leads between agents. from: agent ids ("" = unassigned); statuses: which
 // leads move (RDVs are left out unless asked); to: one or more agents, filled in
 // turn so the leads are spread evenly. A lead never moves to the agent it is on.
@@ -497,7 +548,7 @@ function leadStats(state, at = new Date()) {
 }
 
 module.exports = {
-  transferLeads, leadStats, appointmentError, OPENING,
+  createDemoLeads, removeDemoLeads, transferLeads, leadStats, appointmentError, OPENING,
   LEAD_STATUSES, CLOSED_STATUSES, DISTRIBUTION_MODES, DEFAULT_TEMPLATES,
   normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, updateLead, createManualLead,
   syncLeadOutcomes, normalizeDistribution, defaultDistribution, fillTemplate, leadVcard, channelOfCampaign,

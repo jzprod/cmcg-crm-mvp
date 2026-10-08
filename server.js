@@ -1902,6 +1902,21 @@ async function handleApi(req, res) {
       await storage.write(state);
       return json(res, 200, summary);
     }
+    if (method === "POST" && url.pathname === "/api/crm-leads/demo") {
+      if (!isAdmin) return json(res, 403, { error: "Only an admin can add demo leads" });
+      const body = await parseBody(req);
+      if (body.action === "remove") {
+        const removed = Leads.removeDemoLeads(state);
+        await storage.write(state);
+        return json(res, 200, { removed });
+      }
+      const hidden = state.settings.leadDistribution.agents || {};
+      const agentIds = state.agents.filter((agent) => agent.active !== false && !hidden[agent.id]?.hidden).map((agent) => agent.id);
+      if (!agentIds.length) return json(res, 400, { error: "Add an agent first" });
+      const created = Leads.createDemoLeads(state, agentIds);
+      await storage.write(state);
+      return json(res, 201, { created: created.length });
+    }
     if (method === "POST" && url.pathname === "/api/crm-leads/transfer") {
       if (!isAdmin) return json(res, 403, { error: "Only an admin can transfer leads" });
       const body = await parseBody(req);

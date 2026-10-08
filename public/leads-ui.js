@@ -197,7 +197,7 @@ function leadCardHtml(lead) {
       ${leadStatusPill(lead)}
     </header>
     <div class="la-meta">
-      <span class="la-src la-src-${lead.source}">${escapeHtml(source.channel)}</span>
+      ${lead.demo ? '<span class="la-demo">🧪 تجريبي</span>' : ""}<span class="la-src la-src-${lead.source}">${escapeHtml(source.channel)}</span>
       ${source.where ? `<span class="la-where">${escapeHtml(source.where)}</span>` : ""}
       ${leadHeat(lead) ? `<span class="la-heat la-heat-${leadHeat(lead).key}" title="${escapeHtml(leadHeat(lead).label)}"><b>${leadHeat(lead).icon}</b> ${escapeHtml(leadHeat(lead).label)} · ${escapeHtml(leadAge(lead.createdAt))}</span>` : `<span class="la-age">من ${escapeHtml(leadAge(lead.createdAt))}</span>`}
       ${leadAdminView() ? `<span class="la-owner" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadAgentCode(leadAgent(lead.agentId)) === "?" ? "بلا مستشارة" : leadAgentName(lead.agentId))}</span>` : ""}
@@ -293,6 +293,7 @@ function leadsToolbarHtml() {
     <label class="la-search"><input type="search" placeholder="🔎 قلّبي بالاسم ولا الرقم…" value="${escapeHtml(LEAD_UI.search)}" data-lead-filter="search" aria-label="بحث" /></label>
     <button type="button" class="la-add" data-lead-new>＋ زيدي ليد واتساب</button>
     ${leadAdminView() ? `<button type="button" class="la-transfer-btn" data-transfer-from="">🔀 تحويل الليدز</button>` : ""}
+    ${leadAdminView() ? (leadsList().some((lead) => lead.demo) ? `<button type="button" class="la-demo-btn" data-demo="remove">🗑️ حيدي الليدز التجريبية (${leadsList().filter((lead) => lead.demo).length})</button>` : `<button type="button" class="la-demo-btn" data-demo="create">🧪 ليدز تجريبية</button>`) : ""}
     <div class="la-filters">
       ${leadAdminView() ? `<select data-lead-filter="agent" aria-label="المستشارة"><option value="">كل المستشارات</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${LEAD_UI.agent === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}<option value="__none" ${LEAD_UI.agent === "__none" ? "selected" : ""}>بلا مستشارة</option></select>` : ""}
       <select data-lead-filter="source" aria-label="المصدر"><option value="">كل المصادر</option><option value="form" ${LEAD_UI.source === "form" ? "selected" : ""}>فورمولير</option><option value="whatsapp" ${LEAD_UI.source === "whatsapp" ? "selected" : ""}>واتساب</option></select>
@@ -738,7 +739,7 @@ function leadSplitData() {
     side.spend += Number(log.spend || 0);
     if (side === sides.whatsapp) side.contacts += Number(log.messages || 0);
   });
-  leadsList().filter((lead) => lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt))).forEach((lead) => {
+  leadsList().filter((lead) => !lead.demo && lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt))).forEach((lead) => {
     const campaign = byId(state.campaigns, lead.campaignId);
     if (!campaign || leadChannelOf(campaign) === "form") sides.form.contacts += 1;
   });
@@ -812,6 +813,17 @@ async function handleLeadClick(event) {
       toast("👁️ وضع المشاهدة: ما يمكنش تبدّلي والو", "error");
       return;
     }
+  }
+  const demoBtn = target.closest("[data-demo]");
+  if (demoBtn) {
+    const remove = demoBtn.dataset.demo === "remove";
+    if (remove && !window.confirm("نحيدو كاع الليدز التجريبية؟")) return;
+    try {
+      const res = await api("/api/crm-leads/demo", { method: "POST", body: JSON.stringify({ action: remove ? "remove" : "create" }) });
+      toast(remove ? `🗑️ تحيدو ${res.removed} ليد تجريبي` : `🧪 تزادو ${res.created} ليدز تجريبية (2 لكل مستشارة)`);
+      await load();
+    } catch (error) { toast(error.message, "error"); }
+    return;
   }
   const pauseBtn = target.closest("[data-agent-pause]");
   if (pauseBtn) {
