@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { verdict, derivedBreakEvens, compareCost, halfTrend, bucketCost, rollingCost } = require("../public/profit.js");
+const { verdict, rdvVerdict, derivedBreakEvens, compareCost, halfTrend, bucketCost, rollingCost } = require("../public/profit.js");
 
 test("verdict tiers cost per registration against the break-even", () => {
   assert.equal(verdict(100, 5, 60).key, "scale"); // 20 per registration
@@ -54,4 +54,22 @@ test("bucketed and rolling costs skip windows without results", () => {
   const rolling = rollingCost(days, "registered", 7);
   assert.equal(rolling[8].value, null);
   assert.equal(rolling[9].value, 70);
+});
+
+test("before any student, the verdict looks at RDVs", () => {
+  const target = 26.67;
+  // first day ugc s: $9.53 for 2 recent RDVs -> wait for students.
+  assert.equal(rdvVerdict({ spend: 9.53, registered: 0, booked: 2, pendingBooked: 2 }, 60, target).key, "rdvGood");
+  // No RDV after twice the RDV target, still under the registration break-even.
+  assert.equal(rdvVerdict({ spend: 55, registered: 0, booked: 0 }, 60, target).key, "noRdv");
+  // RDVs at more than twice the target.
+  assert.equal(rdvVerdict({ spend: 40, registered: 0, booked: 1, pendingBooked: 0 }, 60, 10).key, "rdvCostly");
+  // Past the break-even with fairly priced recent RDVs: hold instead of calling it a loss.
+  assert.equal(rdvVerdict({ spend: 70, registered: 0, booked: 3, pendingBooked: 3 }, 60, target).key, "rdvHold");
+  // Past the break-even with old RDVs only: the normal loss verdict.
+  assert.equal(rdvVerdict({ spend: 70, registered: 0, booked: 3, pendingBooked: 0 }, 60, target).key, "loss");
+  // Small spend, no RDV yet: still learning.
+  assert.equal(rdvVerdict({ spend: 10, registered: 0, booked: 0 }, 60, target).key, "learning");
+  // Students recorded: the registration verdict decides.
+  assert.equal(rdvVerdict({ spend: 50, registered: 1, booked: 0 }, 60, target).key, "edge");
 });

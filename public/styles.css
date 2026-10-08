@@ -1217,3 +1217,8 @@ main { width: 100%; }
 .coach-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
 .quality-promising { border-color: #6ee7b7; background: #ecfdf5; color: #047857; }
 .status-pill.quality-promising { background: #ecfdf5; color: #047857; }
+/* RDV-based verdicts (no student yet) */
+.pf-rdvGood, .pf-row-rdvGood { --pf-c: #0f9f8f; --pf-bg: #d5f5ef; --pf-fg: #0b5d54; --pf-soft: #e8faf6; }
+.pf-rdvHold, .pf-row-rdvHold { --pf-c: #c48a12; --pf-bg: #fdf0cf; --pf-fg: #6e5200; --pf-soft: #fff8e6; }
+.pf-rdvCostly, .pf-row-rdvCostly { --pf-c: #e0655f; --pf-bg: #fde4e2; --pf-fg: #8f1d1d; --pf-soft: #fef1f0; }
+.pf-noRdv, .pf-row-noRdv { --pf-c: #b42318; --pf-bg: #f9c9c4; --pf-fg: #7a1410; --pf-soft: #fde3e0; }

@@ -14,6 +14,11 @@
     losing: { key: "losing", label: "Losing", action: "Cut budget", rank: 7 },
     heavy: { key: "heavy", label: "Heavy loss", action: "Stop", rank: 8 },
     idle: { key: "idle", label: "Not spending", action: "No spend", rank: 9 },
+    // No student yet, judged by RDVs: an RDV usually registers 2-10 days later.
+    rdvGood: { key: "rdvGood", label: "Cheap RDVs", action: "Wait for students", rank: 4.5 },
+    rdvHold: { key: "rdvHold", label: "RDVs pending", action: "Hold budget", rank: 5.5 },
+    rdvCostly: { key: "rdvCostly", label: "Costly RDVs", action: "Fix creative / offer", rank: 6.5 },
+    noRdv: { key: "noRdv", label: "No RDV", action: "Replace or pause", rank: 7.5 },
   };
   const BANDS = [
     [0.5, "scale"],
@@ -55,6 +60,30 @@
     }
     const ratio = base.cost / limit;
     return { ...tierForRatio(ratio), ...base, ratio, lowData: count < 3, note: count < 3 ? `Only ${count} result${count === 1 ? "" : "s"} · low data` : "" };
+  }
+
+  // Registration verdict that, before any student, looks at RDVs: recent cheap RDVs
+  // mean "wait", costly RDVs or none at all mean the ad is bad early.
+  // input: { spend, registered, booked, pendingBooked } (pendingBooked = RDVs from the
+  // last 10 days not yet registered); rdvTarget = what one RDV may cost.
+  function rdvVerdict(input, breakEven, rdvTarget) {
+    const base = verdict(input.spend, input.registered, breakEven);
+    const spend = amount(input.spend);
+    const booked = amount(input.booked);
+    const pending = amount(input.pendingBooked);
+    const target = amount(rdvTarget);
+    if (amount(input.registered) || !spend || !target) return base;
+    const costBooked = costPer(spend, booked);
+    const extra = { costBooked, rdvTarget: target, rdvRatio: costBooked === null ? null : costBooked / target, pendingBooked: pending };
+    if (!booked && spend >= target * 2) return { ...base, ...TIERS.noRdv, ...extra, note: "No RDV yet after twice the RDV target" };
+    if (pending > 0) {
+      if (spend >= amount(breakEven)) {
+        return costBooked <= target * 1.5 ? { ...base, ...TIERS.rdvHold, ...extra, note: `${pending} RDV${pending > 1 ? "s" : ""} from the last 10 days may still register` } : { ...base, ...extra };
+      }
+      if (costBooked <= target) return { ...base, ...TIERS.rdvGood, ...extra, note: "Students usually register 2-10 days after the RDV" };
+    }
+    if (booked && costBooked > target * 2) return { ...base, ...TIERS.rdvCostly, ...extra, note: "RDVs cost more than twice the target" };
+    return { ...base, ...extra };
   }
 
   // Leading-indicator targets: what an RDV or a message may cost if, at your
@@ -118,5 +147,5 @@
     return buckets.map((slice) => ({ from: slice[0].date, to: slice[slice.length - 1].date, spend: sum(slice, "spend"), results: sum(slice, key), value: costPer(sum(slice, "spend"), sum(slice, key)) }));
   }
 
-  return { TIERS, verdict, derivedBreakEvens, compareCost, halfTrend, rollingCost, bucketCost, costPer, tierForRatio };
+  return { TIERS, verdict, rdvVerdict, derivedBreakEvens, compareCost, halfTrend, rollingCost, bucketCost, costPer, tierForRatio };
 }));

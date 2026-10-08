@@ -2035,7 +2035,12 @@ const AM_ANALYZE_COLUMNS = [
   { key: "trend", label: "Trend · 6 weeks" },
 ];
 const AM_ASC_FIRST = new Set(["name", "delivery", "agent", "costRegistered", "verdict", "costBooked", "costMessage", "trend"]);
-const PF_TIER_ORDER = ["scale", "profit", "edge", "even", "learning", "loss", "losing", "heavy", "idle"];
+const PF_TIER_ORDER = ["scale", "profit", "edge", "rdvGood", "even", "learning", "rdvHold", "rdvCostly", "loss", "losing", "noRdv", "heavy", "idle"];
+// Groups used by the spend split and its sentence.
+const PF_GOOD = ["scale", "profit", "edge"];
+const PF_WAIT = ["learning", "rdvGood", "rdvHold"];
+const PF_BAD = ["loss", "losing", "heavy"];
+const PF_BAD_RDV = ["noRdv", "rdvCostly"];
 
 function readStoredJson(key, fallback) {
   try {
@@ -2258,6 +2263,15 @@ function amRowHtml(data, level, row, depth, open, dimmed = false) {
 }
 
 // ---- Analyze mode: profitability against the break-even cost per registration ----
+// What one RDV may cost: break-even x the real RDV -> student rate, once there are 5+ RDVs.
+function amRdvTarget() {
+  const conversion = amConversionTotals();
+  return conversion.booked >= 5 && conversion.registered ? amBreakEven() * Math.min(1, conversion.registered / conversion.booked) : amBreakEven() * 0.35;
+}
+// Break-evens per RDV and per message; the RDV one is the same target the RDV verdicts use.
+function amTargets(breakEven = amBreakEven()) {
+  return { ...CmcgProfit.derivedBreakEvens(amConversionTotals(), breakEven), booked: amRdvTarget() };
+}
 function amBreakEven() { return Number(state.settings?.profit?.breakEvenCostPerRegistered) || 60; }
 // Average revenue per registered student, in the school's currency (DH), and the
 // rate that turns ad spend (Meta account currency) into that currency.
@@ -2336,7 +2350,9 @@ function amAnalysisContext(range) {
   const from = [dateInputValue(addDays(parseInputDate(end), -41)), amDataStart()].sort().pop();
   return {
     breakEven,
-    targets: CmcgProfit.derivedBreakEvens(amConversionTotals(), breakEven),
+    // One RDV target everywhere: the RDV column, the RDV verdicts and the coach.
+    targets: amTargets(breakEven),
+    rdvTarget: amRdvTarget(),
     trendDays: eachDay(from, end),
     trendBuckets: amDailyBuckets({ from, to: end }),
     levelSpend: {},
@@ -2348,7 +2364,7 @@ function amProfile(row, level, ctx) {
   return {
     breakEven: ctx.breakEven,
     targets: ctx.targets,
-    reg: CmcgProfit.verdict(row.spend, row.registered, ctx.breakEven),
+    reg: CmcgProfit.rdvVerdict(row, ctx.breakEven, ctx.rdvTarget),
     booked: CmcgProfit.verdict(row.spend, row.booked, ctx.targets.booked),
     message: CmcgProfit.verdict(row.spend, row.messages, ctx.targets.message),
     margin: Number(row.registered || 0) * ctx.breakEven - Number(row.spend || 0),
@@ -2378,9 +2394,7 @@ function coachDecisions() {
   const range = { from, to: latest };
   const days = eachDay(from, latest);
   const buckets = amDailyBuckets(range);
-  // What one RDV may cost: break-even x the real RDV -> student rate, once there are 5+ RDVs.
-  const conversion = amConversionTotals();
-  const rdvTarget = conversion.booked >= 5 && conversion.registered ? amBreakEven() * Math.min(1, conversion.registered / conversion.booked) : amBreakEven() * 0.35;
+  const rdvTarget = amRdvTarget();
   const options = { breakEven: amBreakEven(), latestDate: latest, money, date: amDateLabel, rdvTarget };
   const adRows = new Map(performanceRows("ad", true, "quality", range).map((row) => [row.key, row]));
   const items = [];
@@ -2462,6 +2476,10 @@ function pfVerdictChip(verdict, extraClass = "") {
 function pfCostCell(verdict) {
   if (verdict.key === "idle") return `<span class="pf-dash" title="${escapeHtml(verdict.note)}">—</span>`;
   const title = escapeHtml([verdict.label, verdict.note].filter(Boolean).join(" · "));
+  if (verdict.cost === null && verdict.rdvTarget) {
+    const rdvLine = verdict.costBooked === null ? `No RDV · target ${money(verdict.rdvTarget)}/RDV` : `RDV ${money(verdict.costBooked)} · target ${money(verdict.rdvTarget)}`;
+    return `<div class="pf-cost pf-${verdict.key}" title="${title}"><strong>No student yet</strong><small>${escapeHtml(rdvLine)}</small>${pfBullet(verdict.ratio)}</div>`;
+  }
   if (verdict.cost === null) {
     return `<div class="pf-cost pf-${verdict.key}" title="${title}"><strong>No registration</strong><small>${Math.round(verdict.ratio * 100)}% of break-even spent</small>${pfBullet(verdict.ratio)}</div>`;
   }
@@ -2555,10 +2573,11 @@ function amSummaryHtml(ctx, rows, totals, data = null) {
     const spendHere = rows.filter((row) => row.pf && filter.test(row, breakEven)).reduce((sum, row) => sum + Number(row.spend || 0), 0);
     return `<button class="pf-chip pf-watch pf-watch-${key}${amTierFilter === key ? " is-active" : ""}" type="button" data-pf-tier="${key}" aria-pressed="${amTierFilter === key}"><i aria-hidden="true"></i><span>${escapeHtml(filter.label)}</span><strong>${escapeHtml(countText(counts))}</strong>${spendHere ? `<small>${money(spendHere)}</small>` : ""}</button>`;
   }).join("");
-  const goodSpend = spendOf(["scale", "profit", "edge"]);
-  const badSpend = spendOf(["loss", "losing", "heavy"]);
-  const learnSpend = spendOf(["learning"]);
-  const parts = [goodSpend ? `<strong class="pf-good">${money(goodSpend)}</strong> went to ads that get students under your ${money(breakEven)} limit` : "", learnSpend ? `<strong class="pf-muted">${money(learnSpend)}</strong> went to ads with no student yet that are still under the limit` : "", badSpend ? `<strong class="pf-bad">${money(badSpend)}</strong> went to ads that cost more than the limit` : ""].filter(Boolean);
+  const goodSpend = spendOf(PF_GOOD);
+  const badSpend = spendOf(PF_BAD);
+  const learnSpend = spendOf(PF_WAIT);
+  const badRdvSpend = spendOf(PF_BAD_RDV);
+  const parts = [goodSpend ? `<strong class="pf-good">${money(goodSpend)}</strong> went to ads that get students under your ${money(breakEven)} limit` : "", learnSpend ? `<strong class="pf-muted">${money(learnSpend)}</strong> went to ads with no student yet that are still learning or waiting on recent RDVs` : "", badRdvSpend ? `<strong class="pf-bad">${money(badRdvSpend)}</strong> went to ads with no RDV or very costly RDVs` : "", badSpend ? `<strong class="pf-bad">${money(badSpend)}</strong> went to ads that cost more than the limit` : ""].filter(Boolean);
   const plain = totals.spend
     ? `Of <strong>${money(totals.spend)}</strong> spent, ${parts.length > 1 ? `${parts.slice(0, -1).join("; ")}; and ${parts[parts.length - 1]}` : parts[0] || "nothing has a verdict yet"}.`
     : "No spend in this period.";
@@ -2585,7 +2604,7 @@ function amSummaryHtml(ctx, rows, totals, data = null) {
       ${kpi("Cost / message", targets.message ? overallMessage : null, overallMessage.cost === null ? "—" : money(overallMessage.cost), targets.message ? `<span>break-even</span> ${money(targets.message)}` : "")}
     </div>
     <div class="pf-money">
-      <div class="pf-money-head"><strong>Where the money goes</strong><span class="pf-money-split"><span class="pf-good">${share(spendOf(["scale", "profit", "edge"]))} <span>profitable</span></span><span class="pf-warn">${share(spendOf(["even"]))} <span>break-even</span></span><span class="pf-bad">${share(spendOf(["loss", "losing", "heavy"]))} <span>losing</span></span><span class="pf-muted">${share(spendOf(["learning"]))} <span>learning</span></span></span></div>
+      <div class="pf-money-head"><strong>Where the money goes</strong><span class="pf-money-split"><span class="pf-good">${share(spendOf(PF_GOOD))} <span>profitable</span></span><span class="pf-warn">${share(spendOf(["even"]))} <span>break-even</span></span><span class="pf-bad">${share(spendOf([...PF_BAD, ...PF_BAD_RDV]))} <span>losing</span></span><span class="pf-muted">${share(spendOf(PF_WAIT))} <span>waiting</span></span></span></div>
       <div class="pf-stack" role="img" aria-label="Spend by verdict">${segments || '<span class="pf-seg pf-idle" style="flex:1"></span>'}</div>
       <p class="pf-plain">${plain}</p>
       <div class="pf-chips">${chips}${amTierFilter ? '<button class="pf-chip pf-clear" type="button" data-pf-tier="">Show all</button>' : ""}</div>
@@ -2931,6 +2950,10 @@ function pfWindowRange(windowKey) {
 
 function pfAdvice(verdict) {
   if (verdict.key === "idle") return "No spend in this window.";
+  if (verdict.key === "noRdv") return `${money(verdict.spend)} spent without a single RDV, while an RDV should cost about ${money(verdict.rdvTarget)}. Replace the creative or pause.`;
+  if (verdict.key === "rdvCostly") return `No student yet and RDVs cost ${money(verdict.costBooked)} each, more than twice the ${money(verdict.rdvTarget)} target. Test a new creative or a clearer offer.`;
+  if (verdict.key === "rdvGood") return `No student yet, but RDVs cost ${money(verdict.costBooked)} each (target ${money(verdict.rdvTarget)}). Customers usually register 2-10 days after the RDV: keep the budget and wait.`;
+  if (verdict.key === "rdvHold") return `${money(verdict.spend)} spent, past the ${money(verdict.breakEven)} limit, with ${number(verdict.pendingBooked)} recent RDV${verdict.pendingBooked > 1 ? "s" : ""} that may still register. Don't raise the budget; pause if no student comes within 10 days of the last RDV.`;
   if (verdict.key === "learning") return `${money(verdict.spend)} spent without a registration yet — ${Math.round(verdict.ratio * 100)}% of the break-even. Let it spend up to ${money(verdict.breakEven)} before judging.`;
   if (verdict.cost === null) return `${money(verdict.spend)} spent without a registration — ${number(verdict.ratio)}× the break-even.`;
   return `Each registration costs ${money(verdict.cost)} — ${pfVsText(verdict.ratio).toLocaleLowerCase()} (${money(verdict.breakEven)}).${verdict.lowData ? " Few registrations: confirm before acting." : ""}`;
@@ -3033,9 +3056,9 @@ function renderPfDrawer() {
   const series = amDaySeries(amDailyBuckets(range), amChart.key, eachDay(range.from, range.to));
   const row = performanceRows(level, true, "quality", range).find((item) => item.key === id) || { ...emptyMetrics(), key: id, name: entity?.name || "Unknown", relation: {} };
   const breakEven = amBreakEven();
-  const targets = CmcgProfit.derivedBreakEvens(amConversionTotals(), breakEven);
+  const targets = amTargets(breakEven);
   const metricTargets = { registered: breakEven, booked: targets.booked, message: targets.message };
-  const reg = CmcgProfit.verdict(row.spend, row.registered, breakEven);
+  const reg = CmcgProfit.rdvVerdict(row, breakEven, targets.booked);
   const booked = CmcgProfit.verdict(row.spend, row.booked, targets.booked);
   const message = CmcgProfit.verdict(row.spend, row.messages, targets.message);
   const margin = Number(row.registered || 0) * breakEven - Number(row.spend || 0);
@@ -3125,7 +3148,7 @@ function abColor(agentId) { return AB_COLORS[Math.max(0, state.agents.findIndex(
 
 function abRows(range) {
   const breakEven = amBreakEven();
-  const targets = CmcgProfit.derivedBreakEvens(amConversionTotals(), breakEven);
+  const targets = amTargets(breakEven);
   const performance = performanceRows("agent", true, "quality", range);
   return abAgents().map((agent) => {
     const row = performance.find((item) => item.key === agent.id) || { ...emptyMetrics(), key: agent.id, name: agent.name };
@@ -3321,7 +3344,7 @@ function abGraphHtml(rows, range) {
   const daily = abDaily(chartRange);
   const visible = rows.filter((row) => !abHidden.has(row.agent.id));
   const totals = amTotals(visible);
-  const targets = rows[0]?.targets || CmcgProfit.derivedBreakEvens(amConversionTotals(), amBreakEven());
+  const targets = rows[0]?.targets || amTargets();
   const cards = Object.entries(AB_METRICS).filter(([, metric]) => !metric.boardOnly).map(([key, metric]) => {
     const value = metric.kind === "cost" ? (totals[metric.result] ? totals.spend / totals[metric.result] : null) : totals[key];
     const target = key === "costRegistered" ? amBreakEven() : key === "costBooked" ? targets.booked : null;
