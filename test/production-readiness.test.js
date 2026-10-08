@@ -1,3 +1,4 @@
+process.env.CRM_DEMO_SEED = "0"; // no demo leads in test servers
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

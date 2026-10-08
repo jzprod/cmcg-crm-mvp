@@ -2242,6 +2242,22 @@ server.listen(PORT, () => {
 storage.init().then(async () => {
   storageReady = true;
   try { refreshAgentTokens(await storage.read()); } catch {}
+  // One-time demo: give every agent two test leads so their screen can be shown
+  // right after deploy. Tagged demo, kept out of ad results, removable in one tap.
+  try {
+    const state = await storage.read();
+    state.settings = state.settings || {};
+    if (process.env.CRM_DEMO_SEED !== "0" && !state.settings.demoLeadsSeededAt) {
+      const hidden = state.settings.leadDistribution?.agents || {};
+      const agentIds = (state.agents || []).filter((agent) => agent.active !== false && !hidden[agent.id]?.hidden).map((agent) => agent.id);
+      if (agentIds.length) {
+        if (!(state.crmLeads || []).some((lead) => lead.demo)) Leads.createDemoLeads(state, agentIds);
+        state.settings.demoLeadsSeededAt = new Date().toISOString();
+        await storage.write(state);
+        console.log(`Demo leads added for ${agentIds.length} agent(s)`);
+      }
+    }
+  } catch (error) { console.error("Demo leads seed failed:", error.message); }
   console.log(`CMCG CRM running with ${storage.info().label}`);
 }).catch((error) => {
   storageError = error;
