@@ -49,10 +49,12 @@
     const latest = options.latestDate;
     const money = options.money || ((value) => value.toFixed(2));
     const day = options.date || ((value) => value);
-    const days = (entity.days || []).filter((day) => day.date <= latest);
+    // Days may run past the newest ad data (RDVs and students recorded today count);
+    // spend and pace are read up to latestDate.
+    const days = entity.days || [];
     const spendDays = days.filter((day) => Number(day.spend) > 0);
     if (!breakEven || !latest || !spendDays.length) return null;
-    const last3 = days.filter((day) => day.date > shift(latest, -3));
+    const last3 = days.filter((day) => day.date > shift(latest, -3) && day.date <= latest);
     const spentLately = sum(last3, "spend") > 0;
     if (!spentLately) return null; // paused or finished: nothing to decide today
     const firstSpend = spendDays[0].date;
@@ -70,7 +72,11 @@
     const rising = costRecent !== null && costPrior !== null && costRecent > costPrior * 1.25;
     const lastBooking = [...days].reverse().find((day) => Number(day.booked) > 0)?.date || "";
     // RDVs turn into registrations 2-10 days later, so recent RDVs are judged by their cost.
-    const rdvTarget = Number(options.rdvTarget) || 0;
+    // options.rdvTarget: a cost-per-RDV benchmark { median, high, worst, dynamic } or one target.
+    const bench = options.rdvTarget && typeof options.rdvTarget === "object"
+      ? options.rdvTarget
+      : { median: Number(options.rdvTarget) || 0, high: (Number(options.rdvTarget) || 0) * 2, worst: (Number(options.rdvTarget) || 0) * 2, dynamic: false };
+    const rdvTarget = Number(bench.median) || 0;
     const costBooked = costPer(spend, booked);
     const rdvsPending = booked > 0 && lastBooking > shift(latest, -RDV_LAG_DAYS);
     const rdvDeadline = lastBooking ? [shift(lastBooking, RDV_LAG_DAYS), shift(latest, 5)].sort()[0] : "";
@@ -85,8 +91,8 @@
       if (registered >= 2 && ratio !== null && ratio <= 0.8 && age >= LEARNING_DAYS) {
         return make("copy", `${registered} students at ${money(cost)} each over ${age} days. Put this creative in your other ad sets.`, "");
       }
-      if (!registered && booked === 0 && rdvTarget && age >= LEARNING_DAYS && spend >= Math.max(rdvTarget * 3, breakEven * 0.5) && spend < breakEven) {
-        return make("noRdv", `This ad spent ${money(spend)} in ${age} days without one RDV (an RDV should cost about ${money(rdvTarget)}). Turn this ad off or replace its creative.`, "");
+      if (!registered && booked === 0 && rdvTarget && age >= LEARNING_DAYS && spend >= bench.worst && spend < breakEven) {
+        return make("noRdv", `This ad spent ${money(spend)} in ${age} days without one RDV, ${bench.dynamic ? `more than your most expensive ad paid for one (${money(bench.worst)})` : `while an RDV should cost about ${money(rdvTarget)}`}. Turn this ad off or replace its creative.`, "");
       }
       if (!registered && spend >= breakEven && booked === 0) {
         return make("pause", `This ad spent ${money(spend)} in ${age} days with no booking and no student. Turn this ad off; the ad set keeps its other ads.`, "");
@@ -106,21 +112,23 @@
       }
       if (spend >= breakEven) {
         if (age < LEARNING_DAYS) return make("learning", `Day ${age} of learning but already ${money(spend)} spent with no student. Decide on ${day(shift(firstSpend, LEARNING_DAYS))}.`, shift(firstSpend, LEARNING_DAYS));
-        if (rdvsPending && (!rdvTarget || costBooked <= rdvTarget * 1.5)) {
+        if (rdvsPending && (!rdvTarget || costBooked <= bench.high)) {
           return make("hold", `Past your ${money(breakEven)} limit (${money(spend)}) with no student yet, but ${booked} RDV${booked > 1 ? "s" : ""} at ${money(costBooked)} each are still within the 2-10 days it takes to register. Don't raise the budget. If no student by ${day(rdvDeadline)}, pause.`, rdvDeadline);
         }
         return make("pause", `${money(spend)} spent over ${age} days, past your ${money(breakEven)} limit, with no student${booked ? ` and only ${booked} booking${booked > 1 ? "s" : ""}` : ""}. Pause it or replace the creative.`, "");
       }
       if (rdvTarget && age >= LEARNING_DAYS) {
-        if (!booked && spend >= rdvTarget * 2) {
-          return make("noRdv", `${money(spend)} spent in ${age} days and not one RDV, while an RDV should cost about ${money(rdvTarget)}. ${messages ? `${messages} messages came in, so check the agent's replies, then ` : ""}replace the creative or pause.`, "");
+        if (!booked && spend >= bench.worst) {
+          const yardstick = bench.dynamic ? `more than your most expensive ad paid for one RDV (${money(bench.worst)})` : `while an RDV should cost about ${money(rdvTarget)}`;
+          return make("noRdv", `${money(spend)} spent in ${age} days and not one RDV, ${yardstick}. ${messages ? `${messages} messages came in, so check the agent's replies, then ` : ""}replace the creative or pause.`, "");
         }
-        if (booked && costBooked > rdvTarget * 2) {
-          return make("costlyRdv", `RDVs cost ${money(costBooked)} each, more than twice the ${money(rdvTarget)} target. Test a new creative or a clearer offer before more spend.`, shift(latest, 2));
+        if (booked && costBooked > bench.high) {
+          const yardstick = bench.dynamic ? `more than 3 out of 4 of your ads (typical ${money(rdvTarget)})` : `more than twice the ${money(rdvTarget)} target`;
+          return make("costlyRdv", `RDVs cost ${money(costBooked)} each, ${yardstick}. Test a new creative or a clearer offer before more spend.`, shift(latest, 2));
         }
       }
       if (rdvsPending && rdvTarget && costBooked <= rdvTarget) {
-        return make("promising", `${booked} RDV${booked > 1 ? "s" : ""} at ${money(costBooked)} each (target ${money(rdvTarget)}). Customers usually come to register 2-10 days after the RDV, so judge the students on ${day(rdvDeadline)}. Keep the budget as it is.`, rdvDeadline);
+        return make("promising", `${booked} RDV${booked > 1 ? "s" : ""} at ${money(costBooked)} each (${bench.dynamic ? "typical" : "target"} ${money(rdvTarget)}). Customers usually come to register 2-10 days after the RDV, so judge the students on ${day(rdvDeadline)}. Keep the budget as it is.`, rdvDeadline);
       }
       if (spend >= breakEven * 0.5) {
         const daysLeft = pace > 0 ? Math.ceil((breakEven - spend) / pace) : null;

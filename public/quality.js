@@ -92,6 +92,19 @@
     };
   }
 
+  // Cost-per-RDV benchmark from the rows themselves: cheapest, typical (median), upper
+  // quartile, most expensive. With fewer than 3 rows with RDVs, one fallback target.
+  function rdvBenchmark(metrics, fallback) {
+    const sorted = metrics.filter((row) => row.booked > 0 && row.spend > 0).map((row) => row.spend / row.booked).sort((a, b) => a - b);
+    const at = (point) => {
+      const index = (sorted.length - 1) * point;
+      const low = Math.floor(index);
+      return sorted[low] + (sorted[Math.ceil(index)] - sorted[low]) * (index - low);
+    };
+    if (sorted.length >= 3) return { dynamic: true, count: sorted.length, best: sorted[0], median: at(0.5), high: at(0.75), worst: sorted[sorted.length - 1] };
+    return { dynamic: false, count: sorted.length, best: null, median: fallback || 0, high: (fallback || 0) * 2, worst: (fallback || 0) * 2 };
+  }
+
   // Share of RDVs that end as registered students, learned from all rows.
   function bookedToRegisteredRate(rows = []) {
     const booked = rows.reduce((sum, row) => sum + finiteNumber(row.booked), 0);
@@ -109,6 +122,8 @@
     const metrics = rows.map((row) => metricsFor(row));
     const rate = bookedToRegisteredRate(rows);
     const breakEven = positiveNumber(settings.profit?.breakEvenCostPerRegistered);
+    const targetCostBookedLearned = percentile(metrics.map((row) => row.costBooked), 0.6);
+    const rdvBench = rdvBenchmark(metrics, breakEven ? breakEven * rate : targetCostBookedLearned);
     const targetCostRegistered = percentile(metrics.map((row) => row.costRegistered), 0.6);
     const targetCostVisit = percentile(metrics.map((row) => row.costVisit), 0.6);
     const targetCostBooked = percentile(metrics.map((row) => row.costBooked), 0.6);
@@ -133,7 +148,8 @@
       breakEven,
       // What one RDV may cost: the registration break-even times the RDV -> student
       // rate when a break-even is set, otherwise the learned typical cost per RDV.
-      rdvTarget: breakEven ? breakEven * rate : targetCostBooked,
+      rdvTarget: rdvBench.median,
+      rdvBench,
     };
   }
 
@@ -181,14 +197,16 @@
   // Before registrations can be judged (new ad, or RDVs still within the lag), judge by RDVs.
   function rdvStatus(row, targets, mature) {
     if (row.registered > 0) return null;
-    const target = targets.rdvTarget || targets.targetCostBooked;
+    const bench = targets.rdvBench || { median: targets.targetCostBooked, high: targets.targetCostBooked * 2, worst: targets.targetCostBooked * 2 };
+    const target = bench.median;
     if (!target) return null;
-    if (!row.booked && row.spend >= target * 2) return { key: "weak", label: "No RDV", final: false, reason: `${row.spend.toFixed(2)} spent without a single RDV (target ${target.toFixed(2)} per RDV).` };
+    const word = bench.dynamic ? "typical" : "target";
+    if (!row.booked && row.spend >= bench.worst) return { key: "weak", label: "No RDV", final: false, reason: bench.dynamic ? `${row.spend.toFixed(2)} spent without a single RDV, more than your most expensive RDV (${bench.worst.toFixed(2)}).` : `${row.spend.toFixed(2)} spent without a single RDV (target ${target.toFixed(2)} per RDV).` };
     if (mature && row.pendingBooked <= 0) return null;
     if (row.booked > 0) {
-      if (row.costBooked <= target) return { key: "promising", label: "Cheap RDVs", final: false, reason: `RDVs cost ${row.costBooked.toFixed(2)}, under the ${target.toFixed(2)} target. Students usually register 2-10 days after the RDV.` };
-      if (row.costBooked > target * 2) return { key: "weak", label: "Costly RDVs", final: false, reason: `RDVs cost ${row.costBooked.toFixed(2)}, more than twice the ${target.toFixed(2)} target.` };
-      return { key: "pending", label: "Awaiting", final: false, reason: `RDVs cost ${row.costBooked.toFixed(2)} (target ${target.toFixed(2)}). Waiting for registrations.` };
+      if (row.costBooked <= target) return { key: "promising", label: "Cheap RDVs", final: false, reason: `RDVs cost ${row.costBooked.toFixed(2)}, at or under the ${word} ${target.toFixed(2)}. Students usually register 2-10 days after the RDV.` };
+      if (row.costBooked > bench.high) return { key: "weak", label: "Costly RDVs", final: false, reason: bench.dynamic ? `RDVs cost ${row.costBooked.toFixed(2)}, more than 3 out of 4 rows (typical ${target.toFixed(2)}, cheapest ${bench.best.toFixed(2)}).` : `RDVs cost ${row.costBooked.toFixed(2)}, more than twice the ${target.toFixed(2)} target.` };
+      return { key: "pending", label: "Awaiting", final: false, reason: `RDVs cost ${row.costBooked.toFixed(2)} (${word} ${target.toFixed(2)}). Waiting for registrations.` };
     }
     return null;
   }

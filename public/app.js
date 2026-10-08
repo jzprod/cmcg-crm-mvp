@@ -2263,14 +2263,35 @@ function amRowHtml(data, level, row, depth, open, dimmed = false) {
 }
 
 // ---- Analyze mode: profitability against the break-even cost per registration ----
-// What one RDV may cost: break-even x the real RDV -> student rate, once there are 5+ RDVs.
-function amRdvTarget() {
+// Fallback RDV target before there is enough data: break-even x RDV -> student rate.
+function amRdvFallback() {
   const conversion = amConversionTotals();
   return conversion.booked >= 5 && conversion.registered ? amBreakEven() * Math.min(1, conversion.registered / conversion.booked) : amBreakEven() * 0.35;
 }
-// Break-evens per RDV and per message; the RDV one is the same target the RDV verdicts use.
-function amTargets(breakEven = amBreakEven()) {
-  return { ...CmcgProfit.derivedBreakEvens(amConversionTotals(), breakEven), booked: amRdvTarget() };
+// Cost-per-RDV benchmark from your own ads since the data start date: cheapest,
+// typical (median), upper quartile and most expensive cost per RDV. Ads first;
+// ad sets when fewer than 3 ads have RDVs.
+function amRdvBench() {
+  const start = amDataStart();
+  const since = (date) => !start || dateOnly(date) >= start;
+  const collect = (keyOf, outcomeKey) => {
+    const totals = new Map();
+    const add = (key, field, value) => {
+      if (!key) return;
+      if (!totals.has(key)) totals.set(key, { spend: 0, booked: 0 });
+      totals.get(key)[field] += value;
+    };
+    state.dailyLogs.forEach((log) => { if (since(log.reportingEnd || log.date || log.reportingStart)) add(keyOf(log), "spend", Number(log.spend || 0)); });
+    state.outcomes.forEach((outcome) => { if (outcome.type === "booked" && since(outcome.date)) add(outcomeKey(outcome), "booked", 1); });
+    return [...totals.values()].filter((row) => row.booked > 0 && row.spend > 0).map((row) => row.spend / row.booked);
+  };
+  const adCosts = collect((log) => log.creativeId, (outcome) => outcome.assignmentLevel === "ad" ? outcome.creativeId : "");
+  const costs = adCosts.length >= 3 ? adCosts : collect((log) => log.adSetId || byId(state.creatives, log.creativeId)?.adSetId, (outcome) => outcome.adSetId);
+  return CmcgProfit.rdvBenchmark(costs, amRdvFallback());
+}
+// Break-evens per RDV and per message; the RDV one is the typical cost per RDV.
+function amTargets(breakEven = amBreakEven(), bench = amRdvBench()) {
+  return { ...CmcgProfit.derivedBreakEvens(amConversionTotals(), breakEven), booked: bench.median, rdvBench: bench };
 }
 function amBreakEven() { return Number(state.settings?.profit?.breakEvenCostPerRegistered) || 60; }
 // Average revenue per registered student, in the school's currency (DH), and the
@@ -2346,13 +2367,14 @@ function amDaySeries(buckets, key, days) {
 
 function amAnalysisContext(range) {
   const breakEven = amBreakEven();
+  const rdvBench = amRdvBench();
   const end = range.to || dateInputValue(new Date());
   const from = [dateInputValue(addDays(parseInputDate(end), -41)), amDataStart()].sort().pop();
   return {
     breakEven,
     // One RDV target everywhere: the RDV column, the RDV verdicts and the coach.
-    targets: amTargets(breakEven),
-    rdvTarget: amRdvTarget(),
+    targets: amTargets(breakEven, rdvBench),
+    rdvTarget: rdvBench,
     trendDays: eachDay(from, end),
     trendBuckets: amDailyBuckets({ from, to: end }),
     levelSpend: {},
@@ -2391,10 +2413,12 @@ function coachDecisions() {
   const latest = coachLatestDate();
   if (!latest) return { latest: "", items: [] };
   const from = [dateInputValue(addDays(parseInputDate(latest), -41)), amDataStart()].filter(Boolean).sort().pop();
-  const range = { from, to: latest };
-  const days = eachDay(from, latest);
+  // Outcomes run up to today: RDVs and students recorded after the newest ad data still count.
+  const end = [latest, dateInputValue(new Date())].sort().pop();
+  const range = { from, to: end };
+  const days = eachDay(from, end);
   const buckets = amDailyBuckets(range);
-  const rdvTarget = amRdvTarget();
+  const rdvTarget = amRdvBench();
   const options = { breakEven: amBreakEven(), latestDate: latest, money, date: amDateLabel, rdvTarget };
   const adRows = new Map(performanceRows("ad", true, "quality", range).map((row) => [row.key, row]));
   const items = [];
@@ -2477,7 +2501,8 @@ function pfCostCell(verdict) {
   if (verdict.key === "idle") return `<span class="pf-dash" title="${escapeHtml(verdict.note)}">—</span>`;
   const title = escapeHtml([verdict.label, verdict.note].filter(Boolean).join(" · "));
   if (verdict.cost === null && verdict.rdvTarget) {
-    const rdvLine = verdict.costBooked === null ? `No RDV · target ${money(verdict.rdvTarget)}/RDV` : `RDV ${money(verdict.costBooked)} · target ${money(verdict.rdvTarget)}`;
+    const word = verdict.rdvBench?.dynamic ? "typical" : "target";
+    const rdvLine = verdict.costBooked === null ? `No RDV · ${word} ${money(verdict.rdvTarget)}/RDV` : `RDV ${money(verdict.costBooked)} · ${word} ${money(verdict.rdvTarget)}`;
     return `<div class="pf-cost pf-${verdict.key}" title="${title}"><strong>No student yet</strong><small>${escapeHtml(rdvLine)}</small>${pfBullet(verdict.ratio)}</div>`;
   }
   if (verdict.cost === null) {
@@ -2590,11 +2615,13 @@ function amSummaryHtml(ctx, rows, totals, data = null) {
   const breakEvenBlock = amEditingBreakEven
     ? `<form class="pf-be-form" data-pf-be-form><label><span>Break-even cost per registration</span><input name="breakEven" type="number" min="1" step="0.01" value="${breakEven}" required /></label><label><span>Count ad data from <em>earlier data stays hidden</em></span><input name="dataStartDate" type="date" value="${escapeHtml(amDataStart())}" /></label><label><span>Average revenue per registered student</span><input name="revenuePerRegistered" type="number" min="0" step="1" value="${revenueSettings().perStudent}" required /></label><label><span>Revenue currency</span><input name="revenueCurrency" maxlength="8" value="${escapeHtml(revenueSettings().label)}" required /></label><label><span>1 ${escapeHtml(currency())} of ad spend = ? ${escapeHtml(revenueSettings().label)}</span><input name="exchangeRate" type="number" min="0.0001" step="0.0001" value="${revenueSettings().rate}" required /></label><div class="pf-be-actions"><button class="fbam-btn primary" type="submit">Save</button><button class="fbam-btn" type="button" data-pf-be-cancel>Cancel</button></div></form>`
     : `<div class="pf-be-value"><span class="pf-kicker">Break-even</span><div><strong>${money(breakEven)}</strong><small>per registration</small></div>${amDataStart() ? `<small class="pf-start-note"><span>Data from</span> ${escapeHtml(amDateLabel(amDataStart()))}</small>` : ""}<small class="pf-start-note"><span>Revenue per student</span> ${escapeHtml(revenueMoney(revenueSettings().perStudent))} <span>· 1 ${escapeHtml(currency())} = ${escapeHtml(String(revenueSettings().rate))} ${escapeHtml(revenueSettings().label)}</span></small>${canEdit ? '<button class="fbam-btn pf-be-edit" type="button" data-pf-edit-be>Edit</button>' : ""}</div>`;
-  const derived = [targets.booked ? `<strong>${money(targets.booked)}</strong> <span>per RDV</span>` : "", targets.message ? `<strong>${money(targets.message)}</strong> <span>per message</span>` : ""].filter(Boolean).join(' <span aria-hidden="true">·</span> ');
+  const bench = targets.rdvBench;
+  const benchLine = bench?.dynamic ? `<p class="pf-derived pf-bench"><span>Cost per RDV across your ${bench.count} ads:</span> <span>cheapest</span> <strong>${money(bench.best)}</strong> · <span>typical</span> <strong>${money(bench.median)}</strong> · <span>most expensive</span> <strong>${money(bench.worst)}</strong><small>Cheap RDVs = at or under the typical cost. Costly = worse than 3 out of 4 ads. No RDV = spent more than the most expensive RDV, still none.</small></p>` : "";
+  const derived = [targets.booked ? `<strong>${money(targets.booked)}</strong> <span>per RDV${bench?.dynamic ? " (typical)" : ""}</span>` : "", targets.message ? `<strong>${money(targets.message)}</strong> <span>per message</span>` : ""].filter(Boolean).join(' <span aria-hidden="true">·</span> ');
   const rates = [targets.bookedToRegistered ? `${percent(targets.bookedToRegistered)} <span>of RDVs register</span>` : "", targets.messageToRegistered ? `${percent(targets.messageToRegistered)} <span>of messages register</span>` : ""].filter(Boolean).join(' <span aria-hidden="true">·</span> ');
   const kpi = (label, verdict, value, detail) => `<div class="pf-kpi pf-${verdict ? verdict.key : "neutral"}"><span>${escapeHtml(label)}</span><strong>${value}</strong><small>${detail}</small></div>`;
   return `<div class="pf-summary">
-    <div class="pf-be">${breakEvenBlock}${derived ? `<p class="pf-derived"><span>Same limit for leading metrics:</span> ${derived}${rates ? `<small><span>From your real conversion:</span> ${rates}</small>` : ""}</p>` : '<p class="pf-derived"><small>Record RDVs and registrations to derive break-even costs per RDV and per message.</small></p>'}</div>
+    <div class="pf-be">${breakEvenBlock}${benchLine}${derived ? `<p class="pf-derived"><span>Same limit for leading metrics:</span> ${derived}${rates ? `<small><span>From your real conversion:</span> ${rates}</small>` : ""}</p>` : '<p class="pf-derived"><small>Record RDVs and registrations to derive break-even costs per RDV and per message.</small></p>'}</div>
     <div class="pf-kpis">
       ${kpi("Cost / registration", overall, overall.cost === null ? "—" : money(overall.cost), escapeHtml(overall.cost === null ? overall.label : pfVsText(overall.ratio)))}
       ${kpi(margin >= 0 ? "Room left under your limit" : "Over your limit by", { key: margin >= 0 ? "profit" : "losing" }, money(Math.abs(margin)), `<span>${margin >= 0 ? `You could spend this much more and still pay ${money(breakEven)} per student` : `${number(totals.registered)} students should cost at most ${money(totals.registered * breakEven)}`}</span>`)}
@@ -2950,9 +2977,14 @@ function pfWindowRange(windowKey) {
 
 function pfAdvice(verdict) {
   if (verdict.key === "idle") return "No spend in this window.";
-  if (verdict.key === "noRdv") return `${money(verdict.spend)} spent without a single RDV, while an RDV should cost about ${money(verdict.rdvTarget)}. Replace the creative or pause.`;
-  if (verdict.key === "rdvCostly") return `No student yet and RDVs cost ${money(verdict.costBooked)} each, more than twice the ${money(verdict.rdvTarget)} target. Test a new creative or a clearer offer.`;
-  if (verdict.key === "rdvGood") return `No student yet, but RDVs cost ${money(verdict.costBooked)} each (target ${money(verdict.rdvTarget)}). Customers usually register 2-10 days after the RDV: keep the budget and wait.`;
+  const bench = verdict.rdvBench;
+  if (verdict.key === "noRdv") return bench?.dynamic
+    ? `${money(verdict.spend)} spent without a single RDV, more than your most expensive ad paid for one (${money(bench.worst)}). Replace the creative or pause.`
+    : `${money(verdict.spend)} spent without a single RDV, while an RDV should cost about ${money(verdict.rdvTarget)}. Replace the creative or pause.`;
+  if (verdict.key === "rdvCostly") return bench?.dynamic
+    ? `No student yet and RDVs cost ${money(verdict.costBooked)} each, more than 3 out of 4 of your ads (typical ${money(bench.median)}, cheapest ${money(bench.best)}). Test a new creative or a clearer offer.`
+    : `No student yet and RDVs cost ${money(verdict.costBooked)} each, more than twice the ${money(verdict.rdvTarget)} target. Test a new creative or a clearer offer.`;
+  if (verdict.key === "rdvGood") return `No student yet, but RDVs cost ${money(verdict.costBooked)} each (${bench?.dynamic ? "typical" : "target"} ${money(verdict.rdvTarget)}). Customers usually register 2-10 days after the RDV: keep the budget and wait.`;
   if (verdict.key === "rdvHold") return `${money(verdict.spend)} spent, past the ${money(verdict.breakEven)} limit, with ${number(verdict.pendingBooked)} recent RDV${verdict.pendingBooked > 1 ? "s" : ""} that may still register. Don't raise the budget; pause if no student comes within 10 days of the last RDV.`;
   if (verdict.key === "learning") return `${money(verdict.spend)} spent without a registration yet — ${Math.round(verdict.ratio * 100)}% of the break-even. Let it spend up to ${money(verdict.breakEven)} before judging.`;
   if (verdict.cost === null) return `${money(verdict.spend)} spent without a registration — ${number(verdict.ratio)}× the break-even.`;
@@ -3058,7 +3090,7 @@ function renderPfDrawer() {
   const breakEven = amBreakEven();
   const targets = amTargets(breakEven);
   const metricTargets = { registered: breakEven, booked: targets.booked, message: targets.message };
-  const reg = CmcgProfit.rdvVerdict(row, breakEven, targets.booked);
+  const reg = CmcgProfit.rdvVerdict(row, breakEven, targets.rdvBench);
   const booked = CmcgProfit.verdict(row.spend, row.booked, targets.booked);
   const message = CmcgProfit.verdict(row.spend, row.messages, targets.message);
   const margin = Number(row.registered || 0) * breakEven - Number(row.spend || 0);

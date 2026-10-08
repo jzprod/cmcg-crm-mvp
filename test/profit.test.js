@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { verdict, rdvVerdict, derivedBreakEvens, compareCost, halfTrend, bucketCost, rollingCost } = require("../public/profit.js");
+const { verdict, rdvVerdict, rdvBenchmark, derivedBreakEvens, compareCost, halfTrend, bucketCost, rollingCost } = require("../public/profit.js");
 
 test("verdict tiers cost per registration against the break-even", () => {
   assert.equal(verdict(100, 5, 60).key, "scale"); // 20 per registration
@@ -72,4 +72,21 @@ test("before any student, the verdict looks at RDVs", () => {
   assert.equal(rdvVerdict({ spend: 10, registered: 0, booked: 0 }, 60, target).key, "learning");
   // Students recorded: the registration verdict decides.
   assert.equal(rdvVerdict({ spend: 50, registered: 1, booked: 0 }, 60, target).key, "edge");
+});
+
+test("the RDV benchmark is learned from the cheapest to the most expensive cost per RDV", () => {
+  const bench = rdvBenchmark([4.35, 0.51, 3.13, 8.59, 4.76, 1.3, 20]);
+  assert.equal(bench.dynamic, true);
+  assert.equal(bench.best, 0.51);
+  assert.equal(bench.median, 4.35);
+  assert.equal(bench.worst, 20);
+  assert.ok(Math.abs(bench.high - 6.675) < 1e-9); // upper quartile between 4.76 and 8.59
+  // Too few ads with RDVs: one fallback target for every level.
+  assert.deepEqual(rdvBenchmark([5, 6], 26.67), { dynamic: false, count: 2, best: null, median: 26.67, high: 53.34, worst: 53.34 });
+
+  // Verdicts follow the benchmark instead of a fixed formula.
+  assert.equal(rdvVerdict({ spend: 4, registered: 0, booked: 1, pendingBooked: 1 }, 60, bench).key, "rdvGood"); // at the typical cost
+  assert.equal(rdvVerdict({ spend: 9, registered: 0, booked: 1, pendingBooked: 1 }, 60, bench).key, "rdvCostly"); // worse than 3 in 4 ads
+  assert.equal(rdvVerdict({ spend: 21, registered: 0, booked: 0 }, 60, bench).key, "noRdv"); // past the most expensive RDV
+  assert.equal(rdvVerdict({ spend: 15, registered: 0, booked: 0 }, 60, bench).key, "learning"); // still under it
 });

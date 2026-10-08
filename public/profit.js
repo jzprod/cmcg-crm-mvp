@@ -62,27 +62,50 @@
     return { ...tierForRatio(ratio), ...base, ratio, lowData: count < 3, note: count < 3 ? `Only ${count} result${count === 1 ? "" : "s"} · low data` : "" };
   }
 
+  // Cost-per-RDV benchmark learned from your own ads: the cheapest, the typical
+  // (median), the upper quartile and the most expensive cost per RDV. Needs 3 ads
+  // with RDVs; before that a single fallback target stands in for every level.
+  function quantile(sorted, point) {
+    if (!sorted.length) return null;
+    const index = (sorted.length - 1) * point;
+    const low = Math.floor(index);
+    const high = Math.ceil(index);
+    return sorted[low] + (sorted[high] - sorted[low]) * (index - low);
+  }
+  function rdvBenchmark(costs, fallbackTarget = 0) {
+    const sorted = (costs || []).map(Number).filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+    if (sorted.length >= 3) {
+      return { dynamic: true, count: sorted.length, best: sorted[0], median: quantile(sorted, 0.5), high: quantile(sorted, 0.75), worst: sorted[sorted.length - 1] };
+    }
+    const target = amount(fallbackTarget);
+    return { dynamic: false, count: sorted.length, best: null, median: target || null, high: target ? target * 2 : null, worst: target ? target * 2 : null };
+  }
+  function asBenchmark(rdv) {
+    return rdv && typeof rdv === "object" ? rdv : rdvBenchmark([], rdv);
+  }
+
   // Registration verdict that, before any student, looks at RDVs: recent cheap RDVs
   // mean "wait", costly RDVs or none at all mean the ad is bad early.
   // input: { spend, registered, booked, pendingBooked } (pendingBooked = RDVs from the
   // last 10 days not yet registered); rdvTarget = what one RDV may cost.
-  function rdvVerdict(input, breakEven, rdvTarget) {
+  // rdv: a benchmark from rdvBenchmark(), or a single target cost per RDV.
+  function rdvVerdict(input, breakEven, rdv) {
     const base = verdict(input.spend, input.registered, breakEven);
+    const bench = asBenchmark(rdv);
     const spend = amount(input.spend);
     const booked = amount(input.booked);
     const pending = amount(input.pendingBooked);
-    const target = amount(rdvTarget);
-    if (amount(input.registered) || !spend || !target) return base;
+    if (amount(input.registered) || !spend || !bench.median) return base;
     const costBooked = costPer(spend, booked);
-    const extra = { costBooked, rdvTarget: target, rdvRatio: costBooked === null ? null : costBooked / target, pendingBooked: pending };
-    if (!booked && spend >= target * 2) return { ...base, ...TIERS.noRdv, ...extra, note: "No RDV yet after twice the RDV target" };
+    const extra = { costBooked, rdvTarget: bench.median, rdvBench: bench, rdvRatio: costBooked === null ? null : costBooked / bench.median, pendingBooked: pending };
+    if (!booked && spend >= bench.worst) return { ...base, ...TIERS.noRdv, ...extra, note: bench.dynamic ? "No RDV yet, after spending more than your most expensive RDV" : "No RDV yet after twice the RDV target" };
     if (pending > 0) {
       if (spend >= amount(breakEven)) {
-        return costBooked <= target * 1.5 ? { ...base, ...TIERS.rdvHold, ...extra, note: `${pending} RDV${pending > 1 ? "s" : ""} from the last 10 days may still register` } : { ...base, ...extra };
+        return costBooked <= bench.high ? { ...base, ...TIERS.rdvHold, ...extra, note: `${pending} RDV${pending > 1 ? "s" : ""} from the last 10 days may still register` } : { ...base, ...extra };
       }
-      if (costBooked <= target) return { ...base, ...TIERS.rdvGood, ...extra, note: "Students usually register 2-10 days after the RDV" };
+      if (costBooked <= bench.median) return { ...base, ...TIERS.rdvGood, ...extra, note: "Students usually register 2-10 days after the RDV" };
     }
-    if (booked && costBooked > target * 2) return { ...base, ...TIERS.rdvCostly, ...extra, note: "RDVs cost more than twice the target" };
+    if (booked && costBooked > bench.high) return { ...base, ...TIERS.rdvCostly, ...extra, note: bench.dynamic ? "RDVs cost more than 3 out of 4 of your ads" : "RDVs cost more than twice the target" };
     return { ...base, ...extra };
   }
 
@@ -147,5 +170,5 @@
     return buckets.map((slice) => ({ from: slice[0].date, to: slice[slice.length - 1].date, spend: sum(slice, "spend"), results: sum(slice, key), value: costPer(sum(slice, "spend"), sum(slice, key)) }));
   }
 
-  return { TIERS, verdict, rdvVerdict, derivedBreakEvens, compareCost, halfTrend, rollingCost, bucketCost, costPer, tierForRatio };
+  return { TIERS, verdict, rdvVerdict, rdvBenchmark, derivedBreakEvens, compareCost, halfTrend, rollingCost, bucketCost, costPer, tierForRatio };
 }));

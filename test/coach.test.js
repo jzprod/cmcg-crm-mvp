@@ -81,3 +81,11 @@ test("decisions sort with pauses first", () => {
   assert.equal(sorted.length, 2);
   assert.equal(sorted[0].key, "pause");
 });
+
+test("the coach uses the learned cost-per-RDV benchmark", () => {
+  const bench = { dynamic: true, best: 0.5, median: 4, high: 7, worst: 20 };
+  const benchOpts = { ...opts, rdvTarget: bench };
+  assert.equal(decide(adSet([[2, 0, 1], [1], [1]]), benchOpts).key, "promising"); // $4 per RDV, typical
+  assert.equal(decide(adSet([[8], [8], [8]]), benchOpts).key, "noRdv"); // $24, more than the worst RDV
+  assert.equal(decide(adSet([[9, 0, 1], [9], [9]]), { ...benchOpts }).key, "costlyRdv"); // $27 per RDV
+});
