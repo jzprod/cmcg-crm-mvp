@@ -3,14 +3,21 @@
 // step with the CRM outcomes (RDV / visit / registration) as their status changes.
 const crypto = require("crypto");
 
-const LEAD_STATUSES = ["new", "no_answer", "contacted", "booked", "visited", "registered", "not_interested", "wrong_number"];
-const CLOSED_STATUSES = new Set(["registered", "not_interested", "wrong_number"]);
+const LEAD_STATUSES = ["new", "no_answer", "callback", "contacted", "booked", "visited", "registered", "not_interested", "other_city", "not_qualified", "wrong_number"];
+const CLOSED_STATUSES = new Set(["registered", "not_interested", "other_city", "not_qualified", "wrong_number"]);
+// The centre receives visitors from 11:00 to 20:00; the last RDV starts at 19:30.
+const OPENING = { open: "11:00", lastSlot: "19:30" };
 const DISTRIBUTION_MODES = ["balanced", "weighted", "adset", "manual"];
 
 const DEFAULT_TEMPLATES = {
-  first: "Bonjour {name}, ici {agent} du centre CMCG Tanger. Merci pour votre demande d'information sur nos formations. Quand êtes-vous disponible pour en parler ?",
-  reminder: "Bonjour {name}, ici {agent} du centre CMCG Tanger. Je vous rappelle votre rendez-vous {day} à {time}. À bientôt !",
+  first: "السلام عليكم {name} 🌸\nمعاك {agent} من مركز CMCG للتكوين بطنجة.\nشكراً بزاف على اهتمامك بالتكوينات ديالنا 🙏\nإمتى يناسبك نتواصلو باش نشرح ليك كلشي بالتفصيل؟",
+  reminder: "السلام عليكم {name} 🌸\nكنتمناو تكون بألف خير 😊\nمعاك {agent} من مركز CMCG للتكوين بطنجة.\nبغينا غير نفكروك بالموعد ديالك معانا {day} على الساعة {time} ⏰\n\nإلا كان عندك أي سؤال، ولا بغيتي نصيفطو ليك موقع المركز 📍، ولا محتاج أي مساعدة، غير جاوبنا هنا وحنا رهن الإشارة.\n\nكنتسناوك بكل فرح، ومرحبا بك ديما عندنا 🤍",
 };
+// Earlier French defaults: replaced by the Arabic ones when nobody customised them.
+const OLD_DEFAULTS = new Set([
+  "Bonjour {name}, ici {agent} du centre CMCG Tanger. Merci pour votre demande d'information sur nos formations. Quand êtes-vous disponible pour en parler ?",
+  "Bonjour {name}, ici {agent} du centre CMCG Tanger. Je vous rappelle votre rendez-vous {day} à {time}. À bientôt !",
+]);
 
 function clean(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -143,6 +150,20 @@ function attributeLead(state, lead) {
   return { creativeId: ad?.id || "", adSetId: adSet?.id || "", campaignId: campaign?.id || "" };
 }
 
+// Templates keep their line breaks (WhatsApp shows them); only trim each line.
+function templateText(value, fallback) {
+  const text = String(value ?? "").split("\n").map((line) => line.replace(/[ \t]+/g, " ").trim()).join("\n").trim();
+  return !text || OLD_DEFAULTS.has(text) ? fallback : text;
+}
+
+// "2026-10-10T19:30" -> null when inside opening hours, else the error to show.
+function appointmentError(value) {
+  const match = String(value || "").match(/T(\d{2}):(\d{2})/);
+  if (!match) return null;
+  const time = `${match[1]}:${match[2]}`;
+  return time < OPENING.open || time > OPENING.lastSlot ? "المركز مفتوح من 11:00 حتى 20:00، اختاري موعداً بين 11:00 و 19:30" : null;
+}
+
 function defaultDistribution() {
   return { mode: "balanced", agents: {}, templates: { ...DEFAULT_TEMPLATES } };
 }
@@ -158,8 +179,8 @@ function normalizeDistribution(input = {}) {
     mode: DISTRIBUTION_MODES.includes(input.mode) ? input.mode : base.mode,
     agents,
     templates: {
-      first: clean(input.templates?.first) || base.templates.first,
-      reminder: clean(input.templates?.reminder) || base.templates.reminder,
+      first: templateText(input.templates?.first, base.templates.first),
+      reminder: templateText(input.templates?.reminder, base.templates.reminder),
     },
   };
 }
@@ -294,7 +315,7 @@ function updateLead(state, lead, body = {}, by = "") {
   const changes = {};
   if (body.status !== undefined) {
     const status = clean(body.status);
-    if (!LEAD_STATUSES.includes(status)) throw new Error("Choose a valid status");
+    if (!LEAD_STATUSES.includes(status)) throw new Error("اختاري نتيجة صحيحة");
     if (status !== lead.status) {
       changes.status = { from: lead.status, to: status };
       lead.status = status;
@@ -310,7 +331,8 @@ function updateLead(state, lead, body = {}, by = "") {
   }
   if (body.appointmentAt !== undefined) {
     const at = clean(body.appointmentAt);
-    if (at && Number.isNaN(new Date(at).getTime())) throw new Error("Choose a valid RDV date and time");
+    if (at && Number.isNaN(new Date(at).getTime())) throw new Error("اختاري تاريخ ووقت الموعد");
+    if (at && appointmentError(at)) throw new Error(appointmentError(at));
     if (at !== lead.appointmentAt) {
       changes.appointmentAt = { from: lead.appointmentAt, to: at };
       lead.appointmentAt = at;
@@ -322,6 +344,11 @@ function updateLead(state, lead, body = {}, by = "") {
         changes.status = { to: "booked" };
       }
     }
+  }
+  if (body.callbackAt !== undefined) {
+    const at = clean(body.callbackAt);
+    if (at && Number.isNaN(new Date(at).getTime())) throw new Error("اختاري وقت إعادة الاتصال");
+    if (at !== (lead.callbackAt || "")) { lead.callbackAt = at; changes.callbackAt = at; }
   }
   if (body.notes !== undefined && clean(body.notes) !== lead.notes) { lead.notes = clean(body.notes); changes.notes = true; }
   if (body.name !== undefined && clean(body.name)) lead.name = clean(body.name);
@@ -337,7 +364,7 @@ function updateLead(state, lead, body = {}, by = "") {
 
 function createManualLead(state, body = {}, { by = "", agentId = "" } = {}) {
   const data = normalizeLeadRow({ full_name: body.name, phone_number: body.phone, email: body.email, city: body.city });
-  if (!data.phone) throw new Error("Enter the lead's phone number");
+  if (!data.phone) throw new Error("دخلي رقم الهاتف ديال الشخص");
   const lead = {
     id: newId("lea"),
     source: body.source === "form" ? "form" : "whatsapp",
@@ -402,7 +429,31 @@ function channelOfCampaign(state, campaign, overrides = {}) {
   return /lead/i.test(campaign.objective || "") ? "form" : "whatsapp";
 }
 
+// Per-agent activity for today and this month (no personal data): calls and
+// messages logged, RDVs booked, registrations, leads received and still new.
+function leadStats(state, at = new Date()) {
+  const day = at.toISOString().slice(0, 10);
+  const month = day.slice(0, 7);
+  const leads = state.crmLeads || [];
+  return (state.agents || []).filter((agent) => agent.active !== false).map((agent) => {
+    const mine = leads.filter((lead) => lead.agentId === agent.id);
+    const actionsToday = mine.reduce((sum, lead) => sum + (lead.history || []).filter((item) => String(item.at).slice(0, 10) === day && (item.contact || item.status)).length, 0);
+    return {
+      agentId: agent.id,
+      name: agent.name,
+      code: agent.code || "",
+      actionsToday,
+      leadsToday: mine.filter((lead) => String(lead.assignedAt || lead.createdAt).slice(0, 10) === day).length,
+      rdvsToday: mine.filter((lead) => String(lead.bookedAt).slice(0, 10) === day).length,
+      rdvsMonth: mine.filter((lead) => String(lead.bookedAt).slice(0, 7) === month).length,
+      registeredMonth: mine.filter((lead) => lead.status === "registered" && String(lead.registeredAt).slice(0, 7) === month).length,
+      waiting: mine.filter((lead) => lead.status === "new").length,
+    };
+  });
+}
+
 module.exports = {
+  leadStats, appointmentError, OPENING,
   LEAD_STATUSES, CLOSED_STATUSES, DISTRIBUTION_MODES, DEFAULT_TEMPLATES,
   normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, updateLead, createManualLead,
   syncLeadOutcomes, normalizeDistribution, defaultDistribution, fillTemplate, leadVcard, channelOfCampaign,

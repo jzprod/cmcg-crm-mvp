@@ -1191,6 +1191,7 @@ async function handleApi(req, res) {
         authEnabled: hasAuth(),
         sensitiveLocked,
         currentUser: publicUser(context),
+        leadStats: sensitiveLocked ? [] : Leads.leadStats(state),
         security: { operationsPath: "/groups", studentDataRequiresAuth: true },
         storage: storage.info(),
       });
@@ -1712,6 +1713,7 @@ async function handleApi(req, res) {
         name: cleanText(body.name),
         whatsapp: cleanText(body.whatsapp),
         aliases: cleanAliases(body.aliases),
+        code: cleanText(body.code).toLocaleUpperCase().slice(0, 4),
         active: body.active !== false,
         createdAt: now(),
       };
@@ -1737,6 +1739,7 @@ async function handleApi(req, res) {
         agent.name = nextName;
         agent.whatsapp = cleanText(body.whatsapp);
         if (body.aliases !== undefined) agent.aliases = cleanAliases(body.aliases);
+        if (body.code !== undefined) agent.code = cleanText(body.code).toLocaleUpperCase().slice(0, 4);
         agent.active = body.active !== false && body.active !== "false";
         agent.updatedAt = now();
         rematchImportedAdSets(state);

@@ -62,6 +62,8 @@ const DAY_ALIASES = {
 };
 const ar = {
   "CMCG CRM": "نظام CMCG",
+  "Leads": "الليدز",
+  "Leads du formulaire et de WhatsApp : appeler, fixer les RDV, rappeler et suivre jusqu'à l'inscription.": "اتصلي، حدّدي المواعيد، فكّري الناس، وتابعي حتى التسجيل.",
   "Ads to enrollment": "من الإعلان إلى التسجيل",
   "Admin": "مدير",
   "Sales agent": "مستشار تجاري",
@@ -1362,6 +1364,9 @@ async function load() {
   authEnabled = data.authEnabled;
   sensitiveLocked = Boolean(data.sensitiveLocked);
   currentUser = data.currentUser || { role: "admin", canSeeAdvertising: true, canManageStudentData: true };
+  window.leadStats = Array.isArray(data.leadStats) ? data.leadStats : [];
+  // The sales dashboard is always in Arabic.
+  if (currentUser.role === "sales") currentLanguage = "ar";
   storageInfo = data.storage;
   render();
   const requestedPanel = panelFromLocation();
@@ -4671,7 +4676,7 @@ function ensureAgentDialog() {
   dialog = document.createElement("dialog");
   dialog.id = "agentDialog";
   dialog.className = "modal";
-  dialog.innerHTML = `<form id="agentEditForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Sales agent</p><h2>Edit agent</h2><p>Saving rematches every imported ad set and campaign to its agent.</p></div><button class="icon-button" type="button" data-close-agent aria-label="Close agent form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Agent name</span><input name="name" required placeholder="Souad" autocomplete="off" /></label><label><span>WhatsApp <em>optional</em></span><input name="whatsapp" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label class="span-2"><span>Other spellings <em>comma-separated</em></span><input name="aliases" autocomplete="off" placeholder="Ex: hasan, hassane, حسن" /></label><label class="agent-active-toggle"><input type="hidden" name="active" value="false" /><input type="checkbox" name="active" value="true" /><span>Active (matched to ad sets)</span></label></div><p class="form-hint">Write the agent between quotes in the ad set or campaign name, for example <strong>Motion "hassan"</strong>. Spelling slips like "hasan" or "Hassane" still match. Without quotes, the name must appear as a word.</p><div class="modal-actions agent-modal-actions"><button class="button danger agent-delete" type="button" data-delete-agent="">Delete agent</button><button class="button secondary" type="button" data-close-agent>Cancel</button><button class="button primary" type="submit">Save agent</button></div></form>`;
+  dialog.innerHTML = `<form id="agentEditForm" class="modal-content"><div class="modal-head"><div><p class="section-kicker">Sales agent</p><h2>Edit agent</h2><p>Saving rematches every imported ad set and campaign to its agent.</p></div><button class="icon-button" type="button" data-close-agent aria-label="Close agent form"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.7 5.3 5.3 5.3 5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3 1.4-1.4Z"/></svg></button></div><div class="form-grid"><label><span>Agent name</span><input name="name" required placeholder="Souad" autocomplete="off" /></label><label><span>WhatsApp <em>optional</em></span><input name="whatsapp" inputmode="tel" autocomplete="tel" placeholder="+212 6..." /></label><label><span>Short code <em>shown to the agent, ex: WM</em></span><input name="code" maxlength="4" autocomplete="off" placeholder="WM" /></label><label><span>Other spellings <em>comma-separated</em></span><input name="aliases" autocomplete="off" placeholder="Ex: hasan, hassane, حسن" /></label><label class="agent-active-toggle"><input type="hidden" name="active" value="false" /><input type="checkbox" name="active" value="true" /><span>Active (matched to ad sets)</span></label></div><p class="form-hint">Write the agent between quotes in the ad set or campaign name, for example <strong>Motion "hassan"</strong>. Spelling slips like "hasan" or "Hassane" still match. Without quotes, the name must appear as a word.</p><div class="modal-actions agent-modal-actions"><button class="button danger agent-delete" type="button" data-delete-agent="">Delete agent</button><button class="button secondary" type="button" data-close-agent>Cancel</button><button class="button primary" type="submit">Save agent</button></div></form>`;
   document.body.append(dialog);
   applyLanguage(dialog);
   return dialog;
@@ -4687,6 +4692,7 @@ function openAgentEditor(agentId) {
   form.elements.name.value = agent.name || "";
   form.elements.whatsapp.value = agent.whatsapp || "";
   form.elements.aliases.value = (agent.aliases || []).join(", ");
+  form.elements.code.value = agent.code || "";
   form.querySelector('input[type="checkbox"][name="active"]').checked = agent.active !== false;
   form.querySelector("[data-delete-agent]").dataset.deleteAgent = agent.id;
   applyLanguage(dialog);

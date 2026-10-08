@@ -92,7 +92,7 @@ test("status changes book CRM outcomes automatically on the lead's ad", () => {
   const state = baseState();
   Leads.ingestLeadRows(state, [sheetRow()], { distribution: Leads.normalizeDistribution({}) });
   const lead = state.crmLeads[0];
-  Leads.updateLead(state, lead, { appointmentAt: "2026-10-10T10:00" });
+  Leads.updateLead(state, lead, { appointmentAt: "2026-10-10T11:00" });
   assert.equal(lead.status, "booked");
   assert.deepEqual(state.outcomes.map((o) => [o.type, o.assignmentLevel, o.creativeId, o.agentId]), [["booked", "ad", "a1", lead.agentId]]);
   Leads.updateLead(state, lead, { status: "visited" });
@@ -102,7 +102,30 @@ test("status changes book CRM outcomes automatically on the lead's ad", () => {
   assert.equal(state.outcomes.find((o) => o.type === "registered").sourceDate, "2026-10-08");
   Leads.updateLead(state, lead, { status: "registered" });
   assert.equal(state.outcomes.length, 2);
-  assert.throws(() => Leads.updateLead(state, lead, { status: "maybe" }), /valid status/);
+  assert.throws(() => Leads.updateLead(state, lead, { status: "maybe" }), /نتيجة/);
+  // The centre is open 11:00-20:00: the last RDV starts at 19:30.
+  assert.throws(() => Leads.updateLead(state, lead, { appointmentAt: "2026-10-10T10:30" }), /11:00/);
+  assert.throws(() => Leads.updateLead(state, lead, { appointmentAt: "2026-10-10T20:00" }), /19:30/);
+  Leads.updateLead(state, lead, { appointmentAt: "2026-10-10T19:30" });
+});
+
+test("new call results close or schedule the lead; agents get daily stats", () => {
+  const state = baseState();
+  Leads.ingestLeadRows(state, [sheetRow({ id: "l:a", phone_number: "p:+212611111111" }), sheetRow({ id: "l:b", phone_number: "p:+212622222222" })], { distribution: Leads.normalizeDistribution({}) });
+  const [a, b] = state.crmLeads;
+  Leads.updateLead(state, a, { status: "callback", callbackAt: "2026-10-09T15:00", contacted: "call" });
+  assert.equal(a.status, "callback");
+  assert.equal(a.callbackAt, "2026-10-09T15:00");
+  Leads.updateLead(state, b, { status: "other_city", contacted: "call" });
+  assert.ok(Leads.CLOSED_STATUSES.has("other_city") && Leads.CLOSED_STATUSES.has("not_qualified"));
+  const stats = Leads.leadStats(state);
+  const total = stats.reduce((sum, row) => sum + row.actionsToday, 0);
+  assert.equal(total, 2);
+  assert.deepEqual(stats.map((row) => row.agentId).sort(), ["souad", "wiam"]);
+  // Old French defaults are upgraded to the Arabic messages; custom text is kept.
+  const upgraded = Leads.normalizeDistribution({ templates: { reminder: "Bonjour {name}, ici {agent} du centre CMCG Tanger. Je vous rappelle votre rendez-vous {day} à {time}. À bientôt !", first: "Salam {name}" } });
+  assert.match(upgraded.templates.reminder, /كنفكروك|نفكروك/);
+  assert.equal(upgraded.templates.first, "Salam {name}");
 });
 
 test("templates, contact cards and the WhatsApp vs form split", () => {
@@ -164,7 +187,7 @@ test("Google Sheets pushes leads with a token; agents only see and change their 
   assert.equal(mine[0].agentId, "souad");
   const other = all.find((lead) => lead.agentId !== "souad");
   assert.equal((await call(`/api/crm-leads/${other.id}`, { method: "PATCH", headers: sales, body: { status: "contacted" } })).status, 404);
-  const booked = await call(`/api/crm-leads/${mine[0].id}`, { method: "PATCH", headers: sales, body: { appointmentAt: "2026-10-10T10:00" } });
+  const booked = await call(`/api/crm-leads/${mine[0].id}`, { method: "PATCH", headers: sales, body: { appointmentAt: "2026-10-10T11:30" } });
   assert.equal(booked.data.status, "booked");
   assert.equal((await call(`/api/crm-leads/${mine[0].id}`, { method: "PATCH", headers: sales, body: { agentId: "wiam" } })).status, 403);
   assert.equal((await call("/api/crm-leads/import", { method: "POST", headers: sales, body: { csv: "a\nb" } })).status, 403);
