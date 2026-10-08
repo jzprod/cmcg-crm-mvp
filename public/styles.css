@@ -1215,3 +1215,5 @@ main { width: 100%; }
 .coach-toggle.has-actions small { color: #11652f; font-weight: 600; }
 .coach-toggle svg { width: 18px; height: 18px; margin-inline-start: auto; fill: currentColor; color: var(--fb-muted); transition: transform 150ms ease; }
 .coach-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.quality-promising { border-color: #6ee7b7; background: #ecfdf5; color: #047857; }
+.status-pill.quality-promising { background: #ecfdf5; color: #047857; }

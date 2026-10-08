@@ -26,7 +26,21 @@ test("spend past the limit without a student pauses, unless bookings are open", 
   assert.equal(decide(adSet([[45], [45], [45]]), opts).key, "pause"); // twice the limit
   const pending = decide(adSet([[25], [25, 0, 1], [25, 0, 1]]), opts);
   assert.equal(pending.key, "hold");
-  assert.equal(pending.nextCheck, "2026-10-07");
+  assert.equal(pending.nextCheck, "2026-10-10"); // up to 5 days for open RDVs
+});
+
+test("fresh ads are judged by RDVs while registrations can still come", () => {
+  const rdvOpts = { ...opts, rdvTarget: 26.67 };
+  // $9.53 spent, 2 RDVs: cheap RDVs, wait for registrations instead of judging the ad.
+  const cheap = decide(adSet([[3, 0, 1], [3], [3.53, 0, 1]]), rdvOpts);
+  assert.equal(cheap.key, "promising");
+  assert.equal(cheap.nextCheck, "2026-10-10");
+  // Twice the RDV target spent without one RDV: replace or pause, before the registration limit.
+  assert.equal(decide(adSet([[18], [18], [18]]), rdvOpts).key, "noRdv");
+  // RDVs that cost more than twice the target.
+  assert.equal(decide(adSet([[10, 0, 0], [10], [10, 0, 1]]), { ...rdvOpts, rdvTarget: 10 }).key, "costlyRdv");
+  // Past the limit, but recent RDVs at a fair price: hold instead of pausing.
+  assert.equal(decide(adSet([[25, 0, 1], [25, 0, 1], [25, 0, 1]]), rdvOpts).key, "hold");
 });
 
 test("half the limit spent without a student gets a decision date from the daily pace", () => {

@@ -1522,6 +1522,7 @@ function performanceRows(type = groupBy, useFilters = true, criterion = sortBy, 
   }
   const logs = useFilters ? filteredLogs(range) : state.dailyLogs;
   const outcomes = useFilters ? filteredOutcomes(range) : state.outcomes;
+  const recentSince = dateInputValue(addDays(new Date(), -CmcgQuality.RDV_LAG_DAYS));
   logs.forEach((log) => {
     const relation = relationForLog(log);
     const row = ensure(groupKeyForRelation(relation, type));
@@ -1540,6 +1541,11 @@ function performanceRows(type = groupBy, useFilters = true, criterion = sortBy, 
     if (row) {
       row[outcome.type] += 1;
       if (outcome.type === "registered" || outcome.type === "showed") row.visits += 1;
+      // Outcomes from the last few days: RDVs here may still turn into registrations.
+      if (dateOnly(outcome.date) >= recentSince) {
+        if (outcome.type === "booked") row.recentBooked = (row.recentBooked || 0) + 1;
+        if (outcome.type === "registered") row.recentRegistered = (row.recentRegistered || 0) + 1;
+      }
       recordActivityDate(row, outcome.sourceDate || outcome.date);
       recordActivityDate(row, outcome.date);
     }
@@ -1952,7 +1958,7 @@ function qualityBadge(row) {
   const band = CmcgQuality.qualityBand(row);
   const score = row.qualityScore === null || row.qualityScore === undefined ? "-" : row.qualityScore;
   const confidence = row.qualityConfidence?.label || "Low confidence";
-  const detail = band.key === "pending" ? `Inside ${row.closingWindowDays || scoringTargets().closingWindowDays}-day closing window` : confidence;
+  const detail = band.reason || (band.key === "pending" ? `Inside ${row.closingWindowDays || scoringTargets().closingWindowDays}-day closing window` : confidence);
   return `<span class="quality-badge quality-${band.key}" title="${escapeHtml(detail)}"><strong>${score}</strong><span>${escapeHtml(band.label)}<small>${escapeHtml(row.qualityConfidence?.key || "low")}</small></span></span>`;
 }
 
@@ -2372,7 +2378,10 @@ function coachDecisions() {
   const range = { from, to: latest };
   const days = eachDay(from, latest);
   const buckets = amDailyBuckets(range);
-  const options = { breakEven: amBreakEven(), latestDate: latest, money, date: amDateLabel };
+  // What one RDV may cost: break-even x the real RDV -> student rate, once there are 5+ RDVs.
+  const conversion = amConversionTotals();
+  const rdvTarget = conversion.booked >= 5 && conversion.registered ? amBreakEven() * Math.min(1, conversion.registered / conversion.booked) : amBreakEven() * 0.35;
+  const options = { breakEven: amBreakEven(), latestDate: latest, money, date: amDateLabel, rdvTarget };
   const adRows = new Map(performanceRows("ad", true, "quality", range).map((row) => [row.key, row]));
   const items = [];
   state.adSets.filter((adSet) => adSet.metaAdSetId || buckets.has(`adSet:${adSet.id}`)).forEach((adSet) => {
@@ -2424,7 +2433,7 @@ function coachHtml() {
   return `<div class="coach">
     ${toggle}
     <div class="coach-head"><div><h3>What to do with your ads today</h3><small>Based on results up to <strong>${escapeHtml(amDateLabel(latest))}</strong> since ${escapeHtml(amDateLabel(amDataStart() || latest))}, recalculated after every import. Ignores the table's date picker.</small></div>
-    <details class="coach-rules"><summary>How it decides</summary><ul><li>The first ${CmcgCoach.LEARNING_DAYS} days are Meta's learning period: don't change budget, audience or creative.</li><li>No student and spend past your ${escapeHtml(money(amBreakEven()))} limit: pause, unless bookings are still open (then wait 2 days).</li><li>No student and half the limit spent: a decision date is set from the daily spend.</li><li>Students under 80% of the limit, at least 2 of them, after day 3: raise the budget 20% (30% if under half the limit), then wait 3 days before the next raise.</li><li>Over the limit: up to 30% over, fix the creative or follow-up; up to 2× over, cut the budget 30%; beyond that, pause.</li><li>Ads: copy creatives that bring 2+ cheap students; refresh those seen 3+ times per person or clicked by under 0.5% of viewers.</li></ul></details></div>
+    <details class="coach-rules"><summary>How it decides</summary><ul><li>The first ${CmcgCoach.LEARNING_DAYS} days are Meta's learning period: don't change budget, audience or creative.</li><li>An RDV usually becomes a registration 2-10 days later, so ads with recent RDVs are judged by cost per RDV: cheap RDVs mean wait, no RDV after twice the RDV target means replace or pause.</li><li>No student and spend past your ${escapeHtml(money(amBreakEven()))} limit: pause, unless recent RDVs are still within the 2-10 days (then hold until a set date).</li><li>No student and half the limit spent: a decision date is set from the daily spend.</li><li>Students under 80% of the limit, at least 2 of them, after day 3: raise the budget 20% (30% if under half the limit), then wait 3 days before the next raise.</li><li>Over the limit: up to 30% over, fix the creative or follow-up; up to 2× over, cut the budget 30%; beyond that, pause.</li><li>Ads: copy creatives that bring 2+ cheap students; refresh those seen 3+ times per person or clicked by under 0.5% of viewers.</li></ul></details></div>
     ${stale}
     ${groups || '<p class="coach-empty">No ad set spent in the last 3 days of data.</p>'}
   </div>`;

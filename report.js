@@ -142,9 +142,13 @@ function addLog(target, log) {
   touchDate(target, log.reportingEnd || log.date);
 }
 
-function addOutcome(target, outcome) {
+function addOutcome(target, outcome, recentSince = "") {
   if (!["booked", "showed", "registered"].includes(outcome.type)) return;
   target[outcome.type] += 1;
+  if (recentSince && String(outcome.date || "") >= recentSince) {
+    if (outcome.type === "booked") target.recentBooked = (target.recentBooked || 0) + 1;
+    if (outcome.type === "registered") target.recentRegistered = (target.recentRegistered || 0) + 1;
+  }
   if (outcome.type === "showed" || outcome.type === "registered") target.visits += 1;
   touchDate(target, outcome.sourceDate || outcome.date);
   touchDate(target, outcome.date);
@@ -220,7 +224,7 @@ function buildDailySeries(range, rowsByDay) {
 }
 
 // Aggregate one period: total, per level, per day, per entity per day.
-function aggregate(state, index, range) {
+function aggregate(state, index, range, recentSince = "") {
   const logs = state.dailyLogs.filter((log) => {
     const start = log.reportingStart || log.date || "";
     const end = log.reportingEnd || log.date || start;
@@ -276,7 +280,7 @@ function aggregate(state, index, range) {
     };
     Object.entries(keys).forEach(([level, key]) => {
       if (!key || !eligible[level]) return;
-      addOutcome(ensure(levels[level], key), outcome);
+      addOutcome(ensure(levels[level], key), outcome, recentSince);
       if (day) addOutcome(dayRow(entityDaily[level], key, day), outcome);
     });
   });
@@ -343,7 +347,8 @@ function buildReport(state, options = {}) {
   const previousUsable = dayCount > 0 && (!respectDataStart || previousRange.to >= dataStartDate);
   if (previousUsable && respectDataStart && previousRange.from < dataStartDate) previousRange.from = dataStartDate;
 
-  const current = emptyAdRange ? aggregate({ dailyLogs: [], outcomes: [] }, index, adRange) : aggregate(state, index, adRange);
+  const recentSince = shiftDays(period.today, -CmcgQuality.RDV_LAG_DAYS);
+  const current = emptyAdRange ? aggregate({ dailyLogs: [], outcomes: [] }, index, adRange) : aggregate(state, index, adRange, recentSince);
   const previous = previousUsable ? aggregate(state, index, previousRange) : null;
   const lifetime = aggregate(state, index, respectDataStart ? { from: dataStartDate, to: "" } : { from: "", to: "" });
   const derivedTargets = CmcgProfit.derivedBreakEvens(lifetime.total, breakEven);
@@ -448,6 +453,9 @@ function buildReport(state, options = {}) {
           status: row.qualityStatus?.label || "",
           confidence: row.qualityConfidence?.label || "",
           ageDays: row.ageDays,
+          reason: row.qualityStatus?.reason || "",
+          pendingRdv: row.pendingBooked || 0,
+          projectedRegistered: round(row.projectedRegistered, 2),
         },
         previous: prev ? {
           spend: round(prev.spend),

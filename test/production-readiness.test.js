@@ -666,6 +666,24 @@ test("Meta CSV sync is idempotent, matches agents, and supports hierarchical out
   assert.equal(snapshot.outcomes.length, 1);
 });
 
+test("fresh rows are judged by RDVs until their registrations had time to come in", () => {
+  const today = new Date("2026-10-08T12:00:00Z");
+  const settings = { profit: { breakEvenCostPerRegistered: 60 } };
+  const rows = [
+    { name: "mature winner", spend: 100, booked: 10, registered: 4, showed: 0, firstActivityDate: "2026-09-01" },
+    { name: "first day ugc s", spend: 9.53, booked: 2, registered: 0, showed: 0, recentBooked: 2, firstActivityDate: "2026-10-04" },
+    { name: "no rdv", spend: 60, booked: 0, registered: 0, showed: 0, firstActivityDate: "2026-10-02" },
+    { name: "old rdvs only", spend: 40, booked: 3, registered: 0, showed: 0, recentBooked: 0, firstActivityDate: "2026-09-01" },
+  ];
+  const scored = Object.fromEntries(scoreRows(rows, settings, today).map((row) => [row.name, row]));
+  assert.equal(scored["first day ugc s"].qualityStatus.key, "promising");
+  assert.equal(scored["first day ugc s"].pendingBooked, 2);
+  assert.ok(scored["first day ugc s"].qualityScore >= 80, `score ${scored["first day ugc s"].qualityScore}`);
+  assert.equal(scored["no rdv"].qualityStatus.label, "No RDV");
+  // Bookings older than the 10-day lag no longer protect a row: it is judged on registrations.
+  assert.notEqual(scored["old rdvs only"].qualityStatus.key, "promising");
+});
+
 test("quality score auto-learns from gathered data and stays closing-window aware", () => {
   const sourceRows = [
     { name: "Fresh tiny spend", spend: 2, booked: 0, showed: 0, registered: 0, messages: 1, firstActivityDate: "2026-09-02" },
@@ -696,7 +714,7 @@ test("quality score auto-learns from gathered data and stays closing-window awar
   assert.equal(rows.find((row) => row.name === "Strong ad").showRate, 0.4);
   assert.equal(rows.find((row) => row.name === "Strong ad").closeRate, 0.5);
   assert.ok(rows.find((row) => row.name === "Strong ad").agentClosingScore > 0);
-  assert.equal(qualityBand(rows.find((row) => row.name === "Weak no reg")).label, "Weak");
+  assert.equal(qualityBand(rows.find((row) => row.name === "Weak no reg")).label, "No RDV"); // weak, with the reason: no RDV at all
   assert.deepEqual(sortRows(rows, "quality").slice(0, 2).map((row) => row.name), ["High volume ad", "Strong ad"]);
   assert.equal(sortRows(rows, "costVisit")[0].name, "High volume ad");
 });

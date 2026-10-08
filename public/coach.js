@@ -9,6 +9,7 @@
   // sale, raise budgets by 20-30% at most once every 3 days, cut what spends past
   // the limit without a student, and wait on open bookings before killing.
   const LEARNING_DAYS = 3;
+  const RDV_LAG_DAYS = 10;
   const SCALE_EVERY_DAYS = 3;
 
   function shift(date, days) {
@@ -28,7 +29,10 @@
     scale: { label: "Scale +20%", tone: "good", priority: 2, group: "now" },
     scaleMore: { label: "Scale +30%", tone: "good", priority: 2, group: "now" },
     copy: { label: "Copy this creative", tone: "good", priority: 3, group: "now" },
-    hold: { label: "Hold 2 days", tone: "warn", priority: 3, group: "soon" },
+    noRdv: { label: "No RDV: replace or pause", tone: "bad", priority: 1, group: "now" },
+    hold: { label: "Hold: RDVs pending", tone: "warn", priority: 3, group: "soon" },
+    promising: { label: "Cheap RDVs, wait", tone: "good", priority: 3, group: "soon" },
+    costlyRdv: { label: "Costly RDVs", tone: "warn", priority: 3, group: "soon" },
     watch: { label: "Decision day coming", tone: "warn", priority: 3, group: "soon" },
     fix: { label: "Fix creative or follow-up", tone: "warn", priority: 3, group: "soon" },
     refresh: { label: "Refresh creative", tone: "warn", priority: 4, group: "soon" },
@@ -65,6 +69,11 @@
     const costPrior = costPer(sum(prior, "spend"), sum(prior, "registered"));
     const rising = costRecent !== null && costPrior !== null && costRecent > costPrior * 1.25;
     const lastBooking = [...days].reverse().find((day) => Number(day.booked) > 0)?.date || "";
+    // RDVs turn into registrations 2-10 days later, so recent RDVs are judged by their cost.
+    const rdvTarget = Number(options.rdvTarget) || 0;
+    const costBooked = costPer(spend, booked);
+    const rdvsPending = booked > 0 && lastBooking > shift(latest, -RDV_LAG_DAYS);
+    const rdvDeadline = lastBooking ? [shift(lastBooking, RDV_LAG_DAYS), shift(latest, 5)].sort()[0] : "";
     const stats = { age, spend, registered, booked, messages, cost, ratio, pace, firstSpend };
     const make = (key, reason, nextCheck) => ({ key, ...ACTIONS[key], reason, nextCheck: nextCheck || "", ...stats, name: entity.name, level: entity.level });
 
@@ -75,6 +84,9 @@
       const frequency = Number(entity.reach) > 0 ? impressions / Number(entity.reach) : null;
       if (registered >= 2 && ratio !== null && ratio <= 0.8 && age >= LEARNING_DAYS) {
         return make("copy", `${registered} students at ${money(cost)} each over ${age} days. Put this creative in your other ad sets.`, "");
+      }
+      if (!registered && booked === 0 && rdvTarget && age >= LEARNING_DAYS && spend >= Math.max(rdvTarget * 3, breakEven * 0.5) && spend < breakEven) {
+        return make("noRdv", `This ad spent ${money(spend)} in ${age} days without one RDV (an RDV should cost about ${money(rdvTarget)}). Turn this ad off or replace its creative.`, "");
       }
       if (!registered && spend >= breakEven && booked === 0) {
         return make("pause", `This ad spent ${money(spend)} in ${age} days with no booking and no student. Turn this ad off; the ad set keeps its other ads.`, "");
@@ -94,10 +106,21 @@
       }
       if (spend >= breakEven) {
         if (age < LEARNING_DAYS) return make("learning", `Day ${age} of learning but already ${money(spend)} spent with no student. Decide on ${day(shift(firstSpend, LEARNING_DAYS))}.`, shift(firstSpend, LEARNING_DAYS));
-        if (booked >= 2 && lastBooking >= shift(latest, -3)) {
-          return make("hold", `Past your ${money(breakEven)} limit (${money(spend)}) with no student, but ${booked} booked appointments are still open. If none registers by ${day(shift(latest, 2))}, pause.`, shift(latest, 2));
+        if (rdvsPending && (!rdvTarget || costBooked <= rdvTarget * 1.5)) {
+          return make("hold", `Past your ${money(breakEven)} limit (${money(spend)}) with no student yet, but ${booked} RDV${booked > 1 ? "s" : ""} at ${money(costBooked)} each are still within the 2-10 days it takes to register. Don't raise the budget. If no student by ${day(rdvDeadline)}, pause.`, rdvDeadline);
         }
         return make("pause", `${money(spend)} spent over ${age} days, past your ${money(breakEven)} limit, with no student${booked ? ` and only ${booked} booking${booked > 1 ? "s" : ""}` : ""}. Pause it or replace the creative.`, "");
+      }
+      if (rdvTarget && age >= LEARNING_DAYS) {
+        if (!booked && spend >= rdvTarget * 2) {
+          return make("noRdv", `${money(spend)} spent in ${age} days and not one RDV, while an RDV should cost about ${money(rdvTarget)}. ${messages ? `${messages} messages came in, so check the agent's replies, then ` : ""}replace the creative or pause.`, "");
+        }
+        if (booked && costBooked > rdvTarget * 2) {
+          return make("costlyRdv", `RDVs cost ${money(costBooked)} each, more than twice the ${money(rdvTarget)} target. Test a new creative or a clearer offer before more spend.`, shift(latest, 2));
+        }
+      }
+      if (rdvsPending && rdvTarget && costBooked <= rdvTarget) {
+        return make("promising", `${booked} RDV${booked > 1 ? "s" : ""} at ${money(costBooked)} each (target ${money(rdvTarget)}). Customers usually come to register 2-10 days after the RDV, so judge the students on ${day(rdvDeadline)}. Keep the budget as it is.`, rdvDeadline);
       }
       if (spend >= breakEven * 0.5) {
         const daysLeft = pace > 0 ? Math.ceil((breakEven - spend) / pace) : null;
@@ -138,5 +161,5 @@
     return items.filter(Boolean).sort((a, b) => a.priority - b.priority || b.spend - a.spend);
   }
 
-  return { decide, sortDecisions, ACTIONS, LEARNING_DAYS };
+  return { decide, sortDecisions, ACTIONS, LEARNING_DAYS, RDV_LAG_DAYS };
 }));

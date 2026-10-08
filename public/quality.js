@@ -58,12 +58,21 @@
     return value > 0 && amount > 0 ? amount / value : Number.POSITIVE_INFINITY;
   }
 
-  function metricsFor(row) {
+  // A booked RDV usually turns into a registration 2-10 days later. Bookings
+  // younger than this still count as "pending" registrations.
+  const RDV_LAG_DAYS = 10;
+  const DEFAULT_BOOKED_TO_REGISTERED = 0.35;
+
+  function metricsFor(row, rate = 0) {
     const spend = finiteNumber(row.spend);
     const booked = finiteNumber(row.booked);
     const showed = finiteNumber(row.showed);
     const registered = finiteNumber(row.registered);
     const visits = showed + registered;
+    // RDVs from the last RDV_LAG_DAYS that have not registered yet, and the
+    // registrations they should bring at the account's real RDV -> student rate.
+    const pendingBooked = Math.max(0, finiteNumber(row.recentBooked) - finiteNumber(row.recentRegistered));
+    const projectedRegistered = registered + pendingBooked * rate;
     return {
       ...row,
       spend,
@@ -71,13 +80,24 @@
       showed,
       registered,
       visits,
+      pendingBooked,
+      projectedRegistered,
       costBooked: costPer(spend, booked),
       costVisit: costPer(spend, visits),
       costRegistered: costPer(spend, registered),
+      costProjected: costPer(spend, projectedRegistered),
       showRate: booked > 0 ? visits / booked : null,
       closeRate: visits > 0 ? registered / visits : null,
       outcomeVolume: (registered * 5) + (visits * 2) + booked,
     };
+  }
+
+  // Share of RDVs that end as registered students, learned from all rows.
+  function bookedToRegisteredRate(rows = []) {
+    const booked = rows.reduce((sum, row) => sum + finiteNumber(row.booked), 0);
+    const registered = rows.reduce((sum, row) => sum + finiteNumber(row.registered), 0);
+    if (booked < 5 || !registered) return DEFAULT_BOOKED_TO_REGISTERED;
+    return clamp(registered / booked, 0.1, 1);
   }
 
   function deriveTargets(settings = {}, rows = []) {
@@ -86,7 +106,9 @@
       settings = {};
     }
     const scoring = normalizeSettings(settings);
-    const metrics = rows.map(metricsFor);
+    const metrics = rows.map((row) => metricsFor(row));
+    const rate = bookedToRegisteredRate(rows);
+    const breakEven = positiveNumber(settings.profit?.breakEvenCostPerRegistered);
     const targetCostRegistered = percentile(metrics.map((row) => row.costRegistered), 0.6);
     const targetCostVisit = percentile(metrics.map((row) => row.costVisit), 0.6);
     const targetCostBooked = percentile(metrics.map((row) => row.costBooked), 0.6);
@@ -107,6 +129,11 @@
       targetCloseRate: learnedCloseRate ? learnedCloseRate * 100 : scoring.targetCloseRate,
       spendBenchmark,
       maxOutcomeVolume,
+      bookedToRegistered: rate,
+      breakEven,
+      // What one RDV may cost: the registration break-even times the RDV -> student
+      // rate when a break-even is set, otherwise the learned typical cost per RDV.
+      rdvTarget: breakEven ? breakEven * rate : targetCostBooked,
     };
   }
 
@@ -126,9 +153,17 @@
 
   function weightedScore(row, targets) {
     const parts = [];
-    if (targets.targetCostRegistered) parts.push([costComponent(targets.targetCostRegistered, row.costRegistered), 45]);
-    if (targets.targetCostVisit) parts.push([costComponent(targets.targetCostVisit, row.costVisit), 20]);
-    if (targets.targetCostBooked) parts.push([costComponent(targets.targetCostBooked, row.costBooked), 15]);
+    // Fresh RDVs count as the registrations they should bring, so a new ad with cheap
+    // RDVs is not marked down before its customers had time to come and register.
+    const pending = row.pendingBooked > 0;
+    const registrationCost = pending ? row.costProjected : row.costRegistered;
+    // Expected students from fresh RDVs are judged against the break-even, not the best row.
+    const registrationTarget = (pending && targets.breakEven) || targets.targetCostRegistered || (targets.rdvTarget && targets.bookedToRegistered ? targets.rdvTarget / targets.bookedToRegistered : 0);
+    if (registrationTarget) parts.push([costComponent(registrationTarget, registrationCost), 45]);
+    // Visits need the same 2-10 days as registrations, so fresh RDVs skip this part.
+    if (targets.targetCostVisit && !(row.pendingBooked > 0)) parts.push([costComponent(targets.targetCostVisit, row.costVisit), 20]);
+    const bookedTarget = targets.rdvTarget || targets.targetCostBooked;
+    if (bookedTarget) parts.push([costComponent(bookedTarget, row.costBooked), row.pendingBooked > 0 ? 25 : 15]);
     if (targets.maxOutcomeVolume) parts.push([volumeComponent(targets, row), 15]);
     if (row.closeRate !== null) parts.push([rateComponent(targets.targetCloseRate, row.closeRate), 5]);
     const totalWeight = parts.reduce((sum, [, weight]) => sum + weight, 0);
@@ -143,8 +178,26 @@
     return { key: "low", label: "Low confidence" };
   }
 
-  function statusFor(row, targets, score, mature) {
+  // Before registrations can be judged (new ad, or RDVs still within the lag), judge by RDVs.
+  function rdvStatus(row, targets, mature) {
+    if (row.registered > 0) return null;
+    const target = targets.rdvTarget || targets.targetCostBooked;
+    if (!target) return null;
+    if (!row.booked && row.spend >= target * 2) return { key: "weak", label: "No RDV", final: false, reason: `${row.spend.toFixed(2)} spent without a single RDV (target ${target.toFixed(2)} per RDV).` };
+    if (mature && row.pendingBooked <= 0) return null;
+    if (row.booked > 0) {
+      if (row.costBooked <= target) return { key: "promising", label: "Cheap RDVs", final: false, reason: `RDVs cost ${row.costBooked.toFixed(2)}, under the ${target.toFixed(2)} target. Students usually register 2-10 days after the RDV.` };
+      if (row.costBooked > target * 2) return { key: "weak", label: "Costly RDVs", final: false, reason: `RDVs cost ${row.costBooked.toFixed(2)}, more than twice the ${target.toFixed(2)} target.` };
+      return { key: "pending", label: "Awaiting", final: false, reason: `RDVs cost ${row.costBooked.toFixed(2)} (target ${target.toFixed(2)}). Waiting for registrations.` };
+    }
+    return null;
+  }
+
+  function statusFor(row, targets, score, mature, { judgeRdv = true } = {}) {
     if (row.spend <= 0) return { key: "none", label: "No spend", final: false };
+    if (!targets.configured && !targets.rdvTarget) return { key: "learning", label: "Learning", final: false };
+    const early = judgeRdv ? rdvStatus(row, targets, mature) : null;
+    if (early) return early;
     if (!targets.configured) return { key: "learning", label: "Learning", final: false };
     if (!mature) return { key: "pending", label: "Awaiting", final: false };
     if (row.outcomeVolume <= 0 && row.spend < targets.spendBenchmark * 0.75) return { key: "insufficient", label: "Not enough", final: false };
@@ -171,7 +224,7 @@
   function scoreRows(rows, settings = {}, today = new Date()) {
     const targets = deriveTargets(settings, rows);
     return rows.map((row) => {
-      const metrics = metricsFor(row);
+      const metrics = metricsFor(row, targets.bookedToRegistered);
       const ageDays = ageDaysSince(metrics.firstActivityDate || metrics.reportingStart || metrics.date, today);
       const mature = ageDays !== null && ageDays >= targets.closingWindowDays;
       const score = weightedScore(metrics, targets);
@@ -187,7 +240,7 @@
         qualityConfidence: confidence,
         qualityTargets: targets,
         agentClosingScore: closingScore,
-        agentClosingStatus: closingScore === null ? { key: "none", label: "No data", final: false } : statusFor(metrics, targets, closingScore, mature),
+        agentClosingStatus: closingScore === null ? { key: "none", label: "No data", final: false } : statusFor(metrics, targets, closingScore, mature, { judgeRdv: false }),
       };
     });
   }
@@ -231,5 +284,5 @@
     return sorted;
   }
 
-  return { scoreRows, qualityBand, sortRows, deriveTargets, normalizeSettings };
+  return { scoreRows, qualityBand, sortRows, deriveTargets, normalizeSettings, RDV_LAG_DAYS };
 }));
