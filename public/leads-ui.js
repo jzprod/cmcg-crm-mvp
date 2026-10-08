@@ -72,6 +72,16 @@ function leadAgentCode(agent) {
   const letters = String(agent.name || "").replace(/[^A-Za-z؀-ۿ]/g, "");
   return (letters.slice(0, 1) + letters.slice(-1)).toLocaleUpperCase() || "?";
 }
+function leadAgentSetting(agentId) { return state.settings?.leadDistribution?.agents?.[agentId] || { active: true, weight: 1 }; }
+// Agents shown on the Leads screen: active in the CRM and not hidden from Leads.
+function leadAgents() { return state.agents.filter((agent) => agent.active !== false && !leadAgentSetting(agent.id).hidden); }
+async function saveAgentSetting(agentId, patch, message) {
+  const agents = { ...(state.settings?.leadDistribution?.agents || {}) };
+  agents[agentId] = { active: true, weight: 1, ...agents[agentId], ...patch };
+  await api("/api/settings/lead-distribution", { method: "POST", body: JSON.stringify({ agents }) });
+  if (message) toast(message);
+  await load();
+}
 function leadAgentColor(agentId) { return agentId ? abColor(agentId) : "#94a3b8"; }
 function leadInitials(name) { return (String(name || "؟").trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("") || "؟").toLocaleUpperCase(); }
 function leadPhoneLabel(phone) {
@@ -277,11 +287,12 @@ function leadHeroHtml() {
 
 function leadsToolbarHtml() {
   const views = [["today", "اليوم"], ["board", "كل الليدز"], ["list", "القائمة"]];
-  const agents = state.agents.filter((agent) => agent.active !== false);
+  const agents = leadAgents();
   return `<div class="la-toolbar">
     <div class="la-views" role="tablist">${views.map(([key, label]) => `<button type="button" role="tab" class="${LEAD_UI.view === key ? "active" : ""}" aria-selected="${LEAD_UI.view === key}" data-lead-view="${key}">${label}</button>`).join("")}</div>
     <label class="la-search"><input type="search" placeholder="🔎 قلّبي بالاسم ولا الرقم…" value="${escapeHtml(LEAD_UI.search)}" data-lead-filter="search" aria-label="بحث" /></label>
     <button type="button" class="la-add" data-lead-new>＋ زيدي ليد واتساب</button>
+    ${leadAdminView() ? `<button type="button" class="la-transfer-btn" data-transfer-from="">🔀 تحويل الليدز</button>` : ""}
     <div class="la-filters">
       ${leadAdminView() ? `<select data-lead-filter="agent" aria-label="المستشارة"><option value="">كل المستشارات</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${LEAD_UI.agent === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}<option value="__none" ${LEAD_UI.agent === "__none" ? "selected" : ""}>بلا مستشارة</option></select>` : ""}
       <select data-lead-filter="source" aria-label="المصدر"><option value="">كل المصادر</option><option value="form" ${LEAD_UI.source === "form" ? "selected" : ""}>فورمولير</option><option value="whatsapp" ${LEAD_UI.source === "whatsapp" ? "selected" : ""}>واتساب</option></select>
@@ -364,21 +375,80 @@ function leadActivityText(item) {
   return parts.join(" · ") || "✏️ تعديل";
 }
 function leadMonitorHtml() {
-  const agents = state.agents.filter((agent) => agent.active !== false);
-  if (!agents.length) return "";
+  const agents = leadAgents();
+  const hidden = state.agents.filter((agent) => agent.active !== false && leadAgentSetting(agent.id).hidden);
+  if (!agents.length && !hidden.length) return "";
   return `<section class="la-monitor"><div class="la-section-head"><h3><span>👀</span> المستشارات دابا</h3><small>شنو كتدير كل وحدة اليوم. ضغطي «شوفي بحالها» باش تشوفي الشاشة ديالها بلا ما تبدلي والو.</small></div><div class="la-monitor-grid">${agents.map((agent) => {
     const report = leadAgentReport(agent);
     const online = report.lastSeen && Date.now() - new Date(report.lastSeen).getTime() < 5 * 60000;
     const feed = [...report.entries].filter((item) => item.type !== "created").sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 7);
     const link = leadAgentLink(agent);
-    return `<article class="la-agent la-health-${report.health}">
+    const paused = leadAgentSetting(agent.id).active === false;
+    return `<article class="la-agent la-health-${report.health}${paused ? " is-paused" : ""}">
+      ${paused ? `<div class="la-paused">⏸️ موقوفة: ما كتاخدش ليدز جداد</div>` : ""}
       <header><span class="la-me small" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))}</span><div><strong>${escapeHtml(leadAgentName(agent.id))}</strong><small class="${online ? "is-online" : ""}">${online ? "🟢 متصلة دابا" : report.lastSeen ? `آخر ظهور: قبل ${escapeHtml(leadAge(report.lastSeen))}` : "ما دخلاتش اليوم"}</small></div><span class="la-health">${report.health === "good" ? "✅ مزيان" : report.health === "warn" ? "⚠️ انتباه" : "🚨 خاص تدخل"}</span></header>
       <div class="la-agent-stats"><div><strong>${report.calls}</strong><span>📞 اتصالات</span></div><div><strong>${report.whatsapps}</strong><span>💬 واتساب</span></div><div><strong>${report.rdvsToday}</strong><span>📅 مواعيد</span></div><div><strong>${report.fresh}</strong><span>🔥 جداد</span></div><div><strong>${report.speed === null ? "—" : `${Math.round(report.speed)}د`}</strong><span>⚡ سرعة الرد</span></div><div><strong>${report.registeredMonth}</strong><span>🎓 الشهر</span></div></div>
       ${report.warnings.length ? `<ul class="la-warnings">${report.warnings.map(([tone, text]) => `<li class="is-${tone}">${escapeHtml(text)}</li>`).join("")}</ul>` : `<p class="la-ok">كلشي مزيان، ما كاين حتى تنبيه 👌</p>`}
       <details class="la-feed"><summary>آخر النشاط${report.lastAction ? ` · قبل ${escapeHtml(leadAge(report.lastAction))}` : ""}</summary><ol>${feed.map((item) => `<li><time dir="ltr">${escapeHtml(new Date(item.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }))}</time><span>${escapeHtml(leadActivityText(item))}</span><button type="button" data-lead-open="${escapeHtml(item.lead.id)}">${escapeHtml(item.lead.name || leadPhoneLabel(item.lead.phone))}</button></li>`).join("") || "<li>ما كاين حتى نشاط باقي.</li>"}</ol></details>
-      <div class="la-agent-actions"><button type="button" class="la-confirm small" data-view-as="${escapeHtml(agent.id)}">👁️ شوفي بحالها</button>${link ? `<button type="button" class="la-secondary" data-lead-copy="${escapeHtml(link)}">🔗 نسخ الرابط ديالها</button>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">🔗 صاوبي الرابط ديالها</button>`}</div>
+      <div class="la-agent-actions"><button type="button" class="la-confirm small" data-view-as="${escapeHtml(agent.id)}">👁️ شوفي بحالها</button>${link ? `<button type="button" class="la-secondary" data-lead-copy="${escapeHtml(link)}">🔗 نسخ الرابط</button>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">🔗 صاوبي الرابط</button>`}</div>
+      <div class="la-agent-tools"><button type="button" data-agent-pause="${escapeHtml(agent.id)}">${paused ? "▶️ رجعي ليها الليدز" : "⏸️ وقفي الليدز"}</button><button type="button" data-transfer-from="${escapeHtml(agent.id)}">🔀 حوّلي الليدز ديالها</button><button type="button" data-agent-hide="${escapeHtml(agent.id)}">🙈 خبيها</button></div>
     </article>`;
-  }).join("")}</div></section>`;
+  }).join("")}</div>${hidden.length ? `<div class="la-hidden-agents"><span>🙈 مخبيين من الليدز:</span>${hidden.map((agent) => `<button type="button" data-agent-show="${escapeHtml(agent.id)}">${escapeHtml(leadAgentName(agent.id))} · إظهار</button>`).join("")}</div>` : ""}</section>`;
+}
+
+// ---------- Transfer leads between agents ----------
+const TRANSFER_STATUSES = ["new", "no_answer", "callback", "contacted", "booked", "visited"];
+LEAD_UI.transfer = null;
+function openTransfer(fromId) {
+  // Paused agents are not picked by default; they can still be ticked by hand.
+  const others = leadAgents().filter((agent) => agent.id !== fromId && leadAgentSetting(agent.id).active !== false);
+  LEAD_UI.transfer = { from: fromId === undefined ? "" : fromId, statuses: ["new"], mode: "spread", to: others.map((agent) => agent.id), one: others[0]?.id || "" };
+  renderTransfer();
+  const dialog = ensureLeadDialog();
+  LEAD_UI.detailId = "";
+  if (!dialog.open) dialog.showModal();
+}
+function transferPlan() {
+  const t = LEAD_UI.transfer;
+  const from = t.from === "__all" ? leadsList().map((lead) => lead.agentId || "") : [t.from];
+  const fromSet = new Set(from);
+  const targets = t.mode === "one" ? [t.one].filter(Boolean) : t.to;
+  const leads = leadsList().filter((lead) => fromSet.has(lead.agentId || "") && t.statuses.includes(lead.status)).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  const plan = {};
+  let turn = 0;
+  let moved = 0;
+  leads.forEach((lead) => {
+    const options = targets.filter((agentId) => agentId !== lead.agentId);
+    if (!options.length) return;
+    const agentId = options[turn % options.length];
+    turn += 1;
+    moved += 1;
+    plan[agentId] = (plan[agentId] || 0) + 1;
+  });
+  return { moved, plan, fromIds: [...fromSet], targets };
+}
+function renderTransfer() {
+  const dialog = ensureLeadDialog();
+  const t = LEAD_UI.transfer;
+  if (!t) return;
+  const agents = leadAgents();
+  const fromIds = t.from === "__all" ? null : [t.from];
+  const count = (status) => leadsList().filter((lead) => (fromIds ? fromIds.includes(lead.agentId || "") : true) && lead.status === status).length;
+  const { moved, plan } = transferPlan();
+  const fromLabel = (id) => (id === "" ? "بلا مستشارة" : id === "__all" ? "كل المستشارات" : leadAgentName(id));
+  dialog.innerHTML = `<div class="modal-content la-detail">
+    <div class="la-detail-head"><div><small>🔀 تحويل الليدز</small><h2>نقلي الليدز من مستشارة لأخرى</h2><p>الليدز الجداد هوما الأساس. المواعيد ما كتحوّلش إلا إلا اخترتيها، باش ما يضيعش المجهود ديال اللي حجزاتها.</p></div><button class="la-close" type="button" data-lead-close aria-label="سدّي">×</button></div>
+    <section class="la-block"><h3>1 · من عند شكون؟</h3><div class="la-chips">${["__all", ...agents.map((agent) => agent.id), ""].map((id) => `<button type="button" class="la-chip${t.from === id ? " is-on" : ""}" data-transfer-set-from="${escapeHtml(id)}">${escapeHtml(fromLabel(id))}</button>`).join("")}</div></section>
+    <section class="la-block"><h3>2 · أشمن ليدز؟</h3><div class="la-chips">${TRANSFER_STATUSES.map((status) => `<button type="button" class="la-chip la-${LEAD_STATUS[status].tone}${t.statuses.includes(status) ? " is-on" : ""}" data-transfer-status="${status}">${LEAD_STATUS[status].icon} ${escapeHtml(LEAD_STATUS[status].label)} <b>${count(status)}</b></button>`).join("")}</div>${t.statuses.includes("booked") ? `<p class="la-warn-note">⚠️ غادي تحوّلي حتى المواعيد اللي حجزاتهم المستشارة.</p>` : `<p class="la-hint">📅 المواعيد ما غاديش تتحوّل.</p>`}</section>
+    <section class="la-block"><h3>3 · لمين؟</h3>
+      <div class="la-chips"><button type="button" class="la-chip${t.mode === "spread" ? " is-on" : ""}" data-transfer-mode="spread">⚖️ وزعي بالتساوي</button><button type="button" class="la-chip${t.mode === "one" ? " is-on" : ""}" data-transfer-mode="one">👤 لمستشارة وحدة</button></div>
+      ${t.mode === "spread"
+        ? `<div class="la-chips">${agents.map((agent) => `<button type="button" class="la-chip${t.to.includes(agent.id) ? " is-on" : ""}" data-transfer-to="${escapeHtml(agent.id)}"><i class="la-dot" style="--agent:${leadAgentColor(agent.id)}"></i>${escapeHtml(leadAgentName(agent.id))}${leadAgentSetting(agent.id).active === false ? " ⏸️" : ""}</button>`).join("")}</div>`
+        : `<div class="la-chips">${agents.map((agent) => `<button type="button" class="la-chip${t.one === agent.id ? " is-on" : ""}" data-transfer-one="${escapeHtml(agent.id)}"><i class="la-dot" style="--agent:${leadAgentColor(agent.id)}"></i>${escapeHtml(leadAgentName(agent.id))}${leadAgentSetting(agent.id).active === false ? " ⏸️" : ""}</button>`).join("")}</div>`}
+    </section>
+    <div class="la-transfer-summary">${moved ? `<strong>غادي يتحوّلو ${moved} ليد</strong><span>${Object.entries(plan).map(([agentId, n]) => `${escapeHtml(leadAgentName(agentId))}: ${n}`).join(" · ")}</span>` : `<strong>ما كاين حتى ليد يتحوّل بهاد الاختيارات</strong>`}</div>
+    <button type="button" class="la-confirm" data-transfer-confirm ${moved ? "" : "disabled"}>🔀 حوّلي ${moved || ""} ليد</button>
+  </div>`;
 }
 
 // ---------- RDV & callback pickers ----------
@@ -506,7 +576,7 @@ function ensureLeadDialog() {
   dialog.addEventListener("click", handleLeadClick);
   dialog.addEventListener("submit", handleLeadSubmit);
   dialog.addEventListener("change", handleLeadChange);
-  dialog.addEventListener("close", () => { LEAD_UI.detailId = ""; LEAD_UI.detailStep = ""; });
+  dialog.addEventListener("close", () => { LEAD_UI.detailId = ""; LEAD_UI.detailStep = ""; LEAD_UI.transfer = null; });
   return dialog;
 }
 
@@ -552,6 +622,7 @@ function renderLeadDetail() {
 }
 
 function openLeadDetail(id) {
+  LEAD_UI.transfer = null;
   LEAD_UI.detailId = id;
   LEAD_UI.detailStep = "";
   LEAD_UI.pick = { day: "", time: "" };
@@ -561,9 +632,10 @@ function openLeadDetail(id) {
 }
 
 function openNewLeadForm() {
+  LEAD_UI.transfer = null;
   const dialog = ensureLeadDialog();
   LEAD_UI.detailId = "";
-  const agents = state.agents.filter((agent) => agent.active !== false);
+  const agents = leadAgents();
   const adSets = state.adSets.filter((adSet) => adSet.metaAdSetId).sort((a, b) => a.name.localeCompare(b.name));
   dialog.innerHTML = `<form class="modal-content la-detail" data-lead-new-form><div class="la-detail-head"><div><small>💬 واتساب</small><h2>زيدي ليد جديد</h2><p>للناس اللي كيتواصلو فواتساب. الليدز ديال الفورمولير كيوصلو بوحدهم.</p></div><button class="la-close" type="button" data-lead-close aria-label="سدّي">×</button></div>
     <div class="la-form"><label><span>الاسم</span><input name="name" autocomplete="off" placeholder="الاسم الكامل" /></label><label><span>رقم الهاتف</span><input name="phone" inputmode="tel" dir="ltr" required placeholder="06 12 34 56 78" /></label>
@@ -618,7 +690,7 @@ function leadSettingsHtml() {
     ["adset", "مستشارة الإعلان", "المستشارة اللي سميتها فالمجموعة الإعلانية، وإلا بالتساوي."],
     ["manual", "يدوي", "الليدز كيوصلو بلا مستشارة وأنتِ كتوزعيهم."],
   ];
-  const agentRows = state.agents.filter((agent) => agent.active !== false).map((agent) => {
+  const agentRows = leadAgents().map((agent) => {
     const setting = distribution.agents?.[agent.id] || { active: true, weight: 1 };
     const count = (days) => leadsList().filter((lead) => lead.agentId === agent.id && lead.source === "form" && (lead.assignedAt || lead.createdAt) >= since(days)).length;
     return `<tr><td><span class="la-owner" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))} · ${escapeHtml(leadAgentName(agent.id))}</span></td><td><label class="la-switch"><input type="checkbox" name="active:${escapeHtml(agent.id)}" ${setting.active !== false ? "checked" : ""} /><span>كتاخد ليدز</span></label></td><td><input type="number" min="0" step="0.5" name="weight:${escapeHtml(agent.id)}" value="${setting.weight ?? 1}" class="la-weight" aria-label="الوزن" /></td><td>${number(count(1))}</td><td>${number(count(7))}</td></tr>`;
@@ -631,7 +703,7 @@ function leadSettingsHtml() {
     </section>
     <section class="la-setting"><h3>🔗 الروابط ديال المستشارات</h3>
       <p class="la-hint">كل مستشارة عندها رابط خاص بيها: كتحلو فالتليفون ديالها مرة وحدة وكتبقى داخلة. ما كتشوف غير الليدز ديالها، بلا كلمة سر. إلا تبدّل الرابط، القديم ما بقاش خدام.</p>
-      ${state.agents.filter((agent) => agent.active !== false).map((agent) => { const link = leadAgentLink(agent); const share = `https://wa.me/${encodeURIComponent(String(agent.whatsapp || "").replace(/\D/g, ""))}?text=${encodeURIComponent(`السلام ${leadAgentName(agent.id)} 👋 هادا الرابط ديال الليدز ديالك، حليه فالتليفون وخليه عندك:\n${link}`)}`; return `<div class="la-link-row"><span class="la-owner" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))} · ${escapeHtml(leadAgentName(agent.id))}</span>${link ? `<div class="la-copy"><input readonly dir="ltr" value="${escapeHtml(link)}" aria-label="الرابط" /><button type="button" data-lead-copy="${escapeHtml(link)}">نسخ</button></div><div class="la-row"><a class="la-secondary la-link-btn" href="${escapeHtml(share)}" target="_blank" rel="noopener">💬 صيفطيه ليها فواتساب</a><button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">بدّلي الرابط</button><button type="button" class="la-secondary" data-agent-link-revoke="${escapeHtml(agent.id)}">حبسي الرابط</button></div>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">صاوبي الرابط</button>`}</div>`; }).join("")}
+      ${leadAgents().map((agent) => { const link = leadAgentLink(agent); const share = `https://wa.me/${encodeURIComponent(String(agent.whatsapp || "").replace(/\D/g, ""))}?text=${encodeURIComponent(`السلام ${leadAgentName(agent.id)} 👋 هادا الرابط ديال الليدز ديالك، حليه فالتليفون وخليه عندك:\n${link}`)}`; return `<div class="la-link-row"><span class="la-owner" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))} · ${escapeHtml(leadAgentName(agent.id))}</span>${link ? `<div class="la-copy"><input readonly dir="ltr" value="${escapeHtml(link)}" aria-label="الرابط" /><button type="button" data-lead-copy="${escapeHtml(link)}">نسخ</button></div><div class="la-row"><a class="la-secondary la-link-btn" href="${escapeHtml(share)}" target="_blank" rel="noopener">💬 صيفطيه ليها فواتساب</a><button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">بدّلي الرابط</button><button type="button" class="la-secondary" data-agent-link-revoke="${escapeHtml(agent.id)}">حبسي الرابط</button></div>` : `<button type="button" class="la-secondary" data-agent-link="${escapeHtml(agent.id)}">صاوبي الرابط</button>`}</div>`; }).join("")}
     </section>
     <form class="la-setting" data-lead-distribution-form><h3>2 · توزيع الليدز</h3>
       <div class="la-modes">${modes.map(([key, label, hint]) => `<label class="la-mode${distribution.mode === key ? " is-on" : ""}"><input type="radio" name="mode" value="${key}" ${distribution.mode === key ? "checked" : ""} /><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></label>`).join("")}</div>
@@ -738,6 +810,50 @@ async function handleLeadClick(event) {
       event.preventDefault();
       event.stopPropagation();
       toast("👁️ وضع المشاهدة: ما يمكنش تبدّلي والو", "error");
+      return;
+    }
+  }
+  const pauseBtn = target.closest("[data-agent-pause]");
+  if (pauseBtn) {
+    const id = pauseBtn.dataset.agentPause;
+    const paused = leadAgentSetting(id).active === false;
+    try { await saveAgentSetting(id, { active: paused }, paused ? `▶️ ${leadAgentName(id)} رجعات كتاخد الليدز` : `⏸️ ${leadAgentName(id)} ما بقاتش كتاخد ليدز جداد`); } catch (error) { toast(error.message, "error"); }
+    return;
+  }
+  const hideBtn = target.closest("[data-agent-hide], [data-agent-show]");
+  if (hideBtn) {
+    const hide = Boolean(hideBtn.dataset.agentHide);
+    const id = hideBtn.dataset.agentHide || hideBtn.dataset.agentShow;
+    if (hide) {
+      const open = leadsList().filter((lead) => lead.agentId === id && !["registered", "not_interested", "other_city", "not_qualified", "wrong_number"].includes(lead.status)).length;
+      if (!window.confirm(`نخبيو ${leadAgentName(id)} من الليدز؟ ما غاديش تاخد ليدز جداد${open ? `، وعندها ${open} ليد مفتوح: حوّليهم من «🔀 تحويل الليدز»` : ""}.`)) return;
+    }
+    try { await saveAgentSetting(id, hide ? { hidden: true, active: false } : { hidden: false }, hide ? "🙈 تخبات من الليدز" : "👀 رجعات للّيدز"); } catch (error) { toast(error.message, "error"); }
+    return;
+  }
+  const transferFrom = target.closest("[data-transfer-from]");
+  if (transferFrom) { openTransfer(transferFrom.dataset.transferFrom || "__all"); return; }
+  if (LEAD_UI.transfer && document.getElementById("leadDialog")?.open) {
+    const t = LEAD_UI.transfer;
+    const setFrom = target.closest("[data-transfer-set-from]");
+    if (setFrom) { t.from = setFrom.dataset.transferSetFrom; renderTransfer(); return; }
+    const status = target.closest("[data-transfer-status]");
+    if (status) { const key = status.dataset.transferStatus; t.statuses = t.statuses.includes(key) ? t.statuses.filter((item) => item !== key) : [...t.statuses, key]; renderTransfer(); return; }
+    const mode = target.closest("[data-transfer-mode]");
+    if (mode) { t.mode = mode.dataset.transferMode; renderTransfer(); return; }
+    const to = target.closest("[data-transfer-to]");
+    if (to) { const key = to.dataset.transferTo; t.to = t.to.includes(key) ? t.to.filter((item) => item !== key) : [...t.to, key]; renderTransfer(); return; }
+    const one = target.closest("[data-transfer-one]");
+    if (one) { t.one = one.dataset.transferOne; renderTransfer(); return; }
+    if (target.closest("[data-transfer-confirm]")) {
+      const { fromIds, targets } = transferPlan();
+      try {
+        const result = await api("/api/crm-leads/transfer", { method: "POST", body: JSON.stringify({ from: fromIds, statuses: t.statuses, to: targets }) });
+        LEAD_UI.transfer = null;
+        document.getElementById("leadDialog")?.close();
+        toast(`🔀 تحوّلو ${result.moved} ليد`);
+        await load();
+      } catch (error) { toast(error.message, "error"); }
       return;
     }
   }

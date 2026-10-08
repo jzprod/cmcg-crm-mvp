@@ -1902,6 +1902,23 @@ async function handleApi(req, res) {
       await storage.write(state);
       return json(res, 200, summary);
     }
+    if (method === "POST" && url.pathname === "/api/crm-leads/transfer") {
+      if (!isAdmin) return json(res, 403, { error: "Only an admin can transfer leads" });
+      const body = await parseBody(req);
+      try {
+        const result = Leads.transferLeads(state, {
+          from: Array.isArray(body.from) ? body.from.map(cleanText) : [],
+          statuses: Array.isArray(body.statuses) ? body.statuses.map(cleanText) : [],
+          to: Array.isArray(body.to) ? body.to.map(cleanText) : [],
+          by: context.label || context.username,
+          dryRun: body.dryRun === true,
+        });
+        if (!body.dryRun && result.moved) await storage.write(state);
+        return json(res, 200, result);
+      } catch (error) {
+        return json(res, 400, { error: error.message });
+      }
+    }
     if (method === "POST" && url.pathname === "/api/crm-leads/redistribute") {
       if (!isAdmin) return json(res, 403, { error: "Only an admin can distribute leads" });
       let assigned = 0;

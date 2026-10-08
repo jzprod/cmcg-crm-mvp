@@ -173,7 +173,7 @@ function normalizeDistribution(input = {}) {
   const agents = {};
   Object.entries(input.agents || {}).forEach(([agentId, value]) => {
     const weight = Number(value?.weight);
-    agents[agentId] = { active: value?.active !== false, weight: Number.isFinite(weight) && weight >= 0 ? Math.round(weight * 100) / 100 : 1 };
+    agents[agentId] = { active: value?.active !== false, hidden: value?.hidden === true, weight: Number.isFinite(weight) && weight >= 0 ? Math.round(weight * 100) / 100 : 1 };
   });
   return {
     mode: DISTRIBUTION_MODES.includes(input.mode) ? input.mode : base.mode,
@@ -195,7 +195,7 @@ function agentSetting(distribution, agentId) {
 function pickAgent(state, lead, distribution, at = new Date()) {
   const mode = distribution.mode;
   if (mode === "manual") return "";
-  const pool = state.agents.filter((agent) => agent.active !== false && agentSetting(distribution, agent.id).active && (mode !== "weighted" || agentSetting(distribution, agent.id).weight > 0));
+  const pool = state.agents.filter((agent) => agent.active !== false && agentSetting(distribution, agent.id).active && !agentSetting(distribution, agent.id).hidden && (mode !== "weighted" || agentSetting(distribution, agent.id).weight > 0));
   if (mode === "adset" && lead.adSetId) {
     const adSet = state.adSets.find((item) => item.id === lead.adSetId);
     if (adSet?.agentId && pool.some((agent) => agent.id === adSet.agentId)) return adSet.agentId;
@@ -435,13 +435,51 @@ function channelOfCampaign(state, campaign, overrides = {}) {
   return /lead/i.test(campaign.objective || "") ? "form" : "whatsapp";
 }
 
+// Move leads between agents. from: agent ids ("" = unassigned); statuses: which
+// leads move (RDVs are left out unless asked); to: one or more agents, filled in
+// turn so the leads are spread evenly. A lead never moves to the agent it is on.
+// dryRun returns the plan without changing anything.
+function transferLeads(state, { from = [], statuses = ["new"], to = [], by = "", dryRun = false } = {}) {
+  const fromSet = new Set(from);
+  const statusSet = new Set(statuses.filter((status) => LEAD_STATUSES.includes(status)));
+  const targets = to.filter((agentId) => state.agents.some((agent) => agent.id === agentId));
+  if (!statusSet.size) throw new Error("اختاري على الأقل حالة وحدة");
+  if (!targets.length) throw new Error("اختاري لمين غادي يمشيو الليدز");
+  const leads = (state.crmLeads || [])
+    .filter((lead) => fromSet.has(lead.agentId || "") && statusSet.has(lead.status))
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  const name = (agentId) => state.agents.find((agent) => agent.id === agentId)?.name || "";
+  const plan = {};
+  let turn = 0;
+  const moves = [];
+  leads.forEach((lead) => {
+    const options = targets.filter((agentId) => agentId !== lead.agentId);
+    if (!options.length) return;
+    const agentId = options[turn % options.length];
+    turn += 1;
+    plan[agentId] = (plan[agentId] || 0) + 1;
+    moves.push([lead, agentId]);
+  });
+  if (!dryRun) {
+    moves.forEach(([lead, agentId]) => {
+      pushHistory(lead, "reassigned", { from: name(lead.agentId), to: name(agentId), transfer: true }, by);
+      lead.agentId = agentId;
+      lead.assignedAt = now();
+      lead.updatedAt = now();
+      syncLeadOutcomes(state, lead);
+    });
+  }
+  return { moved: moves.length, plan };
+}
+
 // Per-agent activity for today and this month (no personal data): calls and
 // messages logged, RDVs booked, registrations, leads received and still new.
 function leadStats(state, at = new Date()) {
   const day = at.toISOString().slice(0, 10);
   const month = day.slice(0, 7);
   const leads = state.crmLeads || [];
-  return (state.agents || []).filter((agent) => agent.active !== false).map((agent) => {
+  const hidden = state.settings?.leadDistribution?.agents || {};
+  return (state.agents || []).filter((agent) => agent.active !== false && !hidden[agent.id]?.hidden).map((agent) => {
     const mine = leads.filter((lead) => lead.agentId === agent.id);
     const actionsToday = mine.reduce((sum, lead) => sum + (lead.history || []).filter((item) => String(item.at).slice(0, 10) === day && (item.contact || item.status)).length, 0);
     return {
@@ -459,7 +497,7 @@ function leadStats(state, at = new Date()) {
 }
 
 module.exports = {
-  leadStats, appointmentError, OPENING,
+  transferLeads, leadStats, appointmentError, OPENING,
   LEAD_STATUSES, CLOSED_STATUSES, DISTRIBUTION_MODES, DEFAULT_TEMPLATES,
   normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, updateLead, createManualLead,
   syncLeadOutcomes, normalizeDistribution, defaultDistribution, fillTemplate, leadVcard, channelOfCampaign,

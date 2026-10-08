@@ -1544,3 +1544,24 @@ main { width: 100%; }
 .la-link-row { display: grid; gap: 8px; padding: 10px; border-radius: 12px; background: #fff; }
 .la-link-btn { display: inline-flex; align-items: center; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) { .la-heat-h3 b, .la-reminder-alert, .la-reminder-big { animation: none; } }
+
+/* Agent controls: pause, hide, transfer */
+.la-agent.is-paused { opacity: .92; border-top-color: #94a3b8; }
+.la-paused { margin: -16px -16px 0; padding: 7px 14px; border-radius: 15px 15px 0 0; background: #f1f5f9; color: #475569; font-weight: 700; font-size: .85rem; }
+.la-agent-tools { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; border-top: 1px dashed var(--la-line); }
+.la-agent-tools button { min-height: 36px; padding: 0 12px; border: 1px solid var(--la-line); border-radius: 10px; background: #fff; color: var(--la-muted); font-weight: 700; font-size: .85rem; cursor: pointer; }
+.la-agent-tools button:hover { color: var(--la-ink); border-color: #c7d4d1; }
+.la-hidden-agents { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--la-muted); font-size: .88rem; }
+.la-hidden-agents button { min-height: 34px; padding: 0 12px; border: 1px dashed #c7d4d1; border-radius: 999px; background: #fff; cursor: pointer; }
+.la-transfer-btn { min-height: 46px; padding: 0 16px; border: 1px solid #c7d2fe; border-radius: 14px; background: #eef2ff; color: #4338ca; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.la-toolbar { grid-template-columns: auto 1fr auto auto; }
+.la-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.la-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 2px solid var(--la-line); border-radius: 999px; background: #fff; color: var(--la-ink); font-weight: 700; cursor: pointer; }
+.la-chip b { display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--la-bg); font: 700 .75rem/1 "Fira Sans", sans-serif; }
+.la-chip.is-on { border-color: var(--la-brand); background: #ecfdf8; color: var(--la-brand); }
+.la-chip[class*="la-"].is-on { border-color: var(--st-fg, var(--la-brand)); background: var(--st-bg, #ecfdf8); color: var(--st-fg, var(--la-brand)); }
+.la-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--agent); }
+.la-warn-note { margin: 0; padding: 8px 12px; border-radius: 12px; background: #fff7ed; color: #9a3412; font-weight: 600; }
+.la-transfer-summary { display: grid; gap: 4px; padding: 12px 14px; border-radius: 14px; background: #eef2ff; color: #3730a3; }
+.la-transfer-summary span { font-size: .9rem; }
+@media (max-width: 640px) { .la-transfer-btn { width: 100%; } }

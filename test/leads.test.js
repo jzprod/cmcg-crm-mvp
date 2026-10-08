@@ -128,6 +128,27 @@ test("new call results close or schedule the lead; agents get daily stats", () =
   assert.equal(upgraded.templates.first, "Salam {name}");
 });
 
+test("leads transfer between agents, keeping RDVs unless asked", () => {
+  const state = baseState();
+  state.agents.push({ id: "nora", name: "Nora" });
+  const rows = Array.from({ length: 6 }, (_, i) => sheetRow({ id: `l:t${i}`, phone_number: `p:+21262222222${i}` }));
+  Leads.ingestLeadRows(state, rows, { distribution: Leads.normalizeDistribution({ mode: "adset" }) }); // all to Souad
+  Leads.updateLead(state, state.crmLeads[0], { appointmentAt: "2026-10-10T15:00" });
+  Leads.updateLead(state, state.crmLeads[1], { status: "no_answer" });
+  const preview = Leads.transferLeads(state, { from: ["souad"], statuses: ["new"], to: ["wiam", "nora"], dryRun: true });
+  assert.deepEqual(preview, { moved: 4, plan: { wiam: 2, nora: 2 } });
+  assert.ok(state.crmLeads.every((lead) => lead.agentId === "souad")); // dry run changes nothing
+  Leads.transferLeads(state, { from: ["souad"], statuses: ["new", "no_answer"], to: ["wiam"], by: "Admin" });
+  assert.equal(state.crmLeads[0].agentId, "souad"); // the RDV stays with the agent who booked it
+  assert.equal(state.crmLeads.filter((lead) => lead.agentId === "wiam").length, 5);
+  assert.equal(state.outcomes.find((o) => o.leadId === state.crmLeads[0].id).agentId, "souad");
+  assert.throws(() => Leads.transferLeads(state, { from: ["wiam"], statuses: [], to: ["souad"] }), /حالة/);
+  // Paused or hidden agents receive no new leads.
+  const paused = baseState();
+  Leads.ingestLeadRows(paused, rows.slice(0, 2), { distribution: Leads.normalizeDistribution({ agents: { souad: { hidden: true }, wiam: { active: true } } }) });
+  assert.ok(paused.crmLeads.every((lead) => lead.agentId === "wiam"));
+});
+
 test("templates, contact cards and the WhatsApp vs form split", () => {
   const lead = { name: "Yassine Amrani", phone: "212612345678", appointmentAt: "2026-10-10T10:00:00", source: "form", createdAt: "2026-10-08T10:00:00Z" };
   const text = Leads.fillTemplate("Bonjour {name}, ici {agent}. RDV {day} à {time}.", lead, { agentName: "Souad" });
