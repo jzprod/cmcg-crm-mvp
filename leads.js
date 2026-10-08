@@ -468,7 +468,7 @@ function createDemoLeads(state, agentIds, at = new Date()) {
         creativeId: "", adSetId: "", campaignId: "",
         status: "new", statusAt: now(), agentId, assignedAt: now(),
         appointmentAt: "", bookedAt: "", remindedAt: "", callAttempts: 0,
-        notes: n === 1 ? `طلب تجريبي (${arabic}): موعد لتجربة رسالة التذكير.` : `طلب تجريبي (${arabic}): طلب ساخن لتجربة الاتصال.`,
+        notes: n === 1 ? `رسالة تجريبية (${arabic}): موعد لتجربة رسالة التذكير.` : `رسالة تجريبية (${arabic}): رسالة ساخنة لتجربة الاتصال.`,
         history: [], importedAt: now(), updatedAt: now(),
       };
       pushHistory(lead, "created", { agentId, demo: true });
@@ -495,7 +495,7 @@ function transferLeads(state, { from = [], statuses = ["new"], to = [], by = "",
   const statusSet = new Set(statuses.filter((status) => LEAD_STATUSES.includes(status)));
   const targets = to.filter((agentId) => state.agents.some((agent) => agent.id === agentId));
   if (!statusSet.size) throw new Error("اختاري حالة واحدة على الأقل");
-  if (!targets.length) throw new Error("اختاري إلى من ستُحوَّل الطلبات");
+  if (!targets.length) throw new Error("اختاري إلى من ستُحوَّل الرسائل");
   const leads = (state.crmLeads || [])
     .filter((lead) => fromSet.has(lead.agentId || "") && statusSet.has(lead.status))
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));

@@ -62,7 +62,7 @@ const DAY_ALIASES = {
 };
 const ar = {
   "CMCG CRM": "نظام CMCG",
-  "Leads": "الطلبات",
+  "Leads": "الرسائل",
   "Leads du formulaire et de WhatsApp : appeler, fixer les RDV, rappeler et suivre jusqu'à l'inscription.": "اتصلي، حدّدي المواعيد، ذكّري العملاء، وتابعي حتى التسجيل.",
   "Ads to enrollment": "من الإعلان إلى التسجيل",
   "Admin": "مدير",
