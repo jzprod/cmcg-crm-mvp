@@ -79,6 +79,18 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - CSV cells beginning with spreadsheet formula characters must be neutralized.
 - `data/crm.json`, `data/backups/`, exports, `.env`, and credentials must remain uncommitted.
 
+## Lead pipeline (Leads tab)
+
+- `state.crmLeads[]` holds form leads (Meta lead form -> Google Sheet "CMCG Leads" -> Apps Script -> `POST /api/lead-intake?token=`) and WhatsApp leads added by agents. Logic lives in `leads.js` (server, unit-tested in `test/leads.test.js`); the UI is `public/leads-ui.js` (uses app.js globals).
+- Sheet columns are Meta's: `id`, `created_time`, `ad_id`, `ad_name`, `adset_id`, `adset_name`, `campaign_id`, `campaign_name`, `form_id`, `form_name`, `is_organic`, `platform`, the form questions, `full_name`, `phone_number`, `lead_status`. `l:`/`ag:`/`as:`/`c:`/`f:`/`p:` prefixes are stripped; unknown columns are kept as `answers`; phones become international digits (06... -> 2126...); Meta "<test lead: dummy data>" rows are skipped. Duplicates match on the Meta lead id (or phone + form), so re-sending the sheet is safe.
+- Attribution: Meta ad / ad set / campaign IDs, then names, to `creativeId` / `adSetId` / `campaignId`.
+- Distribution (`settings.leadDistribution`): `balanced` (fewest form leads today, then this week), `weighted` (leads in the last 30 days in proportion to per-agent weight), `adset` (agent named in the ad set, else balanced), `manual`. Per-agent `active` toggles. `POST /api/crm-leads/redistribute` assigns leads without an agent.
+- Statuses: new, no_answer, contacted, booked, visited, registered, not_interested, wrong_number. Setting an RDV moves new/no_answer/contacted to booked. `syncLeadOutcomes` keeps CRM outcomes (with `leadId`, `auto: true`) in step: booked once an RDV was set; showed while "visited"; registered replaces showed. Outcomes sit on the lead's ad (else ad set / campaign / agent) with the handling agent and `sourceDate` = lead date, so Ads Manager, Analyze, the coach and reports count them.
+- Contact: `tel:+...`, `wa.me` with the first-message or reminder template (`{name} {agent} {day} {time}`, editable), and `GET /api/crm-leads/:id/vcard` to save the contact with the name prefilled. Clicking call/WhatsApp logs the attempt (new -> contacted); the reminder link stamps `remindedAt`. Reminders are one-tap prefilled WhatsApp messages; fully automatic sending would need the WhatsApp Business (Cloud) API.
+- Sales logins see and change only their own leads (no reassign, import, delete or intake token); they open on the Leads tab.
+- Split test (admin, Leads tab): campaigns are "form" when they produced form leads or their objective contains "lead", else "whatsapp"; `POST /api/settings/channels` overrides (form / whatsapp / exclude). Compares spend, contacts (messages vs form leads), cost per contact, RDV, contact->RDV, cost per RDV, visits, registered, RDV->student, cost per student and estimated profit over the report period; a verdict needs 5+ students per side.
+- Routes: `POST /api/lead-intake` (token, no Basic Auth), `POST /api/lead-intake/token`, `POST /api/crm-leads`, `PATCH|DELETE /api/crm-leads/:id`, `GET /api/crm-leads/:id/vcard`, `POST /api/crm-leads/import` (CSV), `POST /api/crm-leads/redistribute`, `POST /api/settings/lead-distribution`, `POST /api/settings/channels`. Lead writes require configured auth (personal data).
+
 ## API
 
 - `GET /api/health` - backend, persistence status, update time, and record counts.

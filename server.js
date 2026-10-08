@@ -4,6 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { createStorage } = require("./storage");
 const { buildReport, toCsv, toMarkdown, todayIn } = require("./report");
+const Leads = require("./leads");
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_FILE = process.env.CRM_DATA_FILE || path.join(__dirname, "data", "crm.json");
@@ -113,6 +114,7 @@ function emptyState() {
     imports: [],
     outcomes: [],
     leads: [],
+    crmLeads: [],
     dailyLogs: [],
     events: [],
   };
@@ -131,7 +133,10 @@ function normalizeState(input) {
     ...(state.settings.scoring || {}),
   });
   state.settings.profit = normalizeProfitSettings(state.settings.profit || {});
-  ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events", "goals"].forEach((key) => {
+  state.settings.leadDistribution = Leads.normalizeDistribution(state.settings.leadDistribution || {});
+  state.settings.leadIntake = { token: cleanText(state.settings.leadIntake?.token) };
+  state.settings.channelOverrides = state.settings.channelOverrides && typeof state.settings.channelOverrides === "object" ? state.settings.channelOverrides : {};
+  ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "crmLeads", "dailyLogs", "events", "goals"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
   state.meta.schemaVersion = 6;
@@ -319,7 +324,8 @@ function hasSensitiveStudentData(state) {
     state.groups.length
     || state.students.length
     || state.payments.length
-    || state.events.some((event) => event.studentId),
+    || state.events.some((event) => event.studentId)
+    || (state.crmLeads || []).length,
   );
 }
 
@@ -329,12 +335,14 @@ function publicStateWithoutStudentData(state) {
   safe.students = [];
   safe.payments = [];
   safe.events = safe.events.filter((event) => !event.studentId);
+  safe.crmLeads = [];
+  safe.settings = { ...safe.settings, leadIntake: { token: "" } };
   safe.meta = { ...safe.meta, sensitiveDataLocked: true };
   return safe;
 }
 
 function isSensitiveStudentApiPath(pathname) {
-  return /^\/api\/(?:groups|students|operations|availability)(?:\/|$)/.test(pathname);
+  return /^\/api\/(?:groups|students|operations|availability|crm-leads)(?:\/|$)/.test(pathname);
 }
 
 function requireConfiguredAuthForStudentData(res, pathname) {
@@ -350,6 +358,8 @@ function salesCanAccessApi(method, pathname) {
   if ((method === "POST" || method === "PATCH") && /^\/api\/groups(?:\/|$)/.test(pathname)) return true;
   if ((method === "POST" || method === "PATCH") && /^\/api\/students(?:\/|$)/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/availability(?:\/|$)/.test(pathname)) return true;
+  if ((method === "PATCH" || method === "POST") && /^\/api\/crm-leads(?:\/[^/]+)?$/.test(pathname)) return true;
+  if (method === "GET" && /^\/api\/crm-leads\/[^/]+\/vcard$/.test(pathname)) return true;
   return false;
 }
 
@@ -387,6 +397,8 @@ function stateForUser(state, context) {
   safe.students = state.students.filter((student) => studentIds.has(student.id));
   safe.payments = state.payments.filter((payment) => studentIds.has(payment.studentId));
   safe.events = state.events.filter((event) => event.studentId && studentIds.has(event.studentId));
+  safe.crmLeads = context.agentId ? (state.crmLeads || []).filter((lead) => lead.agentId === context.agentId) : [];
+  safe.settings = { ...safe.settings, leadIntake: { token: "" }, leadDistribution: { ...safe.settings.leadDistribution, agents: {} } };
   return safe;
 }
 
@@ -398,7 +410,7 @@ function sendOperationsLockedPage(res) {
   res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMCG CRM locked</title><body style="margin:0;font-family:system-ui,sans-serif;background:#0f172a;color:#fff;display:grid;min-height:100vh;place-items:center"><main style="max-width:640px;padding:28px"><p style="color:#86efac;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Secure area locked</p><h1>Student operations need CRM login first.</h1><p style="color:#cbd5e1;line-height:1.6">Add <strong>CRM_USER</strong>/<strong>CRM_PASSWORD</strong> for admin, or <strong>CRM_SALES_USER</strong>/<strong>CRM_SALES_PASSWORD</strong>/<strong>CRM_SALES_AGENT</strong> for a restricted sales login. Restart the app, then open this page again.</p></main></body></html>`);
 }
 
-const VERSIONED_ASSETS = ["app.js", "quality.js", "profit.js", "coach.js", "styles.css"];
+const VERSIONED_ASSETS = ["app.js", "quality.js", "profit.js", "coach.js", "leads-ui.js", "styles.css"];
 
 // Stamp asset URLs in the page with a hash of their contents, so a CDN or browser
 // cache can never pair a freshly deployed index.html with an old app.js.
@@ -408,7 +420,7 @@ function versionAssetUrls(html) {
     try { hash.update(fs.readFileSync(path.join(PUBLIC_DIR, name))); } catch {}
   });
   const version = hash.digest("hex").slice(0, 12);
-  return html.replace(/(src|href)="\/(app\.js|quality\.js|profit\.js|coach\.js|styles\.css)"/g, `$1="/$2?v=${version}"`);
+  return html.replace(/(src|href)="\/(app\.js|quality\.js|profit\.js|coach\.js|leads-ui\.js|styles\.css)"/g, `$1="/$2?v=${version}"`);
 }
 
 function serveStatic(req, res) {
@@ -1125,11 +1137,35 @@ function resolveOutcomeTarget(state, level, targetId) {
   return result;
 }
 
+// Google Sheets pushes new form leads here with the intake token instead of a login.
+async function handleLeadIntake(req, res, url) {
+  if (!storageReady) return json(res, 503, { ok: false, error: "CRM storage is starting. Try again in a moment." });
+  const release = await acquireMutationLock();
+  try {
+    const state = await storage.read();
+    const token = cleanText(url.searchParams.get("token") || req.headers["x-intake-token"]);
+    const expected = state.settings.leadIntake?.token || "";
+    const valid = expected && token && token.length === expected.length && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+    if (!valid) return json(res, 401, { ok: false, error: "Invalid intake token" });
+    const body = await parseBody(req);
+    const rows = Array.isArray(body.rows) ? body.rows : Array.isArray(body) ? body : [body.row || body];
+    if (rows.length > 5000) return json(res, 400, { ok: false, error: "Send at most 5000 rows at a time" });
+    const summary = Leads.ingestLeadRows(state, rows, { distribution: state.settings.leadDistribution, source: "form" });
+    if (summary.added || summary.updated) await storage.write(state);
+    return json(res, 200, { ok: true, ...summary });
+  } catch (error) {
+    return json(res, 400, { ok: false, error: error.message || "Could not read these leads" });
+  } finally {
+    release();
+  }
+}
+
 async function handleApi(req, res) {
-  const initialAuth = requireAuth(req, res);
-  if (!initialAuth) return;
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
+  if (method === "POST" && url.pathname === "/api/lead-intake") return handleLeadIntake(req, res, url);
+  const initialAuth = requireAuth(req, res);
+  if (!initialAuth) return;
 
   if (!storageReady) {
     return json(res, 503, {
@@ -1266,7 +1302,7 @@ async function handleApi(req, res) {
     if (method === "POST" && url.pathname === "/api/reset-data") {
       const reset = emptyState();
       reset.centre = { ...reset.centre, ...(state.centre || {}) };
-      reset.settings = { ...reset.settings, currency: state.settings?.currency || reset.settings.currency, profit: normalizeProfitSettings(state.settings?.profit || {}) };
+      reset.settings = { ...reset.settings, currency: state.settings?.currency || reset.settings.currency, profit: normalizeProfitSettings(state.settings?.profit || {}), leadDistribution: state.settings?.leadDistribution, leadIntake: state.settings?.leadIntake, channelOverrides: state.settings?.channelOverrides };
       reset.meta.resetAt = now();
       await storage.write(reset);
       return json(res, 200, { reset: true, state: reset });
@@ -1782,6 +1818,117 @@ async function handleApi(req, res) {
       state.usedCreativeCodes.push(item.code);
       await storage.write(state);
       return json(res, 201, item);
+    }
+
+    // ---- Lead pipeline (form leads from Google Sheets + WhatsApp leads) ----
+    const isAdmin = context.role !== "sales";
+    const leadAgentName = (agentId) => state.agents.find((agent) => agent.id === agentId)?.name || "";
+    if (method === "POST" && url.pathname === "/api/lead-intake/token") {
+      if (!isAdmin) return json(res, 403, { error: "Only an admin can change the intake link" });
+      state.settings.leadIntake = { token: crypto.randomBytes(18).toString("hex") };
+      await storage.write(state);
+      return json(res, 200, { token: state.settings.leadIntake.token });
+    }
+    if (method === "POST" && url.pathname === "/api/settings/lead-distribution") {
+      if (!isAdmin) return json(res, 403, { error: "Only an admin can change lead distribution" });
+      const body = await parseBody(req);
+      state.settings.leadDistribution = Leads.normalizeDistribution({ ...state.settings.leadDistribution, ...body, templates: { ...state.settings.leadDistribution.templates, ...(body.templates || {}) } });
+      await storage.write(state);
+      return json(res, 200, { settings: state.settings });
+    }
+    if (method === "POST" && url.pathname === "/api/settings/channels") {
+      if (!isAdmin) return json(res, 403, { error: "Only an admin can change channels" });
+      const body = await parseBody(req);
+      const campaign = state.campaigns.find((item) => item.id === cleanText(body.campaignId));
+      if (!campaign) return json(res, 400, { error: "Choose a valid campaign" });
+      const channel = cleanText(body.channel);
+      if (channel && !["form", "whatsapp", "exclude"].includes(channel)) return json(res, 400, { error: "Channel must be form, whatsapp or exclude" });
+      if (channel) state.settings.channelOverrides[campaign.id] = channel;
+      else delete state.settings.channelOverrides[campaign.id];
+      await storage.write(state);
+      return json(res, 200, { settings: state.settings });
+    }
+    if (method === "POST" && url.pathname === "/api/crm-leads/import") {
+      if (!isAdmin) return json(res, 403, { error: "Only an admin can import leads" });
+      const body = await parseBody(req);
+      const rows = parseCsv(String(body.csv || ""));
+      if (!rows.length) return json(res, 400, { error: "This file has no lead rows" });
+      const summary = Leads.ingestLeadRows(state, rows, { distribution: state.settings.leadDistribution, source: "form" });
+      await storage.write(state);
+      return json(res, 200, summary);
+    }
+    if (method === "POST" && url.pathname === "/api/crm-leads/redistribute") {
+      if (!isAdmin) return json(res, 403, { error: "Only an admin can distribute leads" });
+      let assigned = 0;
+      state.crmLeads.filter((lead) => !lead.agentId && !Leads.CLOSED_STATUSES.has(lead.status)).forEach((lead) => {
+        const agentId = Leads.pickAgent(state, lead, { ...state.settings.leadDistribution, mode: state.settings.leadDistribution.mode === "manual" ? "balanced" : state.settings.leadDistribution.mode });
+        if (!agentId) return;
+        lead.agentId = agentId;
+        lead.assignedAt = now();
+        Leads.syncLeadOutcomes(state, lead);
+        assigned += 1;
+      });
+      await storage.write(state);
+      return json(res, 200, { assigned });
+    }
+    if (method === "POST" && url.pathname === "/api/crm-leads") {
+      const body = await parseBody(req);
+      if (!isAdmin && !context.agentId) return json(res, 403, { error: "This sales login is not linked to an agent." });
+      const agentId = isAdmin ? cleanText(body.agentId) : context.agentId;
+      if (agentId && !state.agents.some((agent) => agent.id === agentId)) return json(res, 400, { error: "Choose a valid sales agent" });
+      const lead = Leads.createManualLead(state, body, { by: context.label || context.username, agentId });
+      await storage.write(state);
+      return json(res, 201, lead);
+    }
+    const crmLeadVcard = url.pathname.match(/^\/api\/crm-leads\/([^/]+)\/vcard$/);
+    if (method === "GET" && crmLeadVcard) {
+      const lead = state.crmLeads.find((item) => item.id === crmLeadVcard[1]);
+      if (!lead || (!isAdmin && lead.agentId !== context.agentId)) return json(res, 404, { error: "Lead not found" });
+      const campaign = state.campaigns.find((item) => item.id === lead.campaignId);
+      const filename = (cleanText(lead.name) || lead.phone || "lead").replace(/[^\p{L}\p{N} _-]+/gu, "").slice(0, 60) || "lead";
+      res.writeHead(200, securityHeaders({
+        "Content-Type": "text/vcard; charset=utf-8",
+        "Content-Disposition": `attachment; filename="lead.vcf"; filename*=UTF-8''${encodeURIComponent(filename)}.vcf`,
+        "Cache-Control": "no-store",
+      }));
+      return res.end(Leads.leadVcard(lead, { campaignName: campaign?.name || lead.meta?.formName || "" }));
+    }
+    const crmLeadMatch = url.pathname.match(/^\/api\/crm-leads\/([^/]+)$/);
+    if (crmLeadMatch && (method === "PATCH" || method === "DELETE")) {
+      const lead = state.crmLeads.find((item) => item.id === crmLeadMatch[1]);
+      if (!lead || (!isAdmin && lead.agentId !== context.agentId)) return json(res, 404, { error: "Lead not found" });
+      if (method === "DELETE") {
+        if (!isAdmin) return json(res, 403, { error: "Only an admin can delete leads" });
+        state.crmLeads = state.crmLeads.filter((item) => item.id !== lead.id);
+        state.outcomes = state.outcomes.filter((outcome) => outcome.leadId !== lead.id);
+        await storage.write(state);
+        return json(res, 200, { removed: true });
+      }
+      const body = await parseBody(req);
+      if (body.agentId !== undefined) {
+        if (!isAdmin) return json(res, 403, { error: "Only an admin can reassign leads" });
+        const agentId = cleanText(body.agentId);
+        if (agentId && !state.agents.some((agent) => agent.id === agentId)) return json(res, 400, { error: "Choose a valid sales agent" });
+        if (agentId !== lead.agentId) {
+          lead.history = lead.history || [];
+          lead.history.push({ at: now(), type: "reassigned", from: leadAgentName(lead.agentId), to: leadAgentName(agentId), by: context.label || context.username });
+          lead.agentId = agentId;
+          lead.assignedAt = now();
+        }
+      }
+      if (isAdmin && (body.creativeId !== undefined || body.adSetId !== undefined || body.campaignId !== undefined)) {
+        const ad = state.creatives.find((item) => item.id === cleanText(body.creativeId));
+        const adSet = state.adSets.find((item) => item.id === (cleanText(body.adSetId) || ad?.adSetId));
+        const campaign = state.campaigns.find((item) => item.id === (cleanText(body.campaignId) || adSet?.campaignId));
+        Object.assign(lead, { creativeId: ad?.id || "", adSetId: adSet?.id || "", campaignId: campaign?.id || "" });
+      }
+      try {
+        Leads.updateLead(state, lead, body, context.label || context.username);
+      } catch (error) {
+        return json(res, 400, { error: error.message });
+      }
+      await storage.write(state);
+      return json(res, 200, lead);
     }
 
     if (method === "POST" && url.pathname === "/api/leads") {

@@ -23,6 +23,7 @@ const pageMeta = {
   students: ["Étudiants", "Filtrez par formation, groupe, statut ou paiement, puis gérez chaque étudiant."],
   agents: ["Agents", "Manage automatic ad-set assignment."],
   reports: ["Rapports", "Rapport détaillé par agent: publicité, ROI, closing, étudiants et paiements."],
+  leads: ["Leads", "Leads du formulaire et de WhatsApp : appeler, fixer les RDV, rappeler et suivre jusqu'à l'inscription."],
   export: ["Export & AI", "Extract detailed daily, weekly, or custom reports for Excel or an AI analyst."],
   data: ["Import & data", "Synchronize Meta Ads and protect your CRM data."],
 };
@@ -1308,14 +1309,14 @@ function applyLanguage(root = document.body) {
 function applyRoleAccess() {
   const salesOnly = currentUser?.role === "sales";
   document.body.classList.toggle("role-sales", salesOnly);
-  document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("hidden", salesOnly && !["groups", "students"].includes(tab.dataset.tab)));
+  document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("hidden", salesOnly && !["groups", "students", "leads"].includes(tab.dataset.tab)));
   document.querySelectorAll("[data-open-import], [data-add-outcome], [data-go-performance], [data-seed-screenshot]").forEach((item) => item.classList.toggle("hidden", salesOnly));
   document.querySelector(".period-card")?.classList.toggle("hidden", salesOnly);
-  if (salesOnly && !document.getElementById("groups")?.classList.contains("active")) showPanel("groups", false);
+  if (salesOnly && !["groups", "students", "leads"].some((panel) => document.getElementById(panel)?.classList.contains("active"))) showPanel("leads", false);
 }
 
 function normalizeState() {
-  ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "dailyLogs", "events"].forEach((key) => {
+  ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "crmLeads", "dailyLogs", "events"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
   state.settings = state.settings || {};
@@ -4489,13 +4490,13 @@ function render() {
   hydrateFilters();
   hydrateSortOptions();
   document.getElementById("authWarning").classList.toggle("hidden", authEnabled);
-  renderGoals(); renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderStudentsPage(); renderAgents(); renderReport(); renderImports(); renderManualBudget(); renderStorage(); renderScoringSettings();
+  renderGoals(); renderKpis(); renderFunnel(); renderAttention(); renderOverviewTables(); renderPerformance(); renderOutcomes(); renderOperations(); renderStudentsPage(); renderAgents(); renderReport(); if (typeof renderLeads === "function") renderLeads(); renderImports(); renderManualBudget(); renderStorage(); renderScoringSettings();
   applyRoleAccess();
   applyLanguage();
 }
 
 function showPanel(name, updateHash = true) {
-  if (currentUser?.role === "sales" && !["groups", "students"].includes(name)) name = "groups";
+  if (currentUser?.role === "sales" && !["groups", "students", "leads"].includes(name)) name = "leads";
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
   document.querySelectorAll(".panel").forEach((item) => item.classList.toggle("active", item.id === name));
   const meta = pageMeta[name] || ["CMCG CRM", ""];
