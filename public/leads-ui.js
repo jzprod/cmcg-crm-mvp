@@ -1000,33 +1000,49 @@ function leadSplitRange() {
   return { ...filters, from, to, preset: period.preset in ranges ? period.preset : "this_month" };
 }
 function leadSplitData() {
-  const blank = () => ({ spend: 0, contacts: 0, booked: 0, showed: 0, registered: 0 });
+  const blank = () => ({ spend: 0, contacts: 0, booked: 0, showed: 0, registered: 0, rdvHours: [], regHours: [], daily: {} });
   const sides = { whatsapp: blank(), form: blank() };
   const range = leadSplitRange();
   const dayMs = 86400000;
-  const days = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / dayMs) + 1;
+  const dayKey = (time) => dateInputValue(new Date(time));
+  const daily = (side, day) => (side.daily[day] = side.daily[day] || { spend: 0, booked: 0, registered: 0 });
   filteredLogs(range).forEach((log) => {
     const campaign = relationForLog(log).campaign;
     const side = sides[leadChannelOf(campaign)];
     if (!side) return;
     // A report covering days before/after the test window counts only its days inside it.
-    const start = log.reportingStart || log.date || "";
-    const end = log.reportingEnd || log.date || start;
-    const inStart = range.from && start < range.from ? range.from : start;
-    const inEnd = range.to && end > range.to ? range.to : end;
-    const share = start && end && end >= start ? Math.max(0, Math.min(1, days(inStart, inEnd) / days(start, end))) : 1;
+    const share = logShareInRange(log, range);
     side.spend += Number(log.spend || 0) * share;
     if (side === sides.whatsapp) side.contacts += Math.round(Number(log.messages || 0) * share);
+    const start = log.reportingStart || log.date || "";
+    const end = log.reportingEnd || log.date || start;
+    if (!start) return;
+    const total = Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / dayMs) + 1;
+    for (let n = 0; n < total; n += 1) {
+      const day = new Date(Date.parse(`${start}T00:00:00Z`) + n * dayMs).toISOString().slice(0, 10);
+      if ((range.from && day < range.from) || (range.to && day > range.to)) continue;
+      daily(side, day).spend += Number(log.spend || 0) / total;
+    }
   });
-  sides.form.contacts += leadsList().filter((lead) => !lead.demo && lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt), range)).length;
+  const formLeads = leadsList().filter((lead) => !lead.demo && lead.source === "form");
+  sides.form.contacts += formLeads.filter((lead) => overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt), range)).length;
+  const formById = new Map(formLeads.map((lead) => [lead.id, lead]));
   // Results of CRM form leads always belong to the form side; other results follow
   // their campaign's side (WhatsApp results never land on the form side by name).
-  const formLeadIds = new Set(leadsList().filter((lead) => !lead.demo && lead.source === "form").map((lead) => lead.id));
   filteredOutcomes(range).forEach((outcome) => {
-    const fromForm = outcome.leadId && formLeadIds.has(outcome.leadId);
-    const channel = fromForm ? "form" : leadChannelOf(relationForOutcome(outcome).campaign);
-    const side = sides[channel === "form" && !fromForm ? "" : channel];
-    if (side && side[outcome.type] !== undefined) side[outcome.type] += 1;
+    const lead = outcome.leadId ? formById.get(outcome.leadId) : null;
+    const channel = lead ? "form" : leadChannelOf(relationForOutcome(outcome).campaign);
+    const side = sides[channel === "form" && !lead ? "" : channel];
+    if (!side || side[outcome.type] === undefined) return;
+    side[outcome.type] += 1;
+    if (outcome.date && (outcome.type === "booked" || outcome.type === "registered")) daily(side, outcome.date)[outcome.type] += 1;
+    // How long it takes: first contact -> RDV / registration.
+    const startAt = lead ? Date.parse(lead.createdAt) : Date.parse(`${outcome.sourceDate || ""}T12:00:00`);
+    const endAt = lead ? Date.parse(outcome.type === "booked" ? lead.bookedAt : lead.registeredAt || lead.statusAt) : Date.parse(`${outcome.date || ""}T12:00:00`);
+    if (Number.isFinite(startAt) && Number.isFinite(endAt) && endAt >= startAt) {
+      if (outcome.type === "booked") side.rdvHours.push((endAt - startAt) / 3600000);
+      if (outcome.type === "registered") side.regHours.push((endAt - startAt) / 3600000);
+    }
   });
   return sides;
 }
@@ -1137,46 +1153,121 @@ function setSplitPeriod(patch) {
   const ads = document.getElementById("leadAds");
   if (ads) ads.innerHTML = leadAdsHtml();
 }
+const splitMedian = (list) => { if (!list.length) return null; const sorted = [...list].sort((a, b) => a - b); return sorted[Math.floor(sorted.length / 2)]; };
+function splitDuration(hours) {
+  if (hours === null || hours === undefined) return "—";
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} د`;
+  if (hours < 48) return `${Math.round(hours)} س`;
+  return `${Math.round(hours / 24)} يوم`;
+}
+// Two-side daily bars (no dual axis: one chart per measure).
+function splitDailyChart(sides, field, title, format) {
+  const days = [...new Set([...Object.keys(sides.whatsapp.daily), ...Object.keys(sides.form.daily)])].sort().slice(-31);
+  if (!days.length) return "";
+  const value = (side, day) => Number(sides[side].daily[day]?.[field] || 0);
+  const max = Math.max(...days.flatMap((day) => [value("whatsapp", day), value("form", day)]), 0);
+  if (!max) return "";
+  const width = 640, height = 150, pad = 18, slot = (width - pad * 2) / days.length, bar = Math.max(3, Math.min(14, slot / 2 - 2));
+  const bars = days.map((day, index) => {
+    const x = pad + index * slot + slot / 2;
+    return ["whatsapp", "form"].map((side, n) => {
+      const v = value(side, day);
+      const h = v ? Math.max(3, (v / max) * (height - 34)) : 0;
+      const bx = n ? x + 1 : x - bar - 1;
+      return h ? `<rect class="la-bar-${side}" x="${bx.toFixed(1)}" y="${(height - 18 - h).toFixed(1)}" width="${bar.toFixed(1)}" height="${h.toFixed(1)}" rx="3"><title>${day} · ${side === "form" ? "استمارة" : "واتساب"}: ${format(v)}</title></rect>` : "";
+    }).join("") + (index % Math.ceil(days.length / 8) === 0 ? `<text x="${x.toFixed(1)}" y="${height - 4}" text-anchor="middle">${day.slice(8)}/${day.slice(5, 7)}</text>` : "");
+  }).join("");
+  return `<figure class="la-split-chart"><figcaption>${escapeHtml(title)} <small>الأعلى: ${escapeHtml(format(max))}</small></figcaption><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}"><line x1="${pad}" x2="${width - pad}" y1="${height - 18}" y2="${height - 18}" class="la-axis"/>${bars}</svg></figure>`;
+}
 function leadSplitTestHtml() {
   const sides = leadSplitData();
+  const range = leadSplitRange();
+  const periodNote = `<small class="la-split-note">📅 نفس فترة لوحة الإعلانات أعلاه: ${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")}</small>`;
   if (!sides.form.spend && !sides.form.contacts) {
-    return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3><small class="la-split-note">📅 نفس فترة لوحة الإعلانات أعلاه: ${escapeHtml(leadSplitRange().from || "…")} ← ${escapeHtml(leadSplitRange().to || "اليوم")}</small></div><p class="la-empty">لا توجد بيانات للاستمارة في هذه الفترة.</p></section>`;
+    return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3>${periodNote}</div><p class="la-empty">لا توجد بيانات للاستمارة في هذه الفترة.</p></section>`;
   }
-  const per = (spend, count) => (count ? spend / count : null);
+  const per = (spend, count) => (count && spend ? spend / count : null);
   const rate = (a, b) => (b ? a / b : null);
-  const rows = [
-    ["المصروف", (s) => s.spend, "money", null, false],
-    ["التواصلات (واتساب / استمارة)", (s) => s.contacts, "count", "high", false],
-    ["ثمن التواصل", (s) => per(s.spend, s.contacts), "money", "low", false],
-    ["المواعيد", (s) => s.booked, "count", "high", false],
-    ["تواصل ← موعد", (s) => rate(s.booked, s.contacts), "pct", "high", false],
-    ["ثمن الموعد", (s) => per(s.spend, s.booked), "money", "low", true],
-    ["الزيارات", (s) => s.showed + s.registered, "count", "high", false],
-    ["المسجلين", (s) => s.registered, "count", "high", false],
-    ["موعد ← تسجيل", (s) => rate(s.registered, s.booked), "pct", "high", true],
-    ["ثمن المسجل", (s) => per(s.spend, s.registered), "money", "low", true],
-    ["الربح التقديري", (s) => revenueEstimate(s.registered, s.spend).profit, "dh", "high", true],
-  ];
-  const format = (value, kind) => value === null || value === undefined ? "—" : kind === "money" ? money(value) : kind === "pct" ? `${number(value * 100)}%` : kind === "dh" ? revenueMoney(value) : number(value);
-  const wins = { whatsapp: 0, form: 0 };
-  const body = rows.map(([label, get, kind, better, key]) => {
-    const a = get(sides.whatsapp);
-    const b = get(sides.form);
+  const names = { whatsapp: "واتساب", form: "الاستمارة" };
+  const fmt = {
+    money: (v) => (v === null ? "—" : money(v)),
+    pct: (v) => (v === null ? "—" : `${number(Math.round(v * 1000) / 10)}%`),
+    dh: (v) => revenueMoney(v),
+    time: (v) => splitDuration(v),
+    x: (v) => (v === null ? "—" : `×${number(Math.round(v * 10) / 10)}`),
+  };
+  const metric = (key, icon, label, get, kind, better, weight) => {
+    const a = get(sides.whatsapp), b = get(sides.form);
     let winner = "";
     if (better && sides.whatsapp.spend > 0 && sides.form.spend > 0 && a !== null && b !== null && a !== b) winner = (better === "low" ? a < b : a > b) ? "whatsapp" : "form";
-    if (winner && key) wins[winner] += 1;
-    return `<tr><th>${escapeHtml(label)}</th><td class="${winner === "whatsapp" ? "is-win" : ""}" dir="ltr">${escapeHtml(format(a, kind))}</td><td class="${winner === "form" ? "is-win" : ""}" dir="ltr">${escapeHtml(format(b, kind))}</td></tr>`;
-  }).join("");
+    return { key, icon, label, a, b, kind, better, weight, winner };
+  };
+  const roas = (s) => revenueEstimate(s.registered, s.spend).roas;
+  const duel = [
+    metric("cpc", "💬", "ثمن الرسالة / التواصل", (s) => per(s.spend, s.contacts), "money", "low", 1),
+    metric("cprdv", "📅", "ثمن الموعد", (s) => per(s.spend, s.booked), "money", "low", 3),
+    metric("cpreg", "🎓", "ثمن المسجّل", (s) => per(s.spend, s.registered), "money", "low", 3),
+    metric("c2r", "🎯", "تواصل ← موعد", (s) => rate(s.booked, s.contacts), "pct", "high", 2),
+    metric("r2s", "🚶", "موعد ← حضور", (s) => rate(s.showed + s.registered, s.booked), "pct", "high", 1),
+    metric("r2reg", "✍️", "موعد ← تسجيل", (s) => rate(s.registered, s.booked), "pct", "high", 2),
+    metric("trdv", "⏱️", "الوقت حتى الموعد (الوسيط)", (s) => splitMedian(s.rdvHours), "time", "low", 1),
+    metric("treg", "⏳", "الوقت حتى التسجيل (الوسيط)", (s) => splitMedian(s.regHours), "time", "low", 1),
+    metric("roas", "📈", "العائد على الإنفاق", (s) => roas(s), "x", "high", 2),
+    metric("profit", "💰", "الربح التقديري", (s) => revenueEstimate(s.registered, s.spend).profit, "dh", "high", 3),
+  ];
+  const score = { whatsapp: 0, form: 0 };
+  duel.forEach((row) => { if (row.winner) score[row.winner] += row.weight; });
   const enough = sides.whatsapp.registered >= 5 && sides.form.registered >= 5;
+  const leader = score.whatsapp === score.form ? "" : score.whatsapp > score.form ? "whatsapp" : "form";
+  const totalScore = score.whatsapp + score.form || 1;
   const verdict = !enough
-    ? `من المبكر الحكم: يلزم 5 مسجلين على الأقل في كل جهة (حالياً ${sides.whatsapp.registered} واتساب، ${sides.form.registered} استمارة). راقبي تكلفة الموعد أولاً.`
-    : wins.whatsapp === wins.form ? "تعادل في المؤشرات المهمة." : `${wins.whatsapp > wins.form ? "واتساب" : "الاستمارة"} متفوّق في ${Math.max(wins.whatsapp, wins.form)} من 4 مؤشرات مهمة.`;
-  const campaigns = state.campaigns.filter((campaign) => campaign.metaCampaignId).sort((a, b) => a.name.localeCompare(b.name));
+    ? `⏳ من المبكر الحكم النهائي: يلزم 5 مسجلين على الأقل في كل جهة (حالياً ${sides.whatsapp.registered} واتساب، ${sides.form.registered} استمارة). اعتمدي الآن على <b>ثمن الموعد</b>.`
+    : leader ? `🏆 <b>${names[leader]}</b> متفوّق بنقاط ${score[leader]} مقابل ${score[leader === "form" ? "whatsapp" : "form"]}.` : "🤝 تعادل في النقاط.";
+  const hero = (side) => {
+    const s = sides[side];
+    const profit = revenueEstimate(s.registered, s.spend).profit;
+    return `<article class="la-duel-card la-side-${side}${leader === side ? " is-leader" : ""}">
+      <header><span class="la-side-dot"></span><strong>${names[side]}</strong>${leader === side ? '<em class="la-medal">🥇 المتصدّر</em>' : ""}<b class="la-score">${score[side]} نقطة</b></header>
+      <div class="la-duel-score"><i style="width:${Math.round((score[side] / totalScore) * 100)}%"></i></div>
+      <dl>
+        <div><dt>💸 المصروف</dt><dd dir="ltr">${money(s.spend)}</dd></div>
+        <div><dt>💬 التواصلات</dt><dd>${number(s.contacts)}</dd></div>
+        <div class="is-key"><dt>📅 المواعيد</dt><dd>${number(s.booked)}</dd></div>
+        <div><dt>🚶 الحضور</dt><dd>${number(s.showed + s.registered)}</dd></div>
+        <div class="is-key"><dt>🎓 المسجلون</dt><dd>${number(s.registered)}</dd></div>
+        <div><dt>💰 الربح</dt><dd>${revenueMoney(profit)}</dd></div>
+      </dl>
+    </article>`;
+  };
+  const duelRows = duel.map((row) => {
+    const max = Math.max(Math.abs(row.a ?? 0), Math.abs(row.b ?? 0)) || 1;
+    const bar = (v, side) => `<span class="la-duel-bar la-side-${side}"><i style="width:${!v ? 0 : Math.max(3, Math.round((Math.abs(v) / max) * 100))}%"></i></span>`;
+    const val = (v, side) => `<span class="la-duel-val${row.winner === side ? " is-win" : ""}" dir="ltr">${row.winner === side ? "🥇 " : ""}${escapeHtml(fmt[row.kind](v))}</span>`;
+    return `<div class="la-duel-row"><div class="la-duel-label">${row.icon} ${escapeHtml(row.label)}${row.better === "low" ? '<small>الأقل أفضل</small>' : ""}</div>
+      <div class="la-duel-side">${val(row.a, "whatsapp")}${bar(row.a, "whatsapp")}</div>
+      <div class="la-duel-side">${val(row.b, "form")}${bar(row.b, "form")}</div></div>`;
+  }).join("");
+  const funnel = (side) => {
+    const s = sides[side];
+    const steps = [["💬", "تواصل", s.contacts], ["📅", "موعد", s.booked], ["🚶", "حضور", s.showed + s.registered], ["🎓", "تسجيل", s.registered]];
+    const top = steps[0][2] || 1;
+    return `<div class="la-funnel la-side-${side}"><h4><span class="la-side-dot"></span>${names[side]}</h4>${steps.map(([icon, label, count], index) => {
+      const prev = index ? steps[index - 1][2] : 0;
+      return `<div class="la-funnel-step"><span>${icon} ${label}</span><span class="la-funnel-track"><i style="width:${count ? Math.max(4, Math.sqrt(count / top) * 100) : 0}%"></i></span><b>${number(count)}</b><small>${index ? (prev ? `${number(Math.round((count / prev) * 1000) / 10)}%` : "—") : ""}</small></div>`;
+    }).join("")}</div>`;
+  };
   const autoLabel = { form: "استمارة", whatsapp: "واتساب", exclude: "خارج المقارنة" };
-  const range = leadSplitRange();
-  return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3><p class="${enough ? "is-ready" : ""}">${escapeHtml(verdict)}</p>
-    <small class="la-split-note">📅 نفس فترة لوحة الإعلانات أعلاه: ${escapeHtml(leadSplitRange().from || "…")} ← ${escapeHtml(leadSplitRange().to || "اليوم")}</small></div>
-    <div class="table-wrap la-table-wrap"><table class="la-table la-split-table"><thead><tr><th></th><th><span class="la-src la-src-whatsapp">واتساب</span></th><th><span class="la-src la-src-form">استمارة</span></th></tr></thead><tbody>${body}</tbody></table></div>
+  const campaigns = state.campaigns.filter((campaign) => campaign.metaCampaignId).sort((a, b) => a.name.localeCompare(b.name));
+  const table = duel.map((row) => `<tr><th>${row.icon} ${escapeHtml(row.label)}</th><td dir="ltr">${escapeHtml(fmt[row.kind](row.a))}</td><td dir="ltr">${escapeHtml(fmt[row.kind](row.b))}</td></tr>`).join("");
+  return `<section class="la-split la-split-v2">
+    <div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3>${periodNote}</div>
+    <p class="la-split-verdict${enough ? " is-ready" : ""}">${verdict}</p>
+    <div class="la-duel-cards">${hero("whatsapp")}${hero("form")}</div>
+    <div class="la-duel"><div class="la-duel-row la-duel-headrow"><div></div><div class="la-side-whatsapp"><span class="la-side-dot"></span>واتساب</div><div class="la-side-form"><span class="la-side-dot"></span>الاستمارة</div></div>${duelRows}</div>
+    <div class="la-funnels">${funnel("whatsapp")}${funnel("form")}</div>
+    <div class="la-split-charts">${splitDailyChart(sides, "booked", "📅 المواعيد يومياً", (v) => number(v))}${splitDailyChart(sides, "spend", "💸 المصروف يومياً", (v) => money(v))}</div>
+    <div class="la-split-legend"><span><span class="la-side-dot la-side-whatsapp"></span> واتساب</span><span><span class="la-side-dot la-side-form"></span> الاستمارة</span><small>النقاط: ثمن الموعد والمسجّل والربح ×3، التحويلات والعائد ×2، الباقي ×1.</small></div>
+    <details class="la-channels"><summary>📋 الجدول الكامل</summary><div class="table-wrap la-table-wrap"><table class="la-table la-split-table"><thead><tr><th></th><th>واتساب</th><th>الاستمارة</th></tr></thead><tbody>${table}</tbody></table></div></details>
     <details class="la-channels"><summary>أي حملة في أي جهة؟</summary><div class="la-channel-list">${campaigns.map((campaign) => `<label><span>${escapeHtml(campaign.name)}</span><select data-lead-channel="${escapeHtml(campaign.id)}"><option value="">تلقائي (${autoLabel[leadAutoChannel(campaign)]})</option><option value="whatsapp" ${state.settings?.channelOverrides?.[campaign.id] === "whatsapp" ? "selected" : ""}>واتساب</option><option value="form" ${state.settings?.channelOverrides?.[campaign.id] === "form" ? "selected" : ""}>استمارة</option><option value="exclude" ${state.settings?.channelOverrides?.[campaign.id] === "exclude" ? "selected" : ""}>خارج المقارنة</option></select></label>`).join("")}</div></details>
   </section>`;
 }

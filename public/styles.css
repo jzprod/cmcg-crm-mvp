@@ -1779,3 +1779,71 @@ tr.la-ad-wait .la-ad-decision, tr.la-ad-import .la-ad-decision { color: #64748b;
 .la-ads-kpis .la-k-show { background: #ecfeff; } .la-ads-kpis .la-k-show strong { color: #0e7490; }
 .la-ads-kpis .la-k-reg { background: #f0fdf4; } .la-ads-kpis .la-k-reg strong { color: #15803d; }
 .la-ads-kpis .la-k-spend strong { color: #0f172a; }
+
+/* Split test v2: duel view */
+.la-split-v2 { display: grid; gap: 16px; font-size: 1rem; }
+.la-split-v2 .la-split-head h3 { font-size: 1.3rem; }
+.la-side-whatsapp { --side: #15803d; --side-bg: #f0fdf4; }
+.la-side-form { --side: #6d28d9; --side-bg: #f5f3ff; }
+.la-side-dot { display: inline-block; width: 12px; height: 12px; border-radius: 4px; background: var(--side); vertical-align: middle; margin-inline-end: 6px; }
+.la-split-verdict { margin: 0; padding: 12px 16px; border-radius: 14px; background: #fffbeb; color: #78350f; font-size: 1rem; line-height: 1.6; }
+.la-split-verdict.is-ready { background: #eef2ff; color: #312e81; }
+.la-duel-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.la-duel-card { display: grid; gap: 10px; padding: 16px; border-radius: 18px; background: var(--side-bg); border: 2px solid transparent; }
+.la-duel-card.is-leader { border-color: var(--side); box-shadow: 0 10px 24px color-mix(in srgb, var(--side) 18%, transparent); }
+.la-duel-card header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.la-duel-card header strong { font-size: 1.25rem; color: var(--side); }
+.la-medal { font-style: normal; padding: 3px 10px; border-radius: 999px; background: #fef3c7; color: #92400e; font-weight: 800; font-size: .85rem; }
+.la-score { margin-inline-start: auto; font: 800 1rem "Fira Sans", system-ui, sans-serif; color: var(--side); }
+.la-duel-score { height: 10px; border-radius: 999px; background: #fff; overflow: hidden; }
+.la-duel-score i { display: block; height: 100%; border-radius: 999px; background: var(--side); }
+.la-duel-card dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.la-duel-card dl div { padding: 8px 10px; border-radius: 12px; background: #fff; }
+.la-duel-card dt { color: #64748b; font-size: .8rem; font-weight: 700; }
+.la-duel-card dd { margin: 2px 0 0; font: 800 1.25rem/1.15 "Fira Sans", system-ui, sans-serif; color: #0f172a; }
+.la-duel-card dl div.is-key dd { color: var(--side); font-size: 1.45rem; }
+.la-duel { display: grid; gap: 2px; padding: 8px; border-radius: 18px; background: #fff; border: 1px solid var(--la-line); }
+.la-duel-row { display: grid; grid-template-columns: minmax(150px, 1.1fr) 1fr 1fr; gap: 12px; align-items: center; padding: 10px 8px; border-radius: 12px; }
+.la-duel-row:nth-child(even) { background: #f8fafc; }
+.la-duel-headrow { font-weight: 800; font-size: 1rem; }
+.la-duel-headrow > .la-side-whatsapp, .la-duel-headrow > .la-side-form { color: var(--side); }
+.la-duel-label { font-weight: 800; font-size: .98rem; color: #0f172a; }
+.la-duel-label small { display: block; color: #94a3b8; font-weight: 600; font-size: .74rem; }
+.la-duel-side { display: grid; gap: 5px; }
+.la-duel-val { font: 700 1.15rem/1.1 "Fira Sans", system-ui, sans-serif; color: #334155; }
+.la-duel-val.is-win { color: #0f172a; font-weight: 800; }
+.la-duel-bar { display: block; height: 10px; border-radius: 999px; background: #eef2f6; overflow: hidden; }
+.la-duel-bar i { display: block; height: 100%; border-radius: 999px; background: var(--side); }
+.la-funnels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.la-funnel { display: grid; gap: 8px; padding: 14px; border-radius: 18px; background: #fff; border: 1px solid var(--la-line); }
+.la-funnel h4 { margin: 0; color: var(--side); font-size: 1.05rem; }
+.la-funnel-step { display: grid; grid-template-columns: 82px 1fr 52px 54px; gap: 8px; align-items: center; font-size: .9rem; font-weight: 700; }
+.la-funnel-track { height: 14px; border-radius: 999px; background: #eef2f6; overflow: hidden; }
+.la-funnel-track i { display: block; height: 100%; border-radius: 999px; background: var(--side); }
+.la-funnel-step b { font: 800 1.05rem "Fira Sans", system-ui, sans-serif; text-align: end; }
+.la-funnel-step small { color: #64748b; font-weight: 700; }
+.la-split-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 12px; }
+.la-split-chart { margin: 0; padding: 12px; border-radius: 18px; background: #fff; border: 1px solid var(--la-line); }
+.la-split-chart figcaption { font-weight: 800; margin-bottom: 6px; }
+.la-split-chart figcaption small { color: #64748b; font-weight: 600; margin-inline-start: 6px; }
+.la-split-chart svg { width: 100%; height: auto; direction: ltr; }
+.la-split-chart text { font: 600 10px "Fira Sans", system-ui, sans-serif; fill: #64748b; }
+.la-split-chart .la-axis { stroke: #e2e8f0; stroke-width: 1; }
+.la-bar-whatsapp { fill: #15803d; } .la-bar-form { fill: #6d28d9; }
+.la-split-chart rect:hover { opacity: .75; }
+.la-split-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-weight: 700; }
+.la-split-legend small { color: #64748b; font-weight: 600; }
+@media (max-width: 760px) {
+  .la-duel-cards, .la-funnels { grid-template-columns: 1fr; }
+  .la-duel-card dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .la-duel-row { grid-template-columns: 1fr 1fr; }
+  .la-duel-label { grid-column: 1 / -1; }
+  .la-duel-headrow > div:first-child { display: none; }
+}
+/* Never let a wide table/chart stretch the whole Leads page on phones */
+.leads-root { grid-template-columns: minmax(0, 1fr); }
+.leads-root > * { min-width: 0; }
+.la-ads .table-wrap, .la-split .table-wrap { overflow-x: auto; }
+.la-ads, .la-split, .la-split-v2, .la-section { grid-template-columns: minmax(0, 1fr); }
+.la-ads > *, .la-split > *, .la-split-v2 > * { min-width: 0; }
+.la-settings-grid > * { min-width: 0; }
