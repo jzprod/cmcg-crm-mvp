@@ -1195,6 +1195,8 @@ function leadSplitTestHtml() {
     dh: (v) => revenueMoney(v),
     time: (v) => splitDuration(v),
     x: (v) => (v === null ? "—" : `×${number(Math.round(v * 10) / 10)}`),
+    roi: (v) => (v === null ? "—" : `${v >= 0 ? "+" : ""}${number(Math.round(v * 100))}%`),
+    reg: (v) => (v === null ? "—" : `${number(Math.round(v * 10) / 10)} مسجّل`),
   };
   const metric = (key, icon, label, get, kind, better, weight) => {
     const a = get(sides.whatsapp), b = get(sides.form);
@@ -1203,6 +1205,21 @@ function leadSplitTestHtml() {
     return { key, icon, label, a, b, kind, better, weight, winner };
   };
   const roas = (s) => revenueEstimate(s.registered, s.spend).roas;
+  // ROI = (revenue - spend) / spend. "Expected" ROI projects registrations from RDVs
+  // with the RDV->registration rate (own rate once a side has 5+ registrations,
+  // otherwise the pooled rate of both sides), so a small, new side is judged fairly.
+  const pooledBooked = sides.whatsapp.booked + sides.form.booked;
+  const pooledRate = pooledBooked ? (sides.whatsapp.registered + sides.form.registered) / pooledBooked : 0;
+  ["whatsapp", "form"].forEach((side) => {
+    const s = sides[side];
+    const est = revenueEstimate(s.registered, s.spend);
+    const rateUsed = s.registered >= 5 && s.booked ? s.registered / s.booked : pooledRate;
+    s.expectedReg = Math.max(s.registered, s.booked * rateUsed);
+    s.roi = est.spendLocal > 0 ? (est.revenue - est.spendLocal) / est.spendLocal : null;
+    s.expectedRoi = est.spendLocal > 0 ? (s.expectedReg * est.perStudent - est.spendLocal) / est.spendLocal : null;
+    s.per100 = s.spend > 0 ? (s.expectedReg / s.spend) * 100 : null;
+    s.rateUsed = rateUsed;
+  });
   const duel = [
     metric("cpc", "💬", "ثمن الرسالة / التواصل", (s) => per(s.spend, s.contacts), "money", "low", 1),
     metric("cprdv", "📅", "ثمن الموعد", (s) => per(s.spend, s.booked), "money", "low", 3),
@@ -1212,8 +1229,10 @@ function leadSplitTestHtml() {
     metric("r2reg", "✍️", "موعد ← تسجيل", (s) => rate(s.registered, s.booked), "pct", "high", 2),
     metric("trdv", "⏱️", "الوقت حتى الموعد (الوسيط)", (s) => splitMedian(s.rdvHours), "time", "low", 1),
     metric("treg", "⏳", "الوقت حتى التسجيل (الوسيط)", (s) => splitMedian(s.regHours), "time", "low", 1),
-    metric("roas", "📈", "العائد على الإنفاق", (s) => roas(s), "x", "high", 2),
-    metric("profit", "💰", "الربح التقديري", (s) => revenueEstimate(s.registered, s.spend).profit, "dh", "high", 3),
+    metric("eroi", "🚀", "ROI المتوقع (عند التوسيع)", (s) => s.expectedRoi, "roi", "high", 4),
+    metric("roi", "📈", "ROI الفعلي", (s) => s.roi, "roi", "high", 2),
+    metric("per100", "💵", "مسجّلون متوقعون لكل 100$", (s) => s.per100, "reg", "high", 2),
+    metric("profit", "💰", "الربح التقديري", (s) => revenueEstimate(s.registered, s.spend).profit, "dh", "high", 1),
   ];
   const score = { whatsapp: 0, form: 0 };
   duel.forEach((row) => { if (row.winner) score[row.winner] += row.weight; });
@@ -1223,12 +1242,19 @@ function leadSplitTestHtml() {
   const verdict = !enough
     ? `⏳ من المبكر الحكم النهائي: يلزم 5 مسجلين على الأقل في كل جهة (حالياً ${sides.whatsapp.registered} واتساب، ${sides.form.registered} استمارة). اعتمدي الآن على <b>ثمن الموعد</b>.`
     : leader ? `🏆 <b>${names[leader]}</b> متفوّق بنقاط ${score[leader]} مقابل ${score[leader === "form" ? "whatsapp" : "form"]}.` : "🤝 تعادل في النقاط.";
+  const better = sides.whatsapp.expectedRoi !== null && sides.form.expectedRoi !== null && sides.whatsapp.expectedRoi !== sides.form.expectedRoi
+    ? (sides.whatsapp.expectedRoi > sides.form.expectedRoi ? "whatsapp" : "form") : "";
+  const scaleTip = better ? `💡 <b>للتوسيع: ${names[better]}</b> · ROI متوقع <b>${fmt.roi(sides[better].expectedRoi)}</b> مقابل ${fmt.roi(sides[better === "form" ? "whatsapp" : "form"].expectedRoi)}. كل 100$ إضافية ≈ <b>${fmt.reg(sides[better].per100)}</b> (مقابل ${fmt.reg(sides[better === "form" ? "whatsapp" : "form"].per100)}).${sides[better].registered < 5 ? " <small>(تقدير من المواعيد بنسبة تسجيل " + number(Math.round(sides[better].rateUsed * 100)) + "%، يتأكد مع أول التسجيلات)</small>" : ""}` : "";
   const hero = (side) => {
     const s = sides[side];
     const profit = revenueEstimate(s.registered, s.spend).profit;
     return `<article class="la-duel-card la-side-${side}${leader === side ? " is-leader" : ""}">
       <header><span class="la-side-dot"></span><strong>${names[side]}</strong>${leader === side ? '<em class="la-medal">🥇 المتصدّر</em>' : ""}<b class="la-score">${score[side]} نقطة</b></header>
       <div class="la-duel-score"><i style="width:${Math.round((score[side] / totalScore) * 100)}%"></i></div>
+      <div class="la-roi${better === side ? " is-best" : ""}${(s.expectedRoi ?? 0) < 0 ? " is-neg" : ""}">
+        <div><span>🚀 ROI المتوقع</span><strong dir="ltr">${fmt.roi(s.expectedRoi)}</strong>${better === side ? '<em>🥇 الأفضل للتوسيع</em>' : ""}</div>
+        <div class="la-roi-side"><span>📈 الفعلي</span><b dir="ltr">${fmt.roi(s.roi)}</b><span>💵 لكل 100$</span><b>${fmt.reg(s.per100)}</b></div>
+      </div>
       <dl>
         <div><dt>💸 المصروف</dt><dd dir="ltr">${money(s.spend)}</dd></div>
         <div><dt>💬 التواصلات</dt><dd>${number(s.contacts)}</dd></div>
@@ -1262,11 +1288,12 @@ function leadSplitTestHtml() {
   return `<section class="la-split la-split-v2">
     <div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3>${periodNote}</div>
     <p class="la-split-verdict${enough ? " is-ready" : ""}">${verdict}</p>
+    ${scaleTip ? `<p class="la-scale-tip">${scaleTip}</p>` : ""}
     <div class="la-duel-cards">${hero("whatsapp")}${hero("form")}</div>
     <div class="la-duel"><div class="la-duel-row la-duel-headrow"><div></div><div class="la-side-whatsapp"><span class="la-side-dot"></span>واتساب</div><div class="la-side-form"><span class="la-side-dot"></span>الاستمارة</div></div>${duelRows}</div>
     <div class="la-funnels">${funnel("whatsapp")}${funnel("form")}</div>
     <div class="la-split-charts">${splitDailyChart(sides, "booked", "📅 المواعيد يومياً", (v) => number(v))}${splitDailyChart(sides, "spend", "💸 المصروف يومياً", (v) => money(v))}</div>
-    <div class="la-split-legend"><span><span class="la-side-dot la-side-whatsapp"></span> واتساب</span><span><span class="la-side-dot la-side-form"></span> الاستمارة</span><small>النقاط: ثمن الموعد والمسجّل والربح ×3، التحويلات والعائد ×2، الباقي ×1.</small></div>
+    <div class="la-split-legend"><span><span class="la-side-dot la-side-whatsapp"></span> واتساب</span><span><span class="la-side-dot la-side-form"></span> الاستمارة</span><small>النقاط: ROI المتوقع ×4، ثمن الموعد والمسجّل ×3، ROI الفعلي والتحويلات ×2، الباقي ×1. ROI = (الإيراد − المصروف) ÷ المصروف.</small></div>
     <details class="la-channels"><summary>📋 الجدول الكامل</summary><div class="table-wrap la-table-wrap"><table class="la-table la-split-table"><thead><tr><th></th><th>واتساب</th><th>الاستمارة</th></tr></thead><tbody>${table}</tbody></table></div></details>
     <details class="la-channels"><summary>أي حملة في أي جهة؟</summary><div class="la-channel-list">${campaigns.map((campaign) => `<label><span>${escapeHtml(campaign.name)}</span><select data-lead-channel="${escapeHtml(campaign.id)}"><option value="">تلقائي (${autoLabel[leadAutoChannel(campaign)]})</option><option value="whatsapp" ${state.settings?.channelOverrides?.[campaign.id] === "whatsapp" ? "selected" : ""}>واتساب</option><option value="form" ${state.settings?.channelOverrides?.[campaign.id] === "form" ? "selected" : ""}>استمارة</option><option value="exclude" ${state.settings?.channelOverrides?.[campaign.id] === "exclude" ? "selected" : ""}>خارج المقارنة</option></select></label>`).join("")}</div></details>
   </section>`;

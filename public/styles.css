@@ -1847,3 +1847,15 @@ tr.la-ad-wait .la-ad-decision, tr.la-ad-import .la-ad-decision { color: #64748b;
 .la-ads, .la-split, .la-split-v2, .la-section { grid-template-columns: minmax(0, 1fr); }
 .la-ads > *, .la-split > *, .la-split-v2 > * { min-width: 0; }
 .la-settings-grid > * { min-width: 0; }
+.la-roi { display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; align-items: center; padding: 12px 14px; border-radius: 16px; background: #fff; border: 2px solid color-mix(in srgb, var(--side) 30%, white); }
+.la-roi.is-best { border-color: var(--side); background: color-mix(in srgb, var(--side) 8%, white); }
+.la-roi > div:first-child { display: grid; gap: 2px; }
+.la-roi span { color: #475569; font-size: .82rem; font-weight: 800; }
+.la-roi strong { font: 900 2.2rem/1 "Fira Sans", system-ui, sans-serif; color: var(--side); }
+.la-roi.is-neg strong { color: #b91c1c; }
+.la-roi em { font-style: normal; justify-self: start; padding: 3px 10px; border-radius: 999px; background: #fef3c7; color: #92400e; font-weight: 800; font-size: .8rem; }
+.la-roi-side { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: baseline; }
+.la-roi-side b { font: 800 1.05rem "Fira Sans", system-ui, sans-serif; color: #0f172a; }
+.la-scale-tip { margin: 0; padding: 12px 16px; border-radius: 14px; background: #ecfdf5; color: #064e3b; font-size: 1.02rem; line-height: 1.7; border: 1px solid #a7f3d0; }
+.la-scale-tip small { color: #047857; }
+@media (max-width: 760px) { .la-roi { grid-template-columns: 1fr; } }
