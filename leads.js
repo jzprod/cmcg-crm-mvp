@@ -152,6 +152,13 @@ function attributeLead(state, lead) {
   return { creativeId: ad?.id || "", adSetId: adSet?.id || "", campaignId: campaign?.id || "" };
 }
 
+// Rebuild every lead's results from its current status (used on startup).
+function resyncLeadOutcomes(state) {
+  const before = JSON.stringify((state.outcomes || []).filter((outcome) => outcome.leadId));
+  (state.crmLeads || []).forEach((lead) => syncLeadOutcomes(state, lead));
+  return JSON.stringify((state.outcomes || []).filter((outcome) => outcome.leadId)) !== before;
+}
+
 // Re-check every form lead's ad attribution (after a Meta import, or to fix older
 // name-based matches) and move its RDV/visit/registration results with it.
 function reattributeLeads(state) {
@@ -241,13 +248,16 @@ function pushHistory(lead, type, details = {}, by = "") {
 // Keep CRM outcomes in step with the lead: an RDV once booked stays a "booked"
 // outcome; "visited" adds a "showed" (visited without registering); "registered"
 // replaces it with "registered". Outcomes carry leadId so they never duplicate.
+const RDV_STATUSES = new Set(["booked", "visited", "registered"]);
 function syncLeadOutcomes(state, lead) {
   // Demo leads never touch the ad results.
   if (lead.demo) { state.outcomes = state.outcomes.filter((outcome) => outcome.leadId !== lead.id); return; }
   const wanted = new Map();
   const day = (iso) => String(iso || "").slice(0, 10);
   const firstContact = day(lead.createdAt);
-  if (lead.bookedAt) wanted.set("booked", day(lead.bookedAt));
+  // Results follow the lead's CURRENT status: an RDV later changed to another
+  // status (a test, a mistake, a cancelled booking) no longer counts.
+  if (lead.bookedAt && RDV_STATUSES.has(lead.status)) wanted.set("booked", day(lead.bookedAt));
   if (lead.status === "registered") wanted.set("registered", day(lead.registeredAt || lead.statusAt));
   else if (lead.status === "visited") wanted.set("showed", day(lead.visitedAt || lead.statusAt));
   state.outcomes = state.outcomes.filter((outcome) => outcome.leadId !== lead.id || wanted.has(outcome.type));
@@ -556,8 +566,8 @@ function leadStats(state, at = new Date()) {
       code: agent.code || "",
       actionsToday,
       leadsToday: mine.filter((lead) => String(lead.assignedAt || lead.createdAt).slice(0, 10) === day).length,
-      rdvsToday: mine.filter((lead) => String(lead.bookedAt).slice(0, 10) === day).length,
-      rdvsMonth: mine.filter((lead) => String(lead.bookedAt).slice(0, 7) === month).length,
+      rdvsToday: mine.filter((lead) => RDV_STATUSES.has(lead.status) && String(lead.bookedAt).slice(0, 10) === day).length,
+      rdvsMonth: mine.filter((lead) => RDV_STATUSES.has(lead.status) && String(lead.bookedAt).slice(0, 7) === month).length,
       registeredMonth: mine.filter((lead) => lead.status === "registered" && String(lead.registeredAt).slice(0, 7) === month).length,
       waiting: mine.filter((lead) => lead.status === "new").length,
     };
@@ -565,7 +575,7 @@ function leadStats(state, at = new Date()) {
 }
 
 module.exports = {
-  createDemoLeads, removeDemoLeads, reattributeLeads, transferLeads, leadStats, appointmentError, OPENING,
+  createDemoLeads, removeDemoLeads, reattributeLeads, resyncLeadOutcomes, transferLeads, leadStats, appointmentError, OPENING,
   LEAD_STATUSES, CLOSED_STATUSES, DISTRIBUTION_MODES, DEFAULT_TEMPLATES,
   normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, updateLead, createManualLead,
   syncLeadOutcomes, normalizeDistribution, defaultDistribution, fillTemplate, leadVcard, channelOfCampaign,

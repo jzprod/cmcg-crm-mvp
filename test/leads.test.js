@@ -323,3 +323,17 @@ test("form leads link to ads by Meta ids only, never by name", () => {
   assert.deepEqual([lead.campaignId, lead.adSetId, lead.creativeId], ["new", "as_new", "ad_new"]);
   assert.equal(state.outcomes[0].creativeId, "ad_new");
 });
+
+test("an RDV changed to another status no longer counts", () => {
+  const state = { agents: [{ id: "souad", name: "souad" }], crmLeads: [], outcomes: [], campaigns: [], adSets: [], creatives: [], settings: {} };
+  const lead = { id: "t1", source: "form", status: "booked", bookedAt: "2026-10-08T10:00:00.000Z", createdAt: "2026-10-08T09:00:00.000Z", agentId: "souad", meta: {} };
+  state.crmLeads.push(lead);
+  Leads.syncLeadOutcomes(state, lead);
+  assert.equal(state.outcomes.filter((o) => o.type === "booked").length, 1);
+  lead.status = "not_interested"; // it was only a test
+  assert.equal(Leads.resyncLeadOutcomes(state), true);
+  assert.equal(state.outcomes.filter((o) => o.type === "booked").length, 0);
+  lead.status = "registered";
+  Leads.syncLeadOutcomes(state, lead);
+  assert.deepEqual(state.outcomes.map((o) => o.type).sort(), ["booked", "registered"]);
+});

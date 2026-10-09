@@ -2479,7 +2479,8 @@ storage.init().then(async () => {
     try {
       const state = await storage.read();
       const fixed = Leads.reattributeLeads(state);
-      if (fixed) { await storage.write(state); console.log(`Re-attributed ${fixed} form lead(s)`); }
+      const resynced = Leads.resyncLeadOutcomes(state);
+      if (fixed || resynced) { await storage.write(state); console.log(`Re-attributed ${fixed} form lead(s)${resynced ? ", results rebuilt from current statuses" : ""}`); }
     } finally {
       release();
     }
