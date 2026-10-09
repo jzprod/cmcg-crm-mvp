@@ -984,12 +984,20 @@ function leadSplitData() {
   const blank = () => ({ spend: 0, contacts: 0, booked: 0, showed: 0, registered: 0 });
   const sides = { whatsapp: blank(), form: blank() };
   const range = leadSplitRange();
+  const dayMs = 86400000;
+  const days = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / dayMs) + 1;
   filteredLogs(range).forEach((log) => {
     const campaign = relationForLog(log).campaign;
     const side = sides[leadChannelOf(campaign)];
     if (!side) return;
-    side.spend += Number(log.spend || 0);
-    if (side === sides.whatsapp) side.contacts += Number(log.messages || 0);
+    // A report covering days before/after the test window counts only its days inside it.
+    const start = log.reportingStart || log.date || "";
+    const end = log.reportingEnd || log.date || start;
+    const inStart = range.from && start < range.from ? range.from : start;
+    const inEnd = range.to && end > range.to ? range.to : end;
+    const share = start && end && end >= start ? Math.max(0, Math.min(1, days(inStart, inEnd) / days(start, end))) : 1;
+    side.spend += Number(log.spend || 0) * share;
+    if (side === sides.whatsapp) side.contacts += Math.round(Number(log.messages || 0) * share);
   });
   leadsList().filter((lead) => !lead.demo && lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt), range)).forEach((lead) => {
     const campaign = byId(state.campaigns, lead.campaignId);
