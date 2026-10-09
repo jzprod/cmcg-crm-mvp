@@ -537,7 +537,6 @@ function renderLeads() {
   const nextBar = leadNextBarHtml();
   root.classList.toggle("has-next", Boolean(nextBar));
   root.innerHTML = `${viewAsBanner}${leadHeroHtml()}
-    ${leadAdminView() ? `<div id="leadAds">${leadAdsHtml()}</div>` : ""}
     ${leadAdminView() ? leadMonitorHtml() : ""}
     ${leadAdminView() && unassigned ? `<div class="la-alert">⚠️ <strong>${number(unassigned)} رسالة بدون مستشارة.</strong> <button type="button" data-lead-redistribute>وزّعيها الآن</button></div>` : ""}
     ${leadsToolbarHtml()}
@@ -545,7 +544,7 @@ function renderLeads() {
     ${empty}
     <div class="la-body">${body}</div>
     ${nextBar}
-    ${leadAdminView() ? `<div id="leadSplitTest">${leadSplitTestHtml()}</div><details class="la-settings" ${LEAD_UI.settingsOpen ? "open" : ""} data-lead-settings><summary><strong>⚙️ الربط والتوزيع</strong><small>Google Sheets، توزيع الرسائل، رسائل واتساب</small></summary>${leadSettingsHtml()}</details>` : ""}`;
+    ${leadAdminView() ? `<div id="leadAds">${leadAdsHtml()}</div><div id="leadSplitTest">${leadSplitTestHtml()}</div><details class="la-settings" ${LEAD_UI.settingsOpen ? "open" : ""} data-lead-settings><summary><strong>⚙️ الربط والتوزيع</strong><small>Google Sheets، توزيع الرسائل، رسائل واتساب</small></summary>${leadSettingsHtml()}</details>` : ""}`;
   if (LEAD_UI.detailId && document.getElementById("leadDialog")?.open && !LEAD_UI.sheet) renderLeadDetail();
 }
 
@@ -1071,7 +1070,7 @@ function leadAdsRows() {
     const item = ad ? forAd(ad) : lead ? row(`meta:${lead.meta?.adId || lead.meta?.adName || "?"}`, { name: lead.meta?.adName || "إعلان غير معروف", adSetName: lead.meta?.adSetName || "", campaignName: lead.meta?.campaignName || "", channel: "form", unlinked: true }) : null;
     if (item && item[outcome.type] !== undefined) item[outcome.type] += 1;
   });
-  const list = [...rows.values()].filter((item) => item.spend > 0.009 || item.contacts || item.booked || item.registered);
+  const list = [...rows.values()].filter((item) => item.channel === "form" && (item.spend > 0.009 || item.contacts || item.booked || item.registered));
   // Dynamic benchmark: the median cost per RDV of ads that already booked.
   const costs = list.filter((item) => item.booked && item.spend > 0).map((item) => item.spend / item.booked).sort((a, b) => a - b);
   const benchmark = costs.length ? costs[Math.floor(costs.length / 2)] : null;
@@ -1099,7 +1098,6 @@ function leadAdsHtml() {
   const top = list.filter((item) => ["scale", "stop", "fix"].includes(item.decision.key)).slice(0, 3);
   const body = list.map((item) => `<tr class="la-ad-${item.decision.key}">
       <td><strong>${escapeHtml(item.name)}</strong><small>${item.code ? `${escapeHtml(item.code)} · ` : ""}${escapeHtml([item.campaignName, item.adSetName].filter(Boolean).join(" › "))}</small></td>
-      <td><span class="la-src la-src-${item.channel === "form" ? "form" : "whatsapp"}">${item.channel === "form" ? "استمارة" : "واتساب"}</span></td>
       <td dir="ltr">${item.spend ? money(item.spend) : "—"}</td>
       <td>${number(item.contacts)}</td>
       <td><b>${number(item.booked)}</b></td>
@@ -1109,7 +1107,7 @@ function leadAdsHtml() {
       <td dir="ltr">${per(item.spend, item.registered)}</td>
       <td class="la-ad-decision">${item.decision.icon} ${escapeHtml(item.decision.text)}</td>
     </tr>`).join("");
-  return `<details class="la-ads" open><summary><strong>📣 الإعلانات: من يجلب المواعيد والتسجيلات؟</strong><small>${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")}</small></summary>
+  return `<details class="la-ads" open><summary><strong>📣 إعلانات الاستمارة: من يجلب المواعيد والتسجيلات؟</strong><small>${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")}</small></summary>
     ${leadSplitPeriodHtml()}
     <div class="la-ads-kpis">
       <div><span>المصروف</span><strong dir="ltr">${money(totals.spend)}</strong></div>
@@ -1120,7 +1118,7 @@ function leadAdsHtml() {
       <div><span>الربح التقديري</span><strong>${revenueMoney(revenueEstimate(totals.registered, totals.spend).profit)}</strong></div>
     </div>
     ${top.length ? `<ul class="la-ads-actions">${top.map((item) => `<li class="la-ad-${item.decision.key}">${item.decision.icon} <b>${escapeHtml(item.name)}</b>: ${escapeHtml(item.decision.text)}</li>`).join("")}</ul>` : ""}
-    ${list.length ? `<div class="table-wrap la-table-wrap"><table class="la-table la-ads-table"><thead><tr><th>الإعلان</th><th>القناة</th><th>المصروف</th><th>تواصلات</th><th>مواعيد</th><th>حضور</th><th>تسجيل</th><th>تكلفة الموعد</th><th>تكلفة التسجيل</th><th>القرار</th></tr></thead><tbody>${body}</tbody></table></div>` : '<p class="la-empty">لا توجد بيانات إعلانات في هذه الفترة. استوردي تقرير ميتا اليومي.</p>'}
+    ${list.length ? `<div class="table-wrap la-table-wrap"><table class="la-table la-ads-table"><thead><tr><th>الإعلان</th><th>المصروف</th><th>تواصلات</th><th>مواعيد</th><th>حضور</th><th>تسجيل</th><th>تكلفة الموعد</th><th>تكلفة التسجيل</th><th>القرار</th></tr></thead><tbody>${body}</tbody></table></div>` : '<p class="la-empty">لا توجد رسائل من إعلانات الاستمارة في هذه الفترة.</p>'}
     <p class="la-hint">المرجع: متوسط تكلفة الموعد ${benchmark ? money(benchmark) : "—"} (يتغيّر مع بياناتك). الإيقاف عند صرف ضعفه بلا موعد. لا تعديل على الإعلانات من هنا: القرار لكِ في مدير الإعلانات.</p>
   </details>`;
 }
