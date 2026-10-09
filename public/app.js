@@ -1366,6 +1366,7 @@ async function load() {
   currentUser = data.currentUser || { role: "admin", canSeeAdvertising: true, canManageStudentData: true };
   window.leadStats = Array.isArray(data.leadStats) ? data.leadStats : [];
   window.leadSheetSync = data.leadSheetSync || null;
+  window.pushInfo = data.push || null;
   // The sales dashboard is always in Arabic.
   if (currentUser.role === "sales") currentLanguage = "ar";
   storageInfo = data.storage;
@@ -1375,7 +1376,7 @@ async function load() {
 }
 
 function panelFromLocation() {
-  const hashPanel = window.location.hash.slice(1).replace(/^view=/, "");
+  const hashPanel = window.location.hash.slice(1).split("&")[0].replace(/^view=/, "");
   if (pageMeta[hashPanel]) return hashPanel;
   if (["/groups", "/students", "/operations", "/planning"].includes(window.location.pathname)) return "groups";
   return "";

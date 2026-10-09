@@ -1707,3 +1707,25 @@ button.la-stat:active { transform: scale(.96); }
 }
 .la-item-meta { flex-wrap: nowrap; overflow: hidden; }
 .la-item-meta em { overflow: hidden; text-overflow: ellipsis; }
+
+/* Push alerts */
+.la-push { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 16px; background: #fff; color: #0f3d38; text-align: start; font: inherit; cursor: pointer; box-shadow: 0 6px 16px rgba(0, 0, 0, .12); animation: la-pulse 2.2s ease-in-out infinite; }
+.la-push > b { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: #fef3c7; font-size: 1.2rem; }
+.la-push > span { display: grid; gap: 1px; }
+.la-push strong { font-size: .95rem; }
+.la-push small { color: #64748b; font-size: .78rem; }
+.la-push.is-on { justify-content: space-between; padding: 6px 12px; background: rgba(255, 255, 255, .14); color: #fff; font-size: .82rem; font-weight: 700; box-shadow: none; animation: none; cursor: default; }
+.la-push.is-on button { padding: 4px 12px; border: 0; border-radius: 999px; background: #fff; color: #0f766e; font-weight: 800; cursor: pointer; }
+.la-push.is-bad { background: #fef2f2; color: #991b1b; animation: none; cursor: default; }
+.la-push.is-bad > b { background: #fee2e2; }
+.la-alarm { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: rgba(124, 45, 18, .78); backdrop-filter: blur(4px); animation: la-alarm-bg 1s ease-in-out infinite alternate; }
+@keyframes la-alarm-bg { from { background: rgba(124, 45, 18, .78); } to { background: rgba(234, 88, 12, .85); } }
+.la-alarm-card { display: grid; gap: 8px; justify-items: center; width: min(360px, 100%); padding: 24px 20px; border-radius: 26px; background: #fff; text-align: center; box-shadow: 0 30px 60px rgba(0, 0, 0, .35); }
+.la-alarm-bell { font-size: 3.2rem; animation: la-ring-call 1s ease-in-out infinite; }
+.la-alarm-card small { color: #c2410c; font-weight: 800; }
+.la-alarm-card h2 { margin: 0; font-size: 1.5rem; }
+.la-alarm-card p { margin: 0 0 6px; color: #64748b; font: 700 1.1rem "Fira Sans", sans-serif; }
+.la-alarm-call { display: grid; place-items: center; width: 100%; min-height: 60px; border-radius: 18px; background: linear-gradient(135deg, #22c55e, #15803d); color: #fff; font-size: 1.25rem; font-weight: 800; text-decoration: none; }
+.la-alarm-later { width: 100%; min-height: 44px; border: 0; border-radius: 14px; background: #f1f5f9; color: #475569; font-weight: 700; cursor: pointer; }
+.la-ios-steps li { margin-bottom: 6px; }
+@media (prefers-reduced-motion: reduce) { .la-push, .la-alarm, .la-alarm-bell { animation: none; } }

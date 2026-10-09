@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const { createStorage } = require("./storage");
 const { buildReport, toCsv, toMarkdown, todayIn } = require("./report");
 const Leads = require("./leads");
+const Push = require("./push");
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_FILE = process.env.CRM_DATA_FILE || path.join(__dirname, "data", "crm.json");
@@ -12,6 +13,8 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const OPERATIONS_ROUTES = new Set(["/groups", "/students", "/operations", "/planning"]);
 
 const MIME = {
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -389,6 +392,7 @@ function salesCanAccessApi(method, pathname, context = {}) {
   // Agents who log in with their personal link only work on their leads.
   if (context.linkLogin) {
     if ((method === "PATCH" || method === "POST") && /^\/api\/crm-leads(?:\/[^/]+)?$/.test(pathname) && !/\/(?:import|redistribute)$/.test(pathname)) return true;
+    if (method === "POST" && /^\/api\/push\/(?:subscribe|unsubscribe|test)$/.test(pathname)) return true;
     return method === "GET" && /^\/api\/crm-leads\/[^/]+\/vcard$/.test(pathname);
   }
   if ((method === "POST" || method === "PATCH") && /^\/api\/programs(?:\/|$)/.test(pathname)) return true;
@@ -397,6 +401,7 @@ function salesCanAccessApi(method, pathname, context = {}) {
   if (method === "POST" && /^\/api\/availability(?:\/|$)/.test(pathname)) return true;
   if ((method === "PATCH" || method === "POST") && /^\/api\/crm-leads(?:\/[^/]+)?$/.test(pathname)) return true;
   if (method === "GET" && /^\/api\/crm-leads\/[^/]+\/vcard$/.test(pathname)) return true;
+  if (method === "POST" && /^\/api\/push\/(?:subscribe|unsubscribe|test)$/.test(pathname)) return true;
   return false;
 }
 
@@ -1234,7 +1239,8 @@ async function handleApi(req, res) {
     if (method === "GET" && url.pathname === "/api/state") {
       const sensitiveLocked = !hasAuth() && hasSensitiveStudentData(state);
       return json(res, 200, {
-        state: sensitiveLocked ? publicStateWithoutStudentData(state) : stateForUser(state, context),
+        state: withoutPush(sensitiveLocked ? publicStateWithoutStudentData(state) : stateForUser(state, context)),
+        push: pushInfo(state, context),
         authEnabled: hasAuth(),
         sensitiveLocked,
         currentUser: publicUser(context),
@@ -1899,6 +1905,28 @@ async function handleApi(req, res) {
       await storage.write(state);
       return json(res, 200, { settings: state.settings });
     }
+    if (method === "POST" && /^\/api\/push\/(?:subscribe|unsubscribe|test)$/.test(url.pathname)) {
+      const owner = pushOwner(context);
+      if (!owner) return json(res, 403, { error: "No agent for this login" });
+      const body = await parseBody(req);
+      ensurePushKeys(state);
+      const subscription = body.subscription || {};
+      if (url.pathname.endsWith("/subscribe")) {
+        if (!/^https:\/\//.test(String(subscription.endpoint || "")) || !subscription.keys?.p256dh || !subscription.keys?.auth) return json(res, 400, { error: "Invalid subscription" });
+        state.push.subscriptions = state.push.subscriptions.filter((item) => item.endpoint !== subscription.endpoint);
+        state.push.subscriptions.push({ endpoint: subscription.endpoint, keys: { p256dh: subscription.keys.p256dh, auth: subscription.keys.auth }, owner, device: cleanText(body.device).slice(0, 80), createdAt: now() });
+        await storage.write(state);
+        return json(res, 200, { ok: true, devices: state.push.subscriptions.filter((item) => item.owner === owner).length });
+      }
+      if (url.pathname.endsWith("/unsubscribe")) {
+        state.push.subscriptions = state.push.subscriptions.filter((item) => item.endpoint !== subscription.endpoint);
+        await storage.write(state);
+        return json(res, 200, { ok: true });
+      }
+      const targets = state.push.subscriptions.filter((item) => item.owner === owner);
+      const results = await sendPushAll(state, targets, { title: "🔔 التنبيهات تعمل", body: "هكذا ستصلك كل رسالة جديدة، حتى والتطبيق مغلق.", tag: "test", url: "/#view=leads" });
+      return json(res, 200, { sent: results.sent, devices: targets.length });
+    }
     if (method === "POST" && url.pathname === "/api/crm-leads/sync") {
       if (!isAdmin) return json(res, 403, { error: "Only an admin can sync the sheet" });
       const body = await parseBody(req);
@@ -2236,6 +2264,9 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const linkMatch = url.pathname.match(/^\/a\/([a-f0-9]{32})\/?$/);
   if (linkMatch) return handleAgentLink(req, res, linkMatch[1]);
+  if (url.pathname === "/manifest.webmanifest") return sendManifest(req, res);
+  // Public, secret-free assets the browser fetches without a login (icons, push worker).
+  if (["/sw.js", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"].includes(url.pathname)) return serveStatic(req, res);
   // /admin: forget an agent link opened in this browser and go back to the admin CRM.
   if (url.pathname === "/admin" || url.pathname === "/admin/") {
     res.writeHead(302, securityHeaders({
@@ -2260,6 +2291,134 @@ const server = http.createServer((req, res) => {
   return serveStatic(req, res);
 });
 
+// ---------- Push alerts for new leads ----------
+// Each new lead rings the assigned agent at once, again at 5, 15 and 30 minutes
+// while it is still not called (reminders only 09:00-21:00 Morocco time); the
+// admin gets the first alert and an escalation at 15 minutes.
+const ALERT_STEPS = [0, 5, 15, 30];
+function withoutPush(state) {
+  if (!state || !state.push) return state;
+  const { push, ...rest } = state;
+  return rest;
+}
+function pushOwner(context) {
+  if (context.role === "sales") return context.agentId || "";
+  return "admin";
+}
+function ensurePushKeys(state) {
+  if (state.push?.publicKey && state.push?.privateKey) {
+    state.push.subscriptions = Array.isArray(state.push.subscriptions) ? state.push.subscriptions : [];
+    return false;
+  }
+  state.push = { ...Push.generateVapidKeys(), since: now(), subscriptions: [] };
+  return true;
+}
+function pushInfo(state, context) {
+  const owner = pushOwner(context);
+  return { publicKey: state.push?.publicKey || "", devices: (state.push?.subscriptions || []).filter((item) => item.owner === owner).length };
+}
+function moroccoHour(date = new Date()) {
+  return Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Africa/Casablanca" }).format(date));
+}
+async function sendPushAll(state, targets, data) {
+  const keys = { publicKey: state.push.publicKey, privateKey: state.push.privateKey };
+  const gone = [];
+  let sent = 0;
+  await Promise.all(targets.map(async (subscription) => {
+    try {
+      const status = await Push.sendPush(subscription, data, keys, { ttl: 6 * 3600, urgency: "high", topic: data.tag });
+      if (status === 404 || status === 410) gone.push(subscription.endpoint);
+      else if (status >= 200 && status < 300) sent += 1;
+    } catch {}
+  }));
+  return { sent, gone };
+}
+let leadAlertsRunning = false;
+async function runLeadAlerts() {
+  if (!storageReady || leadAlertsRunning) return;
+  leadAlertsRunning = true;
+  try {
+    const jobs = [];
+    let snapshot = null;
+    const release = await acquireMutationLock();
+    try {
+      const state = await storage.read();
+      if (ensurePushKeys(state)) { await storage.write(state); return; }
+      if (!state.push.subscriptions.length) return;
+      const since = Date.parse(state.push.since) || 0;
+      const nowMs = Date.now();
+      const awake = moroccoHour() >= 9 && moroccoHour() < 21;
+      (state.crmLeads || []).forEach((lead) => {
+        if (lead.demo || lead.status !== "new" || !lead.agentId) return;
+        const start = Date.parse(lead.assignedAt || lead.createdAt) || 0;
+        if (start < since || nowMs - start > 6 * 3600 * 1000) return;
+        const count = Number(lead.alerts?.count || 0);
+        if (count >= ALERT_STEPS.length || nowMs < start + ALERT_STEPS[count] * 60000) return;
+        if (count > 0 && !awake) return;
+        lead.alerts = { count: count + 1, lastAt: now() };
+        jobs.push({ lead: { id: lead.id, name: lead.name, phone: lead.phone, agentId: lead.agentId, adName: lead.meta?.adName || "" }, level: count, minutes: Math.round((nowMs - start) / 60000) });
+      });
+      if (jobs.length) await storage.write(state);
+      snapshot = state;
+    } finally {
+      release();
+    }
+    if (!jobs.length || !snapshot) return;
+    const gone = [];
+    for (const { lead, level, minutes } of jobs) {
+      const who = lead.name || (lead.phone ? `+${lead.phone}` : "رسالة جديدة");
+      const rawName = snapshot.agents.find((agent) => agent.id === lead.agentId)?.name || "";
+      const agentName = rawName.charAt(0).toLocaleUpperCase() + rawName.slice(1);
+      const base = { tag: `lead-${lead.id}`, url: `/#view=leads&lead=${lead.id}`, leadId: lead.id, phone: lead.phone };
+      const agentTargets = snapshot.push.subscriptions.filter((item) => item.owner === lead.agentId);
+      const agentData = level === 0
+        ? { ...base, title: `🔥 رسالة جديدة: ${who}`, body: `اتصلي الآن وهي ساخنة${lead.adName ? ` · ${lead.adName}` : ""}`, level }
+        : { ...base, title: `⏰ لم تتصلي بعد بـ ${who}`, body: `مرّت ${minutes} دقيقة. كل دقيقة تقلّل فرصة الحجز، اتصلي الآن 📞`, level };
+      const results = [await sendPushAll(snapshot, agentTargets, agentData)];
+      const adminTargets = snapshot.push.subscriptions.filter((item) => item.owner === "admin");
+      if (level === 0) results.push(await sendPushAll(snapshot, adminTargets, { ...base, title: `📥 رسالة جديدة لـ ${agentName}`, body: who, level, admin: true }));
+      if (level === 2) results.push(await sendPushAll(snapshot, adminTargets, { ...base, title: `🚨 ${agentName} لم تتصل بعد`, body: `${who} ينتظر منذ ${minutes} دقيقة`, level, admin: true }));
+      results.forEach((result) => gone.push(...result.gone));
+    }
+    if (gone.length) {
+      const release2 = await acquireMutationLock();
+      try {
+        const state = await storage.read();
+        state.push.subscriptions = (state.push.subscriptions || []).filter((item) => !gone.includes(item.endpoint));
+        await storage.write(state);
+      } finally {
+        release2();
+      }
+    }
+  } catch (error) {
+    console.error("Lead alerts failed:", error.message);
+  } finally {
+    leadAlertsRunning = false;
+  }
+}
+
+// Installable app: an agent's home-screen icon reopens her own link.
+function sendManifest(req, res) {
+  const agentToken = cookieValue(req, AGENT_COOKIE);
+  const viaLink = agentToken ? agentFromCookie(req) : null;
+  res.writeHead(200, securityHeaders({ "Content-Type": MIME[".webmanifest"], "Cache-Control": "no-store" }));
+  res.end(JSON.stringify({
+    name: viaLink ? `CMCG · ${viaLink.agentName || "الرسائل"}` : "CMCG CRM",
+    short_name: viaLink ? "CMCG رسائل" : "CMCG CRM",
+    start_url: viaLink ? `/a/${agentToken}` : "/",
+    scope: "/",
+    display: "standalone",
+    background_color: "#0b4f4a",
+    theme_color: "#0f766e",
+    dir: viaLink ? "rtl" : "auto",
+    lang: viaLink ? "ar" : "fr",
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+    ],
+  }));
+}
+
 function sheetCsvUrl(link) {
   const id = String(link || "").match(/\/d\/([\w-]{20,})/)?.[1] || (/^[\w-]{20,}$/.test(String(link || "")) ? link : "");
   if (!id) return "";
@@ -2283,7 +2442,10 @@ async function syncLeadSheet(heldState = null) {
       const summary = Leads.ingestLeadRows(state, rows, { distribution: state.settings.leadDistribution, source: "form" });
       if (summary.added) await storage.write(state);
       lastSheetSync = { at: new Date().toISOString(), added: summary.added, rows: rows.length, error: "" };
-      if (summary.added) console.log(`Google Sheet: ${summary.added} new lead(s)`);
+      if (summary.added) {
+        console.log(`Google Sheet: ${summary.added} new lead(s)`);
+        setTimeout(() => runLeadAlerts().catch(() => {}), 500);
+      }
     } finally {
       release();
     }
@@ -2311,6 +2473,10 @@ storage.init().then(async () => {
       console.log(`Removed ${removed} demo lead(s)`);
     }
   } catch (error) { console.error("Demo leads clean-up failed:", error.message); }
+  if (process.env.CRM_PUSH !== "0") {
+    runLeadAlerts().catch(() => {});
+    setInterval(() => runLeadAlerts().catch(() => {}), 30 * 1000).unref();
+  }
   if (process.env.CRM_SHEET_SYNC !== "0") {
     syncLeadSheet().catch(() => {});
     setInterval(() => syncLeadSheet().catch(() => {}), 60 * 1000).unref();

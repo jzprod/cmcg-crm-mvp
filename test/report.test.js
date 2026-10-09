@@ -1,4 +1,5 @@
 process.env.CRM_SHEET_SYNC = "0"; // test servers never call Google
+process.env.CRM_PUSH = "0";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

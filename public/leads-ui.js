@@ -304,6 +304,7 @@ function leadHeroHtml() {
       <button type="button" class="la-stat la-stat-rdv" data-lead-jump="rdv"><i>📅</i><strong>${number(rdvsToday)}</strong><span>مواعيد اليوم</span></button>
       <div class="la-stat la-stat-reg"><i>🎓</i><strong>${number(registered)}</strong><span>تسجيلات الشهر</span></div>
     </div>
+    ${leadReadOnly() ? "" : pushBannerHtml()}
     ${ranking.length > 1 ? `<div class="la-rank"><span class="la-rank-title">🏆 اليوم</span>${ranking.map((row, index) => `<span class="la-rank-row${me && row.agentId === me.id ? " is-me" : ""}"><b>${row.rdvsToday || row.actionsToday ? medals[index] || "•" : "•"}</b><i style="--agent:${leadAgentColor(row.agentId)}">${escapeHtml(rankCode(row))}</i>${escapeHtml(rankName(row))}<em>${number(row.rdvsToday)}📅 · ${number(row.actionsToday)}📞</em></span>`).join("")}</div>` : ""}
     ${hot && leadAdminView() ? `<button type="button" class="la-hot-nudge" data-lead-jump="new"><span class="la-flame">🔥</span> لديك ${number(hot)} ${hot === 1 ? "رسالة ساخنة" : "رسائل ساخنة"}، اتصلي بهم الآن قبل أن يبردوا</button>` : ""}
     ${reminders ? `<button type="button" class="la-reminder-alert" data-lead-jump="rdv"><span>⚠️</span><div><strong>${number(reminders)} ${reminders === 1 ? "موعد" : "مواعيد"} بدون رسالة تذكير</strong><small>أرسليها الآن ليحضروا 👇</small></div></button>` : ""}
@@ -378,6 +379,129 @@ function leadsFilteredHtml(leads) {
   return leadSection("filter", status.icon, status.label, "", sorted, "لا توجد رسائل بهذه الحالة.");
 }
 
+// ---------- Push alerts ----------
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+function pushBannerHtml() {
+  if (LEAD_UI.pushOn) return `<div class="la-push is-on"><span>🔔 التنبيهات مفعّلة على هذا الجهاز</span><button type="button" data-push-test>تجربة</button></div>`;
+  if (!pushSupported()) {
+    if (isIos() && !isStandalone()) return `<button type="button" class="la-push" data-push-ios><b>🔔</b><span><strong>فعّلي التنبيهات على الآيفون</strong><small>أضيفي التطبيق إلى الشاشة الرئيسية أولاً، اضغطي هنا للطريقة</small></span></button>`;
+    return "";
+  }
+  if (Notification.permission === "denied") return `<div class="la-push is-bad"><b>🔕</b><span><strong>التنبيهات محظورة في هذا المتصفح</strong><small>افتحي إعدادات الموقع (🔒 بجانب الرابط) ← الإشعارات ← سماح</small></span></div>`;
+  return `<button type="button" class="la-push" data-push-enable><b>🔔</b><span><strong>فعّلي تنبيهات الرسائل الجديدة</strong><small>تصلك كل رسالة فوراً حتى والتطبيق مغلق</small></span></button>`;
+}
+function urlKey(base64) {
+  const raw = atob((base64 + "=".repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (char) => char.charCodeAt(0));
+}
+async function pushRegistration() {
+  if (!("serviceWorker" in navigator)) return null;
+  try { return await navigator.serviceWorker.register("/sw.js", { scope: "/" }); } catch { return null; }
+}
+async function refreshPushState() {
+  const registration = pushSupported() ? await pushRegistration() : null;
+  const subscription = registration ? await registration.pushManager.getSubscription().catch(() => null) : null;
+  const on = Boolean(subscription && Notification.permission === "granted");
+  // Re-send an existing subscription so the server always has it (keys can rotate).
+  if (on && !LEAD_UI.pushSynced) {
+    LEAD_UI.pushSynced = true;
+    api("/api/push/subscribe", { method: "POST", body: JSON.stringify({ subscription, device: navigator.userAgent.slice(0, 80) }) }).catch(() => {});
+  }
+  if (on !== LEAD_UI.pushOn) { LEAD_UI.pushOn = on; if (state) renderLeads(); }
+}
+async function enablePush() {
+  const key = window.pushInfo?.publicKey;
+  if (!key) { toast("لحظة… أعيدي المحاولة بعد ثوانٍ", "error"); return; }
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") { toast("لم يتم السماح بالتنبيهات", "error"); renderLeads(); return; }
+  const registration = await pushRegistration();
+  await navigator.serviceWorker.ready;
+  let subscription = await registration.pushManager.getSubscription();
+  if (subscription && subscription.options?.applicationServerKey) {
+    const current = btoa(String.fromCharCode(...new Uint8Array(subscription.options.applicationServerKey))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    if (current !== key) { await subscription.unsubscribe(); subscription = null; }
+  }
+  if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlKey(key) });
+  await api("/api/push/subscribe", { method: "POST", body: JSON.stringify({ subscription, device: navigator.userAgent.slice(0, 80) }) });
+  LEAD_UI.pushOn = true;
+  LEAD_UI.pushSynced = true;
+  renderLeads();
+  const res = await api("/api/push/test", { method: "POST", body: "{}" });
+  toast(res.sent ? "🔔 تم التفعيل! وصلك إشعار تجريبي" : "🔔 تم التفعيل");
+}
+function openIosHelp() {
+  const dialog = ensureLeadDialog();
+  dialog.innerHTML = `<div class="modal-content la-detail"><div class="la-detail-head"><div><small>🔔 الآيفون</small><h2>تفعيل التنبيهات</h2></div><button type="button" class="la-close" data-lead-close aria-label="إغلاق">×</button></div>
+    <ol class="la-steps la-ios-steps"><li>افتحي هذا الرابط في <b>Safari</b>.</li><li>اضغطي زر المشاركة <b>⬆️</b> في الأسفل.</li><li>اختاري <b>«إضافة إلى الشاشة الرئيسية»</b> ثم «إضافة».</li><li>افتحي التطبيق من أيقونة <b>CMCG</b> الجديدة واضغطي «فعّلي التنبيهات».</li></ol>
+    <p class="la-hint">يلزم iOS 16.4 أو أحدث. بعد ذلك تصلك الرسائل الجديدة حتى والهاتف مقفل.</p></div>`;
+  if (!dialog.open) dialog.showModal();
+}
+
+// In-app alarm: a loud, repeating ring with a full-screen card until the agent acts.
+let alarmTimer = null;
+let alarmAudio = null;
+function ringOnce() {
+  try {
+    alarmAudio = alarmAudio || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = alarmAudio;
+    if (ctx.state === "suspended") ctx.resume();
+    [0, 0.18, 0.36, 0.7, 0.88, 1.06].forEach((offset, index) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = index % 3 === 2 ? 1320 : 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + offset);
+      gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + offset + 0.15);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime + offset);
+      osc.stop(ctx.currentTime + offset + 0.16);
+    });
+  } catch {}
+  try { navigator.vibrate?.([400, 150, 400, 150, 800]); } catch {}
+}
+function stopLeadAlarm() {
+  clearInterval(alarmTimer);
+  alarmTimer = null;
+  document.getElementById("leadAlarm")?.remove();
+}
+function startLeadAlarm(lead) {
+  if (!lead || leadReadOnly()) return;
+  stopLeadAlarm();
+  const box = document.createElement("div");
+  box.id = "leadAlarm";
+  box.className = "la-alarm";
+  box.setAttribute("dir", "rtl");
+  box.innerHTML = `<div class="la-alarm-card"><div class="la-alarm-bell">🔔</div><small>رسالة جديدة · ساخنة 🔥</small><h2>${escapeHtml(lead.name || leadPhoneLabel(lead.phone))}</h2><p dir="ltr">${escapeHtml(leadPhoneLabel(lead.phone))}</p>
+    <a class="la-alarm-call" href="tel:+${escapeHtml(lead.phone || "")}" data-lead-contact="${escapeHtml(lead.id)}" data-kind="call" data-alarm-stop>📞 اتصلي الآن</a>
+    <button type="button" class="la-alarm-later" data-alarm-stop>لاحقاً</button></div>`;
+  document.body.appendChild(box);
+  box.addEventListener("click", (event) => {
+    if (!event.target.closest("[data-alarm-stop]")) return;
+    const contact = event.target.closest("[data-lead-contact]");
+    if (contact) {
+      const id = contact.dataset.leadContact;
+      api(`/api/crm-leads/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ tap: "call" }) }).catch(() => {});
+      setPendingCall({ leadId: id, kind: "call", at: Date.now() });
+    }
+    stopLeadAlarm();
+  });
+  ringOnce();
+  alarmTimer = setInterval(() => { if (!document.hidden) ringOnce(); }, 4000);
+  setTimeout(stopLeadAlarm, 3 * 60 * 1000);
+}
+function handleDeepLink() {
+  const params = new URLSearchParams(window.location.hash.slice(1).split("&").slice(1).join("&"));
+  const leadId = params.get("lead");
+  const call = params.get("call");
+  if (!leadId && !call) return;
+  history.replaceState(null, "", `${window.location.pathname}#view=leads`);
+  if (call) window.location.href = `tel:+${call.replace(/[^\d]/g, "")}`;
+  else if (leadById(leadId)) openLeadDetail(leadId);
+}
+
 // Auto-sync: pull fresh data every 30s while the Leads screen is open.
 async function refreshLeadsQuietly() {
   if (!state || document.hidden || !document.getElementById("leads")?.classList.contains("active")) return;
@@ -389,8 +513,10 @@ async function refreshLeadsQuietly() {
     normalizeState();
     window.leadStats = Array.isArray(data.leadStats) ? data.leadStats : [];
     window.leadSheetSync = data.leadSheetSync || null;
+    window.pushInfo = data.push || window.pushInfo;
     const fresh = leadsList().filter((lead) => !known.has(lead.id) && (leadAdminView() || lead.agentId === leadViewerId()));
     renderLeads();
+    if (fresh.length && !leadAdminView()) startLeadAlarm(fresh[0]);
     if (fresh.length) {
       toast(`🔔 ${fresh.length === 1 ? "رسالة جديدة" : `${fresh.length} رسائل جديدة`}: ${fresh[0].name || leadPhoneLabel(fresh[0].phone)}`);
       try { navigator.vibrate?.([120, 60, 120]); } catch {}
@@ -989,6 +1115,9 @@ async function handleLeadClick(event) {
     try { await api(`/api/agents/${encodeURIComponent(agentId)}/access-link`, { method: revoke ? "DELETE" : "POST", body: "{}" }); LEAD_UI.settingsOpen = true; await load(); toast(revoke ? "أُوقف الرابط" : "الرابط جاهز ✓"); } catch (error) { toast(error.message, "error"); }
     return;
   }
+  if (target.closest("[data-push-enable]")) { enablePush().catch((error) => toast(error.message || "تعذّر تفعيل التنبيهات", "error")); return; }
+  if (target.closest("[data-push-ios]")) { openIosHelp(); return; }
+  if (target.closest("[data-push-test]")) { api("/api/push/test", { method: "POST", body: "{}" }).then((res) => toast(res.sent ? "🔔 أُرسل إشعار تجريبي" : "⚠️ لم يصل الإشعار، أعيدي التفعيل", res.sent ? undefined : "error")).catch((error) => toast(error.message, "error")); return; }
   const contact = target.closest("[data-lead-contact]");
   if (contact) {
     const kind = contact.dataset.kind;
@@ -1202,5 +1331,17 @@ function resumePendingCall() {
   window.addEventListener("focus", () => setTimeout(resumePendingCall, 300));
   // Keep ages, today's lists and the goal ring fresh while the page stays open.
   setInterval(refreshLeadsQuietly, 30000);
-  const waitForState = setInterval(() => { if (state) { clearInterval(waitForState); resumePendingCall(); } }, 500);
+  const waitForState = setInterval(() => { if (state) { clearInterval(waitForState); resumePendingCall(); refreshPushState(); handleDeepLink(); } }, 500);
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      const message = event.data || {};
+      if (message.type === "cmcg-push" && !document.hidden && message.data?.leadId && message.data.level === 0 && !message.data.admin) {
+        const lead = leadById(message.data.leadId);
+        startLeadAlarm(lead || { id: message.data.leadId, name: (message.data.title || "").replace(/^.*?:\s*/, ""), phone: message.data.phone });
+        refreshLeadsQuietly();
+      }
+      if (message.type === "cmcg-open" && message.url) { window.location.hash = message.url.split("#")[1] || "view=leads"; handleDeepLink(); }
+    });
+  }
+  window.addEventListener("hashchange", handleDeepLink);
 })();
