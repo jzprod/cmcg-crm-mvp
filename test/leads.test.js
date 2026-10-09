@@ -282,6 +282,12 @@ test("each agent gets a personal link that only opens her leads", async (t) => {
   assert.equal(home.status, 200);
   assert.match(home.headers.get("set-cookie") || "", /cmcg_agent=.*Max-Age=15552000/);
   assert.equal(home.headers.get("www-authenticate"), null);
+  // /admin forgets the agent link in this browser, so the admin gets the full CRM back.
+  const leave = await fetch(`${base}/admin`, { headers: { Cookie: cookie }, redirect: "manual" });
+  assert.equal(leave.status, 302);
+  assert.equal(leave.headers.get("location"), "/");
+  assert.match(leave.headers.get("set-cookie"), /cmcg_agent=;.*Max-Age=0/);
+  assert.equal((await fetch(`${base}/`)).status, 401);
   // A new link cuts the old one off with a friendly page, not a password box.
   await fetch(`${base}/api/agents/souad/access-link`, { method: "POST", headers: admin });
   assert.equal((await fetch(`${base}/api/state`, { headers: agent })).status, 401);

@@ -2236,6 +2236,15 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const linkMatch = url.pathname.match(/^\/a\/([a-f0-9]{32})\/?$/);
   if (linkMatch) return handleAgentLink(req, res, linkMatch[1]);
+  // /admin: forget an agent link opened in this browser and go back to the admin CRM.
+  if (url.pathname === "/admin" || url.pathname === "/admin/") {
+    res.writeHead(302, securityHeaders({
+      "Set-Cookie": `${AGENT_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+      Location: "/",
+      "Cache-Control": "no-store",
+    }));
+    return res.end();
+  }
   if (req.url.startsWith("/api/")) return handleApi(req, res);
   if (OPERATIONS_ROUTES.has(url.pathname) && !hasAuth()) return sendOperationsLockedPage(res);
   const agentToken = cookieValue(req, AGENT_COOKIE);
