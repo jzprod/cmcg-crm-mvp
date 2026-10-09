@@ -1096,29 +1096,30 @@ function leadAdsHtml() {
   const totals = list.reduce((sum, item) => ({ spend: sum.spend + item.spend, contacts: sum.contacts + item.contacts, booked: sum.booked + item.booked, showed: sum.showed + item.showed, registered: sum.registered + item.registered }), { spend: 0, contacts: 0, booked: 0, showed: 0, registered: 0 });
   const per = (spend, count) => (count && spend ? money(spend / count) : "—");
   const top = list.filter((item) => ["scale", "stop", "fix"].includes(item.decision.key)).slice(0, 3);
+  const cell = (cls, value, zero) => `<td class="${cls}${zero ? " is-zero" : ""}">${value}</td>`;
   const body = list.map((item) => `<tr class="la-ad-${item.decision.key}">
       <td><strong>${escapeHtml(item.name)}</strong><small>${item.code ? `${escapeHtml(item.code)} · ` : ""}${escapeHtml([item.campaignName, item.adSetName].filter(Boolean).join(" › "))}</small></td>
-      <td dir="ltr">${item.spend ? money(item.spend) : "—"}</td>
-      <td>${number(item.contacts)}</td>
-      <td><b>${number(item.booked)}</b></td>
-      <td>${number(item.showed + item.registered)}</td>
-      <td><b>${number(item.registered)}</b></td>
-      <td dir="ltr">${per(item.spend, item.booked)}</td>
-      <td dir="ltr">${per(item.spend, item.registered)}</td>
+      ${cell("la-c-spend", `<span dir="ltr">${item.spend ? money(item.spend) : "—"}</span>`, !item.spend)}
+      ${cell("la-c-contacts", number(item.contacts), !item.contacts)}
+      ${cell("la-c-rdv", `<b>${number(item.booked)}</b>`, !item.booked)}
+      ${cell("la-c-show", `<b>${number(item.showed + item.registered)}</b>`, !(item.showed + item.registered))}
+      ${cell("la-c-reg", `<b>${number(item.registered)}</b>`, !item.registered)}
+      ${cell("la-c-cost-rdv", `<span dir="ltr">${per(item.spend, item.booked)}</span>`, !item.booked)}
+      ${cell("la-c-cost-reg", `<span dir="ltr">${per(item.spend, item.registered)}</span>`, !item.registered)}
       <td class="la-ad-decision">${item.decision.icon} ${escapeHtml(item.decision.text)}</td>
     </tr>`).join("");
   return `<details class="la-ads" open><summary><strong>📣 إعلانات الاستمارة: من يجلب المواعيد والتسجيلات؟</strong><small>${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")}</small></summary>
     ${leadSplitPeriodHtml()}
     <div class="la-ads-kpis">
-      <div><span>المصروف</span><strong dir="ltr">${money(totals.spend)}</strong></div>
+      <div class="la-k-spend"><span>💸 المصروف</span><strong dir="ltr">${money(totals.spend)}</strong></div>
       <div><span>تواصلات</span><strong>${number(totals.contacts)}</strong></div>
-      <div><span>مواعيد</span><strong>${number(totals.booked)}</strong><small dir="ltr">${per(totals.spend, totals.booked)}</small></div>
-      <div><span>حضور</span><strong>${number(totals.showed + totals.registered)}</strong></div>
-      <div><span>تسجيلات</span><strong>${number(totals.registered)}</strong><small dir="ltr">${per(totals.spend, totals.registered)}</small></div>
+      <div class="la-k-rdv"><span>📅 مواعيد</span><strong>${number(totals.booked)}</strong><small dir="ltr">${per(totals.spend, totals.booked)}</small></div>
+      <div class="la-k-show"><span>🚶 حضور</span><strong>${number(totals.showed + totals.registered)}</strong></div>
+      <div class="la-k-reg"><span>🎓 تسجيلات</span><strong>${number(totals.registered)}</strong><small dir="ltr">${per(totals.spend, totals.registered)}</small></div>
       <div><span>الربح التقديري</span><strong>${revenueMoney(revenueEstimate(totals.registered, totals.spend).profit)}</strong></div>
     </div>
     ${top.length ? `<ul class="la-ads-actions">${top.map((item) => `<li class="la-ad-${item.decision.key}">${item.decision.icon} <b>${escapeHtml(item.name)}</b>: ${escapeHtml(item.decision.text)}</li>`).join("")}</ul>` : ""}
-    ${list.length ? `<div class="table-wrap la-table-wrap"><table class="la-table la-ads-table"><thead><tr><th>الإعلان</th><th>المصروف</th><th>تواصلات</th><th>مواعيد</th><th>حضور</th><th>تسجيل</th><th>تكلفة الموعد</th><th>تكلفة التسجيل</th><th>القرار</th></tr></thead><tbody>${body}</tbody></table></div>` : '<p class="la-empty">لا توجد رسائل من إعلانات الاستمارة في هذه الفترة.</p>'}
+    ${list.length ? `<div class="table-wrap la-table-wrap"><table class="la-table la-ads-table"><thead><tr><th>الإعلان</th><th class="la-c-spend">💸 المصروف</th><th class="la-c-contacts">💬 تواصلات</th><th class="la-c-rdv">📅 مواعيد</th><th class="la-c-show">🚶 حضور</th><th class="la-c-reg">🎓 تسجيل</th><th class="la-c-cost-rdv">تكلفة الموعد</th><th class="la-c-cost-reg">تكلفة التسجيل</th><th>القرار</th></tr></thead><tbody>${body}</tbody></table></div>` : '<p class="la-empty">لا توجد رسائل من إعلانات الاستمارة في هذه الفترة.</p>'}
     <p class="la-hint">المرجع: متوسط تكلفة الموعد ${benchmark ? money(benchmark) : "—"} (يتغيّر مع بياناتك). الإيقاف عند صرف ضعفه بلا موعد. لا تعديل على الإعلانات من هنا: القرار لكِ في مدير الإعلانات.</p>
   </details>`;
 }

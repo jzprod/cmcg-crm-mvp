@@ -1762,3 +1762,20 @@ li.la-ad-fix, tr.la-ad-fix .la-ad-decision { background: #fffbeb; color: #92400e
 tr.la-ad-keep .la-ad-decision { color: #15803d; }
 tr.la-ad-wait .la-ad-decision, tr.la-ad-import .la-ad-decision { color: #64748b; }
 .la-split-note { display: block; margin-top: 6px; color: var(--la-muted); }
+
+/* Ads table: key numbers stand out */
+.la-ads-table th.la-c-rdv, .la-ads-table th.la-c-reg, .la-ads-table th.la-c-show, .la-ads-table th.la-c-cost-rdv, .la-ads-table th.la-c-cost-reg { font-weight: 800; }
+.la-ads-table th.la-c-rdv { color: #6d28d9; } .la-ads-table th.la-c-reg { color: #15803d; } .la-ads-table th.la-c-show { color: #0e7490; }
+.la-ads-table th.la-c-cost-rdv { color: #7c3aed; } .la-ads-table th.la-c-cost-reg { color: #16a34a; }
+.la-ads-table td.la-c-rdv b, .la-ads-table td.la-c-reg b, .la-ads-table td.la-c-show b { display: inline-grid; place-items: center; min-width: 34px; padding: 4px 10px; border-radius: 999px; font: 800 1.05rem/1.1 "Fira Sans", system-ui, sans-serif; }
+.la-ads-table td.la-c-rdv b { background: #ede9fe; color: #6d28d9; }
+.la-ads-table td.la-c-show b { background: #cffafe; color: #0e7490; }
+.la-ads-table td.la-c-reg b { background: #dcfce7; color: #15803d; }
+.la-ads-table td.la-c-cost-rdv { color: #6d28d9; font-weight: 800; }
+.la-ads-table td.la-c-cost-reg { color: #15803d; font-weight: 800; }
+.la-ads-table td.la-c-spend { font-weight: 700; color: #0f172a; }
+.la-ads-table td.is-zero, .la-ads-table td.is-zero b { color: #94a3b8 !important; background: transparent !important; font-weight: 500 !important; }
+.la-ads-kpis .la-k-rdv { background: #f5f3ff; } .la-ads-kpis .la-k-rdv strong { color: #6d28d9; }
+.la-ads-kpis .la-k-show { background: #ecfeff; } .la-ads-kpis .la-k-show strong { color: #0e7490; }
+.la-ads-kpis .la-k-reg { background: #f0fdf4; } .la-ads-kpis .la-k-reg strong { color: #15803d; }
+.la-ads-kpis .la-k-spend strong { color: #0f172a; }
