@@ -958,11 +958,9 @@ function leadSettingsHtml() {
 // A campaign is on the form side only if it actually sent leads into the CRM
 // (the new lead-form setup). Older lead-objective campaigns stay out of the test.
 function leadCampaignHasCrmLeads(campaign) {
-  // Only the Meta campaign written on the lead row counts (id or exact name), never a
-  // guess from an ad with the same name.
-  const name = String(campaign.name || "").trim().toLowerCase();
-  return leadsList().some((lead) => !lead.demo && lead.source === "form"
-    && ((campaign.metaCampaignId && lead.meta?.campaignId === campaign.metaCampaignId) || (name && String(lead.meta?.campaignName || "").trim().toLowerCase() === name)));
+  // By Meta id only (campaign_id from the lead sheet), never by name.
+  if (!campaign.metaCampaignId) return leadsList().some((lead) => !lead.demo && lead.source === "form" && lead.campaignId === campaign.id);
+  return leadsList().some((lead) => !lead.demo && lead.source === "form" && (lead.meta?.campaignId === campaign.metaCampaignId || lead.campaignId === campaign.id));
 }
 function leadAutoChannel(campaign) {
   if (leadCampaignHasCrmLeads(campaign)) return "form";

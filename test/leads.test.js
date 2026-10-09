@@ -298,7 +298,7 @@ test("each agent gets a personal link that only opens her leads", async (t) => {
   assert.match(await expired.text(), /تغيّر رابطك/);
 });
 
-test("a form lead never borrows a same-name ad from another campaign", () => {
+test("form leads link to ads by Meta ids only, never by name", () => {
   const state = {
     agents: [{ id: "souad", name: "souad" }], crmLeads: [], outcomes: [], settings: {},
     campaigns: [{ id: "old", name: "WhatsApp Sept", metaCampaignId: "111" }],
@@ -306,7 +306,7 @@ test("a form lead never borrows a same-name ad from another campaign", () => {
     creatives: [{ id: "ad_old", name: "FREE Sesion Image", adSetId: "as_old" }],
   };
   const lead = { id: "l1", source: "form", status: "booked", bookedAt: "2026-10-08T10:00:00.000Z", createdAt: "2026-10-08T09:00:00.000Z", agentId: "souad",
-    meta: { campaignId: "6922104145679", campaignName: "Leads Test Campaign", adSetName: "LEADS ADSET", adName: "FREE Sesion Image" },
+    meta: { campaignId: "6922104145679", campaignName: "Leads Test Campaign", adSetId: "6922104145279", adSetName: "LEADS ADSET", adId: "6922106416679", adName: "FREE Sesion Image" },
     creativeId: "ad_old", adSetId: "as_old", campaignId: "old" }; // what the old matching did
   state.crmLeads.push(lead);
   assert.deepEqual(Leads.attributeLead(state, lead), { creativeId: "", adSetId: "", campaignId: "" });
@@ -317,8 +317,8 @@ test("a form lead never borrows a same-name ad from another campaign", () => {
   assert.equal(state.outcomes[0].campaignId, "");
   // Once the real campaign is imported, the lead links to it.
   state.campaigns.push({ id: "new", name: "Leads Test Campaign", metaCampaignId: "6922104145679" });
-  state.adSets.push({ id: "as_new", name: "LEADS ADSET", campaignId: "new" });
-  state.creatives.push({ id: "ad_new", name: "FREE Sesion Image", adSetId: "as_new" });
+  state.adSets.push({ id: "as_new", name: "LEADS ADSET", campaignId: "new", metaAdSetId: "6922104145279" });
+  state.creatives.push({ id: "ad_new", name: "FREE Sesion Image", adSetId: "as_new", metaAdId: "6922106416679" });
   assert.equal(Leads.reattributeLeads(state), 1);
   assert.deepEqual([lead.campaignId, lead.adSetId, lead.creativeId], ["new", "as_new", "ad_new"]);
   assert.equal(state.outcomes[0].creativeId, "ad_new");

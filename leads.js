@@ -140,27 +140,15 @@ function normalizeLeadRow(row) {
 const lower = (value) => clean(value).toLocaleLowerCase();
 
 // Link a lead to the CRM's ad / ad set / campaign by Meta IDs, then by names.
+// Link a lead to its ad using ONLY the Meta ids written by the lead form
+// (ad_id, adset_id, campaign_id). Names are never used: two ads can share a name.
 function attributeLead(state, lead) {
   const meta = lead.meta || {};
-  let ad = meta.adId ? state.creatives.find((item) => item.metaAdId === meta.adId) : null;
-  let adSet = meta.adSetId ? state.adSets.find((item) => item.metaAdSetId === meta.adSetId) : null;
-  let campaign = meta.campaignId ? state.campaigns.find((item) => item.metaCampaignId === meta.campaignId) : null;
-  if (!campaign && meta.campaignName) campaign = state.campaigns.find((item) => lower(item.name) === lower(meta.campaignName)) || null;
-  if (!adSet && meta.adSetName) adSet = state.adSets.find((item) => lower(item.name) === lower(meta.adSetName) && (!campaign || item.campaignId === campaign.id)) || null;
-  if (!ad && meta.adName) ad = state.creatives.find((item) => lower(item.name) === lower(meta.adName) && (!adSet || item.adSetId === adSet.id)) || null;
+  const ad = meta.adId ? state.creatives.find((item) => item.metaAdId === meta.adId) || null : null;
+  let adSet = meta.adSetId ? state.adSets.find((item) => item.metaAdSetId === meta.adSetId) || null : null;
+  let campaign = meta.campaignId ? state.campaigns.find((item) => item.metaCampaignId === meta.campaignId) || null : null;
   if (ad && !adSet) adSet = state.adSets.find((item) => item.id === ad.adSetId) || null;
   if (adSet && !campaign) campaign = state.campaigns.find((item) => item.id === adSet.campaignId) || null;
-  // Never borrow an ad from another campaign just because it has the same name
-  // (e.g. "FREE Sesion Image" in an old WhatsApp campaign): the lead's own Meta
-  // campaign must match, by id or by name.
-  if (campaign && (meta.campaignId || meta.campaignName)) {
-    const sameId = meta.campaignId && campaign.metaCampaignId === meta.campaignId;
-    const otherId = meta.campaignId && campaign.metaCampaignId && campaign.metaCampaignId !== meta.campaignId;
-    const sameName = meta.campaignName && lower(campaign.name) === lower(meta.campaignName);
-    if (otherId || (!sameId && !sameName)) return { creativeId: "", adSetId: "", campaignId: "" };
-  }
-  if (adSet && campaign && adSet.campaignId !== campaign.id) { adSet = null; ad = null; }
-  if (ad && adSet && ad.adSetId !== adSet.id) ad = null;
   return { creativeId: ad?.id || "", adSetId: adSet?.id || "", campaignId: campaign?.id || "" };
 }
 
