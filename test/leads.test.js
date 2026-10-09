@@ -324,15 +324,20 @@ test("form leads link to ads by Meta ids only, never by name", () => {
   assert.equal(state.outcomes[0].creativeId, "ad_new");
 });
 
-test("an RDV changed to another status no longer counts", () => {
+test("an RDV cancelled before its time stops counting; a no-show still counts", () => {
   const state = { agents: [{ id: "souad", name: "souad" }], crmLeads: [], outcomes: [], campaigns: [], adSets: [], creatives: [], settings: {} };
   const lead = { id: "t1", source: "form", status: "booked", bookedAt: "2026-10-08T10:00:00.000Z", createdAt: "2026-10-08T09:00:00.000Z", agentId: "souad", meta: {} };
   state.crmLeads.push(lead);
   Leads.syncLeadOutcomes(state, lead);
   assert.equal(state.outcomes.filter((o) => o.type === "booked").length, 1);
-  lead.status = "not_interested"; // it was only a test
+  lead.appointmentAt = "2026-10-12T15:00";
+  lead.status = "not_interested"; // changed before the appointment: it was only a test
+  lead.statusAt = "2026-10-09T10:00:00.000Z";
   assert.equal(Leads.resyncLeadOutcomes(state), true);
   assert.equal(state.outcomes.filter((o) => o.type === "booked").length, 0);
+  lead.statusAt = "2026-10-13T10:00:00.000Z"; // after the appointment: a no-show, still an RDV
+  Leads.syncLeadOutcomes(state, lead);
+  assert.equal(state.outcomes.filter((o) => o.type === "booked").length, 1);
   lead.status = "registered";
   Leads.syncLeadOutcomes(state, lead);
   assert.deepEqual(state.outcomes.map((o) => o.type).sort(), ["booked", "registered"]);
