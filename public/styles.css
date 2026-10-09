@@ -1859,3 +1859,7 @@ tr.la-ad-wait .la-ad-decision, tr.la-ad-import .la-ad-decision { color: #64748b;
 .la-scale-tip { margin: 0; padding: 12px 16px; border-radius: 14px; background: #ecfdf5; color: #064e3b; font-size: 1.02rem; line-height: 1.7; border: 1px solid #a7f3d0; }
 .la-scale-tip small { color: #047857; }
 @media (max-width: 760px) { .la-roi { grid-template-columns: 1fr; } }
+.la-live { display: inline-block; margin-inline-start: 6px; padding: 1px 7px; border-radius: 999px; background: #fef3c7; color: #92400e; font: 800 .72rem "Fira Sans", system-ui, sans-serif; vertical-align: middle; }
+.la-duel-card .la-live { display: block; margin: 3px 0 0; width: fit-content; }
+.la-cutoff { display: block; color: #94a3b8; font-size: .72rem; font-weight: 700; }
+.la-cutoff-note { margin: 0; padding: 10px 14px; border-radius: 12px; background: #f8fafc; color: #334155; font-size: .9rem; line-height: 1.7; border: 1px dashed #cbd5e1; }

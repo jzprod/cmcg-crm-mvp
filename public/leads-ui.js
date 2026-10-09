@@ -999,10 +999,22 @@ function leadSplitRange() {
   const [from, to] = ranges[period.preset] || ranges.this_month;
   return { ...filters, from, to, preset: period.preset in ranges ? period.preset : "this_month" };
 }
-function leadSplitData() {
+// Last day covered by imported Meta spend, per side (inside the chosen range).
+function leadSpendCutoff(range) {
+  const last = { whatsapp: "", form: "" };
+  filteredLogs(range).forEach((log) => {
+    const side = leadChannelOf(relationForLog(log).campaign);
+    if (!(side in last)) return;
+    let end = log.reportingEnd || log.date || log.reportingStart || "";
+    if (range.to && end > range.to) end = range.to;
+    if (end > last[side]) last[side] = end;
+  });
+  return last;
+}
+function leadSplitData(rangeArg = null) {
   const blank = () => ({ spend: 0, contacts: 0, booked: 0, showed: 0, registered: 0, rdvHours: [], regHours: [], daily: {} });
   const sides = { whatsapp: blank(), form: blank() };
-  const range = leadSplitRange();
+  const range = rangeArg || leadSplitRange();
   const dayMs = 86400000;
   const dayKey = (time) => dateInputValue(new Date(time));
   const daily = (side, day) => (side.daily[day] = side.daily[day] || { spend: 0, booked: 0, registered: 0 });
@@ -1071,22 +1083,29 @@ function leadAdsRows() {
     const share = logShareInRange(log, range);
     const item = forAd(ad);
     item.spend += Number(log.spend || 0) * share;
+    let end = log.reportingEnd || log.date || log.reportingStart || "";
+    if (range.to && end > range.to) end = range.to;
+    if (end > (item.cutoff || "")) item.cutoff = end;
     if (item.channel !== "form") item.contacts += Math.round(Number(log.messages || 0) * share);
   });
   // Form leads: contacts by the ad they came from (Meta ad id), linked or not yet imported.
   leadsList().filter((lead) => !lead.demo && lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt), range)).forEach((lead) => {
     const ad = byId(state.creatives, lead.creativeId);
     const item = ad ? forAd(ad) : row(`meta:${lead.meta?.adId || lead.meta?.adName || "?"}`, { name: lead.meta?.adName || "إعلان غير معروف", adSetName: lead.meta?.adSetName || "", campaignName: lead.meta?.campaignName || "", channel: "form", unlinked: true });
-    item.contacts += 1;
+    // After the last imported spend day it is "live": shown, but kept out of costs.
+    if (item.cutoff && dateOnly(lead.createdAt) > item.cutoff) item.liveContacts = (item.liveContacts || 0) + 1;
+    else item.contacts += 1;
   });
   const formLeads = new Map(leadsList().filter((lead) => !lead.demo && lead.source === "form").map((lead) => [lead.id, lead]));
   filteredOutcomes(range).forEach((outcome) => {
     const ad = relationForOutcome(outcome).ad;
     const lead = outcome.leadId ? formLeads.get(outcome.leadId) : null;
     const item = ad ? forAd(ad) : lead ? row(`meta:${lead.meta?.adId || lead.meta?.adName || "?"}`, { name: lead.meta?.adName || "إعلان غير معروف", adSetName: lead.meta?.adSetName || "", campaignName: lead.meta?.campaignName || "", channel: "form", unlinked: true }) : null;
-    if (item && item[outcome.type] !== undefined) item[outcome.type] += 1;
+    if (!item || item[outcome.type] === undefined) return;
+    if (item.cutoff && outcome.date > item.cutoff) item[`live_${outcome.type}`] = (item[`live_${outcome.type}`] || 0) + 1;
+    else item[outcome.type] += 1;
   });
-  const list = [...rows.values()].filter((item) => item.channel === "form" && (item.spend > 0.009 || item.contacts || item.booked || item.registered));
+  const list = [...rows.values()].filter((item) => item.channel === "form" && (item.spend > 0.009 || item.contacts || item.booked || item.registered || item.liveContacts || item.live_booked));
   // Dynamic benchmark: the median cost per RDV of ads that already booked.
   const costs = list.filter((item) => item.booked && item.spend > 0).map((item) => item.spend / item.booked).sort((a, b) => a - b);
   const benchmark = costs.length ? costs[Math.floor(costs.length / 2)] : null;
@@ -1111,15 +1130,16 @@ function leadAdsHtml() {
   const { list, benchmark, range } = leadAdsRows();
   const totals = list.reduce((sum, item) => ({ spend: sum.spend + item.spend, contacts: sum.contacts + item.contacts, booked: sum.booked + item.booked, showed: sum.showed + item.showed, registered: sum.registered + item.registered }), { spend: 0, contacts: 0, booked: 0, showed: 0, registered: 0 });
   const per = (spend, count) => (count && spend ? money(spend / count) : "—");
+  const liveRdv = list.reduce((sum, item) => sum + (item.live_booked || 0), 0);
   const top = list.filter((item) => ["scale", "stop", "fix"].includes(item.decision.key)).slice(0, 3);
   const cell = (cls, value, zero) => `<td class="${cls}${zero ? " is-zero" : ""}">${value}</td>`;
   const body = list.map((item) => `<tr class="la-ad-${item.decision.key}">
       <td><strong>${escapeHtml(item.name)}</strong><small>${item.code ? `${escapeHtml(item.code)} · ` : ""}${escapeHtml([item.campaignName, item.adSetName].filter(Boolean).join(" › "))}</small></td>
       ${cell("la-c-spend", `<span dir="ltr">${item.spend ? money(item.spend) : "—"}</span>`, !item.spend)}
-      ${cell("la-c-contacts", number(item.contacts), !item.contacts)}
-      ${cell("la-c-rdv", `<b>${number(item.booked)}</b>`, !item.booked)}
+      ${cell("la-c-contacts", `${number(item.contacts)}${item.liveContacts ? `<small class="la-live">📡 +${number(item.liveContacts)}</small>` : ""}`, !item.contacts && !item.liveContacts)}
+      ${cell("la-c-rdv", `<b>${number(item.booked)}</b>${item.live_booked ? `<small class="la-live">📡 +${number(item.live_booked)}</small>` : ""}`, !item.booked && !item.live_booked)}
       ${cell("la-c-show", `<b>${number(item.showed + item.registered)}</b>`, !(item.showed + item.registered))}
-      ${cell("la-c-reg", `<b>${number(item.registered)}</b>`, !item.registered)}
+      ${cell("la-c-reg", `<b>${number(item.registered)}</b>${item.live_registered ? `<small class="la-live">📡 +${number(item.live_registered)}</small>` : ""}`, !item.registered && !item.live_registered)}
       ${cell("la-c-cost-rdv", `<span dir="ltr">${per(item.spend, item.booked)}</span>`, !item.booked)}
       ${cell("la-c-cost-reg", `<span dir="ltr">${per(item.spend, item.registered)}</span>`, !item.registered)}
       <td class="la-ad-decision">${item.decision.icon} ${escapeHtml(item.decision.text)}</td>
@@ -1129,14 +1149,14 @@ function leadAdsHtml() {
     <div class="la-ads-kpis">
       <div class="la-k-spend"><span>💸 المصروف</span><strong dir="ltr">${money(totals.spend)}</strong></div>
       <div><span>تواصلات</span><strong>${number(totals.contacts)}</strong></div>
-      <div class="la-k-rdv"><span>📅 مواعيد</span><strong>${number(totals.booked)}</strong><small dir="ltr">${per(totals.spend, totals.booked)}</small></div>
+      <div class="la-k-rdv"><span>📅 مواعيد</span><strong>${number(totals.booked)}${liveRdv ? `<small class="la-live"> 📡 +${number(liveRdv)}</small>` : ""}</strong><small dir="ltr">${per(totals.spend, totals.booked)}</small></div>
       <div class="la-k-show"><span>🚶 حضور</span><strong>${number(totals.showed + totals.registered)}</strong></div>
       <div class="la-k-reg"><span>🎓 تسجيلات</span><strong>${number(totals.registered)}</strong><small dir="ltr">${per(totals.spend, totals.registered)}</small></div>
       <div><span>الربح التقديري</span><strong>${revenueMoney(revenueEstimate(totals.registered, totals.spend).profit)}</strong></div>
     </div>
     ${top.length ? `<ul class="la-ads-actions">${top.map((item) => `<li class="la-ad-${item.decision.key}">${item.decision.icon} <b>${escapeHtml(item.name)}</b>: ${escapeHtml(item.decision.text)}</li>`).join("")}</ul>` : ""}
     ${list.length ? `<div class="table-wrap la-table-wrap"><table class="la-table la-ads-table"><thead><tr><th>الإعلان</th><th class="la-c-spend">💸 المصروف</th><th class="la-c-contacts">💬 تواصلات</th><th class="la-c-rdv">📅 مواعيد</th><th class="la-c-show">🚶 حضور</th><th class="la-c-reg">🎓 تسجيل</th><th class="la-c-cost-rdv">تكلفة الموعد</th><th class="la-c-cost-reg">تكلفة التسجيل</th><th>القرار</th></tr></thead><tbody>${body}</tbody></table></div>` : '<p class="la-empty">لا توجد رسائل من إعلانات الاستمارة في هذه الفترة.</p>'}
-    <p class="la-hint">المرجع: متوسط تكلفة الموعد ${benchmark ? money(benchmark) : "—"} (يتغيّر مع بياناتك). الإيقاف عند صرف ضعفه بلا موعد. لا تعديل على الإعلانات من هنا: القرار لكِ في مدير الإعلانات.</p>
+    <p class="la-hint">📡 = مواعيد/رسائل بعد آخر يوم في تقرير ميتا المستورد: تظهر مباشرة ولا تدخل في التكلفة حتى تستوردي تقرير ذلك اليوم. المرجع: متوسط تكلفة الموعد ${benchmark ? money(benchmark) : "—"} (يتغيّر مع بياناتك). الإيقاف عند صرف ضعفه بلا موعد. لا تعديل على الإعلانات من هنا: القرار لكِ في مدير الإعلانات.</p>
   </details>`;
 }
 function leadSplitPeriodHtml() {
@@ -1180,8 +1200,18 @@ function splitDailyChart(sides, field, title, format) {
   return `<figure class="la-split-chart"><figcaption>${escapeHtml(title)} <small>الأعلى: ${escapeHtml(format(max))}</small></figcaption><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}"><line x1="${pad}" x2="${width - pad}" y1="${height - 18}" y2="${height - 18}" class="la-axis"/>${bars}</svg></figure>`;
 }
 function leadSplitTestHtml() {
-  const sides = leadSplitData();
   const range = leadSplitRange();
+  // Costs, ROI and rates only use results up to the last day with imported spend,
+  // so today's RDVs don't make the cost look cheaper before today's spend is in.
+  // Counts stay live.
+  const live = leadSplitData(range);
+  const cutoff = leadSpendCutoff(range);
+  const sides = {
+    whatsapp: cutoff.whatsapp ? leadSplitData({ ...range, to: cutoff.whatsapp }).whatsapp : live.whatsapp,
+    form: cutoff.form ? leadSplitData({ ...range, to: cutoff.form }).form : live.form,
+  };
+  const liveExtra = (side, field) => Math.max(0, live[side][field] - sides[side][field]);
+  const cutoffText = (side) => (cutoff[side] ? `${cutoff[side].slice(8, 10)}/${cutoff[side].slice(5, 7)}` : "—");
   const periodNote = `<small class="la-split-note">📅 نفس فترة لوحة الإعلانات أعلاه: ${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")}</small>`;
   if (!sides.form.spend && !sides.form.contacts) {
     return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3>${periodNote}</div><p class="la-empty">لا توجد بيانات للاستمارة في هذه الفترة.</p></section>`;
@@ -1245,6 +1275,7 @@ function leadSplitTestHtml() {
   const better = sides.whatsapp.expectedRoi !== null && sides.form.expectedRoi !== null && sides.whatsapp.expectedRoi !== sides.form.expectedRoi
     ? (sides.whatsapp.expectedRoi > sides.form.expectedRoi ? "whatsapp" : "form") : "";
   const scaleTip = better ? `💡 <b>للتوسيع: ${names[better]}</b> · ROI متوقع <b>${fmt.roi(sides[better].expectedRoi)}</b> مقابل ${fmt.roi(sides[better === "form" ? "whatsapp" : "form"].expectedRoi)}. كل 100$ إضافية ≈ <b>${fmt.reg(sides[better].per100)}</b> (مقابل ${fmt.reg(sides[better === "form" ? "whatsapp" : "form"].per100)}).${sides[better].registered < 5 ? " <small>(تقدير من المواعيد بنسبة تسجيل " + number(Math.round(sides[better].rateUsed * 100)) + "%، يتأكد مع أول التسجيلات)</small>" : ""}` : "";
+  const liveBadge = (side, field) => (liveExtra(side, field) ? `<small class="la-live">📡 +${number(liveExtra(side, field))} بعد ${cutoffText(side)}</small>` : "");
   const hero = (side) => {
     const s = sides[side];
     const profit = revenueEstimate(s.registered, s.spend).profit;
@@ -1256,11 +1287,11 @@ function leadSplitTestHtml() {
         <div class="la-roi-side"><span>📈 الفعلي</span><b dir="ltr">${fmt.roi(s.roi)}</b><span>💵 لكل 100$</span><b>${fmt.reg(s.per100)}</b></div>
       </div>
       <dl>
-        <div><dt>💸 المصروف</dt><dd dir="ltr">${money(s.spend)}</dd></div>
-        <div><dt>💬 التواصلات</dt><dd>${number(s.contacts)}</dd></div>
-        <div class="is-key"><dt>📅 المواعيد</dt><dd>${number(s.booked)}</dd></div>
-        <div><dt>🚶 الحضور</dt><dd>${number(s.showed + s.registered)}</dd></div>
-        <div class="is-key"><dt>🎓 المسجلون</dt><dd>${number(s.registered)}</dd></div>
+        <div><dt>💸 المصروف</dt><dd dir="ltr">${money(s.spend)}</dd><small class="la-cutoff">حتى ${cutoffText(side)}</small></div>
+        <div><dt>💬 التواصلات</dt><dd>${number(live[side].contacts)}</dd>${liveBadge(side, "contacts")}</div>
+        <div class="is-key"><dt>📅 المواعيد</dt><dd>${number(live[side].booked)}</dd>${liveBadge(side, "booked")}</div>
+        <div><dt>🚶 الحضور</dt><dd>${number(live[side].showed + live[side].registered)}</dd></div>
+        <div class="is-key"><dt>🎓 المسجلون</dt><dd>${number(live[side].registered)}</dd>${liveBadge(side, "registered")}</div>
         <div><dt>💰 الربح</dt><dd>${revenueMoney(profit)}</dd></div>
       </dl>
     </article>`;
@@ -1289,10 +1320,11 @@ function leadSplitTestHtml() {
     <div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3>${periodNote}</div>
     <p class="la-split-verdict${enough ? " is-ready" : ""}">${verdict}</p>
     ${scaleTip ? `<p class="la-scale-tip">${scaleTip}</p>` : ""}
+    <p class="la-cutoff-note">💸 التكاليف وROI محسوبة حتى آخر يوم في تقرير ميتا المستورد (واتساب: <b>${cutoffText("whatsapp")}</b> · الاستمارة: <b>${cutoffText("form")}</b>). 📡 المواعيد والرسائل بعده تظهر مباشرة ولا تدخل في التكلفة حتى تستوردي تقرير ذلك اليوم.</p>
     <div class="la-duel-cards">${hero("whatsapp")}${hero("form")}</div>
     <div class="la-duel"><div class="la-duel-row la-duel-headrow"><div></div><div class="la-side-whatsapp"><span class="la-side-dot"></span>واتساب</div><div class="la-side-form"><span class="la-side-dot"></span>الاستمارة</div></div>${duelRows}</div>
     <div class="la-funnels">${funnel("whatsapp")}${funnel("form")}</div>
-    <div class="la-split-charts">${splitDailyChart(sides, "booked", "📅 المواعيد يومياً", (v) => number(v))}${splitDailyChart(sides, "spend", "💸 المصروف يومياً", (v) => money(v))}</div>
+    <div class="la-split-charts">${splitDailyChart(live, "booked", "📅 المواعيد يومياً", (v) => number(v))}${splitDailyChart(live, "spend", "💸 المصروف يومياً", (v) => money(v))}</div>
     <div class="la-split-legend"><span><span class="la-side-dot la-side-whatsapp"></span> واتساب</span><span><span class="la-side-dot la-side-form"></span> الاستمارة</span><small>النقاط: ROI المتوقع ×4، ثمن الموعد والمسجّل ×3، ROI الفعلي والتحويلات ×2، الباقي ×1. ROI = (الإيراد − المصروف) ÷ المصروف.</small></div>
     <details class="la-channels"><summary>📋 الجدول الكامل</summary><div class="table-wrap la-table-wrap"><table class="la-table la-split-table"><thead><tr><th></th><th>واتساب</th><th>الاستمارة</th></tr></thead><tbody>${table}</tbody></table></div></details>
     <details class="la-channels"><summary>أي حملة في أي جهة؟</summary><div class="la-channel-list">${campaigns.map((campaign) => `<label><span>${escapeHtml(campaign.name)}</span><select data-lead-channel="${escapeHtml(campaign.id)}"><option value="">تلقائي (${autoLabel[leadAutoChannel(campaign)]})</option><option value="whatsapp" ${state.settings?.channelOverrides?.[campaign.id] === "whatsapp" ? "selected" : ""}>واتساب</option><option value="form" ${state.settings?.channelOverrides?.[campaign.id] === "form" ? "selected" : ""}>استمارة</option><option value="exclude" ${state.settings?.channelOverrides?.[campaign.id] === "exclude" ? "selected" : ""}>خارج المقارنة</option></select></label>`).join("")}</div></details>
