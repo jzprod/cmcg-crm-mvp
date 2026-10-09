@@ -150,7 +150,33 @@ function attributeLead(state, lead) {
   if (!ad && meta.adName) ad = state.creatives.find((item) => lower(item.name) === lower(meta.adName) && (!adSet || item.adSetId === adSet.id)) || null;
   if (ad && !adSet) adSet = state.adSets.find((item) => item.id === ad.adSetId) || null;
   if (adSet && !campaign) campaign = state.campaigns.find((item) => item.id === adSet.campaignId) || null;
+  // Never borrow an ad from another campaign just because it has the same name
+  // (e.g. "FREE Sesion Image" in an old WhatsApp campaign): the lead's own Meta
+  // campaign must match, by id or by name.
+  if (campaign && (meta.campaignId || meta.campaignName)) {
+    const sameId = meta.campaignId && campaign.metaCampaignId === meta.campaignId;
+    const otherId = meta.campaignId && campaign.metaCampaignId && campaign.metaCampaignId !== meta.campaignId;
+    const sameName = meta.campaignName && lower(campaign.name) === lower(meta.campaignName);
+    if (otherId || (!sameId && !sameName)) return { creativeId: "", adSetId: "", campaignId: "" };
+  }
+  if (adSet && campaign && adSet.campaignId !== campaign.id) { adSet = null; ad = null; }
+  if (ad && adSet && ad.adSetId !== adSet.id) ad = null;
   return { creativeId: ad?.id || "", adSetId: adSet?.id || "", campaignId: campaign?.id || "" };
+}
+
+// Re-check every form lead's ad attribution (after a Meta import, or to fix older
+// name-based matches) and move its RDV/visit/registration results with it.
+function reattributeLeads(state) {
+  let changed = 0;
+  (state.crmLeads || []).forEach((lead) => {
+    if (lead.source !== "form" || lead.demo || !lead.meta) return;
+    const next = attributeLead(state, lead);
+    if (next.creativeId === (lead.creativeId || "") && next.adSetId === (lead.adSetId || "") && next.campaignId === (lead.campaignId || "")) return;
+    Object.assign(lead, next);
+    syncLeadOutcomes(state, lead);
+    changed += 1;
+  });
+  return changed;
 }
 
 // Templates keep their line breaks (WhatsApp shows them); only trim each line.
@@ -551,7 +577,7 @@ function leadStats(state, at = new Date()) {
 }
 
 module.exports = {
-  createDemoLeads, removeDemoLeads, transferLeads, leadStats, appointmentError, OPENING,
+  createDemoLeads, removeDemoLeads, reattributeLeads, transferLeads, leadStats, appointmentError, OPENING,
   LEAD_STATUSES, CLOSED_STATUSES, DISTRIBUTION_MODES, DEFAULT_TEMPLATES,
   normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, updateLead, createManualLead,
   syncLeadOutcomes, normalizeDistribution, defaultDistribution, fillTemplate, leadVcard, channelOfCampaign,

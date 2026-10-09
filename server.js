@@ -1319,7 +1319,7 @@ async function handleApi(req, res) {
     if (method === "POST" && url.pathname === "/api/operations/seed-screenshot-schedule") {
       const result = seedScreenshotSchedule(state);
       await storage.write(state);
-      return json(res, 200, { seeded: true, result, state: stateForUser(state, context) });
+      return json(res, 200, { seeded: true, result, state: withoutPush(stateForUser(state, context)) });
     }
 
     if (method === "POST" && url.pathname === "/api/restore") {
@@ -1330,8 +1330,9 @@ async function handleApi(req, res) {
         + restored.adSets.length + restored.creatives.length + restored.leads.length + restored.dailyLogs.length;
       if (!entityCount) return json(res, 400, { error: "This backup does not contain CRM records" });
       restored.meta.restoredAt = now();
+      if (state.push) restored.push = state.push; // phones stay subscribed after a restore
       await storage.write(restored);
-      return json(res, 200, { restored: true, state: restored });
+      return json(res, 200, { restored: true, state: withoutPush(restored) });
     }
 
     if (method === "POST" && url.pathname === "/api/settings/scoring") {
@@ -1358,17 +1359,19 @@ async function handleApi(req, res) {
       const reset = emptyState();
       reset.centre = { ...reset.centre, ...(state.centre || {}) };
       reset.settings = { ...reset.settings, currency: state.settings?.currency || reset.settings.currency, profit: normalizeProfitSettings(state.settings?.profit || {}), leadDistribution: state.settings?.leadDistribution, leadIntake: state.settings?.leadIntake, channelOverrides: state.settings?.channelOverrides };
+      if (state.push) reset.push = state.push;
       reset.meta.resetAt = now();
       await storage.write(reset);
-      return json(res, 200, { reset: true, state: reset });
+      return json(res, 200, { reset: true, state: withoutPush(reset) });
     }
 
     if (method === "POST" && url.pathname === "/api/meta-import") {
       const body = await parseBody(req);
       if (!cleanText(body.csv)) return json(res, 400, { error: "Choose a Meta Ads CSV report" });
       const result = importMetaCsv(state, body.csv, body.filename);
+      Leads.reattributeLeads(state);
       await storage.write(state);
-      return json(res, 200, { result, state });
+      return json(res, 200, { result, state: withoutPush(state) });
     }
 
     if (method === "POST" && url.pathname === "/api/outcomes") {
@@ -2470,6 +2473,17 @@ server.listen(PORT, () => {
 storage.init().then(async () => {
   storageReady = true;
   try { refreshAgentTokens(await storage.read()); } catch {}
+  // Keep form leads tied to their own Meta campaign (fixes old same-name matches).
+  try {
+    const release = await acquireMutationLock();
+    try {
+      const state = await storage.read();
+      const fixed = Leads.reattributeLeads(state);
+      if (fixed) { await storage.write(state); console.log(`Re-attributed ${fixed} form lead(s)`); }
+    } finally {
+      release();
+    }
+  } catch (error) { console.error("Lead re-attribution failed:", error.message); }
   // One-time clean-up: the demo leads have done their job.
   try {
     const state = await storage.read();

@@ -958,9 +958,11 @@ function leadSettingsHtml() {
 // A campaign is on the form side only if it actually sent leads into the CRM
 // (the new lead-form setup). Older lead-objective campaigns stay out of the test.
 function leadCampaignHasCrmLeads(campaign) {
+  // Only the Meta campaign written on the lead row counts (id or exact name), never a
+  // guess from an ad with the same name.
   const name = String(campaign.name || "").trim().toLowerCase();
   return leadsList().some((lead) => !lead.demo && lead.source === "form"
-    && (lead.campaignId === campaign.id || (campaign.metaCampaignId && lead.meta?.campaignId === campaign.metaCampaignId) || (name && String(lead.meta?.campaignName || "").trim().toLowerCase() === name)));
+    && ((campaign.metaCampaignId && lead.meta?.campaignId === campaign.metaCampaignId) || (name && String(lead.meta?.campaignName || "").trim().toLowerCase() === name)));
 }
 function leadAutoChannel(campaign) {
   if (leadCampaignHasCrmLeads(campaign)) return "form";
@@ -999,12 +1001,14 @@ function leadSplitData() {
     side.spend += Number(log.spend || 0) * share;
     if (side === sides.whatsapp) side.contacts += Math.round(Number(log.messages || 0) * share);
   });
-  leadsList().filter((lead) => !lead.demo && lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt), range)).forEach((lead) => {
-    const campaign = byId(state.campaigns, lead.campaignId);
-    if (!campaign || leadChannelOf(campaign) === "form") sides.form.contacts += 1;
-  });
+  sides.form.contacts += leadsList().filter((lead) => !lead.demo && lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt), range)).length;
+  // Results of CRM form leads always belong to the form side; other results follow
+  // their campaign's side (WhatsApp results never land on the form side by name).
+  const formLeadIds = new Set(leadsList().filter((lead) => !lead.demo && lead.source === "form").map((lead) => lead.id));
   filteredOutcomes(range).forEach((outcome) => {
-    const side = sides[leadChannelOf(relationForOutcome(outcome).campaign)];
+    const fromForm = outcome.leadId && formLeadIds.has(outcome.leadId);
+    const channel = fromForm ? "form" : leadChannelOf(relationForOutcome(outcome).campaign);
+    const side = sides[channel === "form" && !fromForm ? "" : channel];
     if (side && side[outcome.type] !== undefined) side[outcome.type] += 1;
   });
   return sides;
