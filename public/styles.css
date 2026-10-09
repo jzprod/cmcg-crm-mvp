@@ -1732,3 +1732,11 @@ button.la-stat:active { transform: scale(.96); }
 .la-split-from { display: grid; gap: 4px; margin-top: 8px; font-size: .85rem; }
 .la-split-from input { max-width: 180px; min-height: 38px; }
 .la-split-from small { color: var(--la-muted); }
+.la-split-period { display: grid; gap: 8px; margin-top: 10px; }
+.la-split-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.la-split-presets button { min-height: 36px; padding: 0 12px; border: 1px solid var(--la-line); border-radius: 999px; background: #fff; color: var(--la-ink); font-weight: 700; font-size: .85rem; cursor: pointer; }
+.la-split-presets button.is-on { border-color: #1877f2; background: #e7f0fe; color: #1458b8; }
+.la-split-custom { display: flex; flex-wrap: wrap; gap: 10px; }
+.la-split-custom label { display: grid; gap: 2px; font-size: .8rem; }
+.la-split-custom input { min-height: 38px; }
+.la-split-period small { color: var(--la-muted); }

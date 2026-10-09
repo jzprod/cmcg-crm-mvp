@@ -971,14 +971,33 @@ function leadChannelOf(campaign) {
   return state.settings?.channelOverrides?.[campaign.id] || leadAutoChannel(campaign);
 }
 // The test starts when the first form lead reached the CRM (month start), unless set by hand.
-function leadSplitFrom() {
-  if (state.settings?.splitTestFrom) return state.settings.splitTestFrom;
-  const first = leadsList().filter((lead) => !lead.demo && lead.source === "form").map((lead) => dateOnly(lead.createdAt)).sort()[0];
-  return first ? `${first.slice(0, 7)}-01` : "";
+// Split test period, like Ads Manager: its own presets, independent of the page filter.
+const SPLIT_PRESETS = [
+  ["today", "اليوم"], ["yesterday", "أمس"], ["last7", "آخر 7 أيام"], ["this_week", "هذا الأسبوع"],
+  ["this_month", "هذا الشهر"], ["last_month", "الشهر الماضي"], ["lifetime", "منذ البداية"], ["custom", "مخصص"],
+];
+function leadSplitPeriod() {
+  try { return JSON.parse(localStorage.getItem("cmcg-split-period") || "null") || { preset: "this_month" }; } catch { return { preset: "this_month" }; }
 }
 function leadSplitRange() {
-  const from = [filters.from, leadSplitFrom()].filter(Boolean).sort().pop() || "";
-  return { ...filters, from };
+  const period = leadSplitPeriod();
+  const today = new Date();
+  const day = (date) => dateInputValue(date);
+  const monthStart = (y, m) => day(new Date(y, m, 1));
+  const monthEnd = (y, m) => day(new Date(y, m + 1, 0));
+  const weekday = (today.getDay() + 6) % 7; // Monday = 0
+  const ranges = {
+    today: [day(today), day(today)],
+    yesterday: [day(addDays(today, -1)), day(addDays(today, -1))],
+    last7: [day(addDays(today, -6)), day(today)],
+    this_week: [day(addDays(today, -weekday)), day(today)],
+    this_month: [monthStart(today.getFullYear(), today.getMonth()), day(today)],
+    last_month: [monthStart(today.getFullYear(), today.getMonth() - 1), monthEnd(today.getFullYear(), today.getMonth() - 1)],
+    lifetime: ["", ""],
+    custom: [period.from || "", period.to || ""],
+  };
+  const [from, to] = ranges[period.preset] || ranges.this_month;
+  return { ...filters, from, to, preset: period.preset in ranges ? period.preset : "this_month" };
 }
 function leadSplitData() {
   const blank = () => ({ spend: 0, contacts: 0, booked: 0, showed: 0, registered: 0 });
@@ -1011,10 +1030,22 @@ function leadSplitData() {
   });
   return sides;
 }
+function leadSplitPeriodHtml() {
+  const range = leadSplitRange();
+  return `<div class="la-split-period"><div class="la-split-presets" role="tablist">${SPLIT_PRESETS.map(([key, label]) => `<button type="button" role="tab" class="${range.preset === key ? "is-on" : ""}" aria-selected="${range.preset === key}" data-split-preset="${key}">${label}</button>`).join("")}</div>
+    ${range.preset === "custom" ? `<div class="la-split-custom"><label><span>من</span><input type="date" value="${escapeHtml(range.from)}" data-split-custom="from" /></label><label><span>إلى</span><input type="date" value="${escapeHtml(range.to)}" data-split-custom="to" /></label></div>` : ""}
+    <small>${range.from || range.to ? `${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")}` : "كل البيانات"} · حملات الاستمارة القديمة خارج المقارنة تلقائياً</small></div>`;
+}
+function setSplitPeriod(patch) {
+  const next = { ...leadSplitPeriod(), ...patch };
+  try { localStorage.setItem("cmcg-split-period", JSON.stringify(next)); } catch {}
+  const box = document.getElementById("leadSplitTest");
+  if (box) box.innerHTML = leadSplitTestHtml();
+}
 function leadSplitTestHtml() {
   const sides = leadSplitData();
   if (!sides.form.spend && !sides.form.contacts) {
-    return `<section class="la-split"><h3>🧪 واتساب ضد الاستمارة</h3><p class="la-empty">ستظهر المقارنة عندما تبدأ حملة الاستمارة بالإنفاق أو بجلب رسائل في الفترة المختارة أعلاه.</p></section>`;
+    return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3>${leadSplitPeriodHtml()}</div><p class="la-empty">لا توجد بيانات للاستمارة في هذه الفترة.</p></section>`;
   }
   const per = (spend, count) => (count ? spend / count : null);
   const rate = (a, b) => (b ? a / b : null);
@@ -1037,7 +1068,7 @@ function leadSplitTestHtml() {
     const a = get(sides.whatsapp);
     const b = get(sides.form);
     let winner = "";
-    if (better && a !== null && b !== null && a !== b) winner = (better === "low" ? a < b : a > b) ? "whatsapp" : "form";
+    if (better && sides.whatsapp.spend > 0 && sides.form.spend > 0 && a !== null && b !== null && a !== b) winner = (better === "low" ? a < b : a > b) ? "whatsapp" : "form";
     if (winner && key) wins[winner] += 1;
     return `<tr><th>${escapeHtml(label)}</th><td class="${winner === "whatsapp" ? "is-win" : ""}" dir="ltr">${escapeHtml(format(a, kind))}</td><td class="${winner === "form" ? "is-win" : ""}" dir="ltr">${escapeHtml(format(b, kind))}</td></tr>`;
   }).join("");
@@ -1049,7 +1080,7 @@ function leadSplitTestHtml() {
   const autoLabel = { form: "استمارة", whatsapp: "واتساب", exclude: "خارج المقارنة" };
   const range = leadSplitRange();
   return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3><p class="${enough ? "is-ready" : ""}">${escapeHtml(verdict)}</p>
-    <label class="la-split-from"><span>بداية المقارنة</span><input type="date" value="${escapeHtml(leadSplitFrom())}" data-split-from /><small>المحسوب: ${escapeHtml(range.from || "—")} ← ${escapeHtml(range.to || "اليوم")} · حملات الاستمارة القديمة خارج المقارنة تلقائياً</small></label></div>
+    ${leadSplitPeriodHtml()}</div>
     <div class="table-wrap la-table-wrap"><table class="la-table la-split-table"><thead><tr><th></th><th><span class="la-src la-src-whatsapp">واتساب</span></th><th><span class="la-src la-src-form">استمارة</span></th></tr></thead><tbody>${body}</tbody></table></div>
     <details class="la-channels"><summary>أي حملة في أي جهة؟</summary><div class="la-channel-list">${campaigns.map((campaign) => `<label><span>${escapeHtml(campaign.name)}</span><select data-lead-channel="${escapeHtml(campaign.id)}"><option value="">تلقائي (${autoLabel[leadAutoChannel(campaign)]})</option><option value="whatsapp" ${state.settings?.channelOverrides?.[campaign.id] === "whatsapp" ? "selected" : ""}>واتساب</option><option value="form" ${state.settings?.channelOverrides?.[campaign.id] === "form" ? "selected" : ""}>استمارة</option><option value="exclude" ${state.settings?.channelOverrides?.[campaign.id] === "exclude" ? "selected" : ""}>خارج المقارنة</option></select></label>`).join("")}</div></details>
   </section>`;
@@ -1067,7 +1098,7 @@ async function leadSave(id, body, message) {
 }
 const cheer = () => CHEERS[Math.floor(Math.random() * CHEERS.length)];
 
-const LEAD_VIEW_ONLY_OK = "[data-lead-view], [data-lead-close], [data-lead-jump], [data-detail-back], [data-view-as-exit], [data-lead-open], [data-quick-status]";
+const LEAD_VIEW_ONLY_OK = "[data-lead-view], [data-lead-close], [data-lead-jump], [data-detail-back], [data-view-as-exit], [data-lead-open], [data-quick-status], [data-split-preset]";
 async function handleLeadClick(event) {
   const target = event.target;
   if (leadReadOnly()) {
@@ -1217,6 +1248,8 @@ async function handleLeadClick(event) {
   // Page
   const jump = target.closest("[data-lead-jump]");
   if (jump) { LEAD_UI.view = "today"; LEAD_UI.status = ""; renderLeads(); document.getElementById(`la-sec-${jump.dataset.leadJump}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  const splitPreset = target.closest("[data-split-preset]");
+  if (splitPreset) { setSplitPeriod({ preset: splitPreset.dataset.splitPreset }); return; }
   const quick = target.closest("[data-quick-status]");
   if (quick) { LEAD_UI.status = LEAD_UI.status === quick.dataset.quickStatus ? "" : quick.dataset.quickStatus; renderLeads(); return; }
   const view = target.closest("[data-lead-view]");
@@ -1263,10 +1296,7 @@ async function handleLeadChange(event) {
     try { await leadSave(target.dataset.leadReassign, { agentId: target.value }, "حُوّلت الرسالة"); } catch (error) { toast(error.message, "error"); }
     return;
   }
-  if (target.matches("[data-split-from]")) {
-    try { await api("/api/settings/channels", { method: "POST", body: JSON.stringify({ splitFrom: target.value }) }); await load(); } catch (error) { toast(error.message, "error"); }
-    return;
-  }
+  if (target.matches("[data-split-custom]")) { setSplitPeriod({ preset: "custom", [target.dataset.splitCustom]: target.value }); return; }
   if (target.matches("[data-lead-channel]")) {
     try { await api("/api/settings/channels", { method: "POST", body: JSON.stringify({ campaignId: target.dataset.leadChannel, channel: target.value }) }); await load(); } catch (error) { toast(error.message, "error"); }
     return;
