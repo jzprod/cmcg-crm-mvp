@@ -1896,6 +1896,13 @@ async function handleApi(req, res) {
     if (method === "POST" && url.pathname === "/api/settings/channels") {
       if (!isAdmin) return json(res, 403, { error: "Only an admin can change channels" });
       const body = await parseBody(req);
+      if (body.splitFrom !== undefined) {
+        const from = cleanText(body.splitFrom);
+        if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) return json(res, 400, { error: "Choose a valid date" });
+        state.settings.splitTestFrom = from;
+        await storage.write(state);
+        return json(res, 200, { settings: state.settings });
+      }
       const campaign = state.campaigns.find((item) => item.id === cleanText(body.campaignId));
       if (!campaign) return json(res, 400, { error: "Choose a valid campaign" });
       const channel = cleanText(body.channel);

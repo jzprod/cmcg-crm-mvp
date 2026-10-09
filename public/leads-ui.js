@@ -955,29 +955,47 @@ function leadSettingsHtml() {
 }
 
 // ---------- Split test: WhatsApp vs form ----------
+// A campaign is on the form side only if it actually sent leads into the CRM
+// (the new lead-form setup). Older lead-objective campaigns stay out of the test.
+function leadCampaignHasCrmLeads(campaign) {
+  const name = String(campaign.name || "").trim().toLowerCase();
+  return leadsList().some((lead) => !lead.demo && lead.source === "form"
+    && (lead.campaignId === campaign.id || (campaign.metaCampaignId && lead.meta?.campaignId === campaign.metaCampaignId) || (name && String(lead.meta?.campaignName || "").trim().toLowerCase() === name)));
+}
 function leadAutoChannel(campaign) {
-  if (leadsList().some((lead) => lead.source === "form" && lead.campaignId === campaign.id)) return "form";
-  return /lead/i.test(campaign.objective || "") ? "form" : "whatsapp";
+  if (leadCampaignHasCrmLeads(campaign)) return "form";
+  return /lead/i.test(campaign.objective || "") ? "exclude" : "whatsapp";
 }
 function leadChannelOf(campaign) {
   if (!campaign) return "";
   return state.settings?.channelOverrides?.[campaign.id] || leadAutoChannel(campaign);
 }
+// The test starts when the first form lead reached the CRM (month start), unless set by hand.
+function leadSplitFrom() {
+  if (state.settings?.splitTestFrom) return state.settings.splitTestFrom;
+  const first = leadsList().filter((lead) => !lead.demo && lead.source === "form").map((lead) => dateOnly(lead.createdAt)).sort()[0];
+  return first ? `${first.slice(0, 7)}-01` : "";
+}
+function leadSplitRange() {
+  const from = [filters.from, leadSplitFrom()].filter(Boolean).sort().pop() || "";
+  return { ...filters, from };
+}
 function leadSplitData() {
   const blank = () => ({ spend: 0, contacts: 0, booked: 0, showed: 0, registered: 0 });
   const sides = { whatsapp: blank(), form: blank() };
-  filteredLogs().forEach((log) => {
+  const range = leadSplitRange();
+  filteredLogs(range).forEach((log) => {
     const campaign = relationForLog(log).campaign;
     const side = sides[leadChannelOf(campaign)];
     if (!side) return;
     side.spend += Number(log.spend || 0);
     if (side === sides.whatsapp) side.contacts += Number(log.messages || 0);
   });
-  leadsList().filter((lead) => !lead.demo && lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt))).forEach((lead) => {
+  leadsList().filter((lead) => !lead.demo && lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt), range)).forEach((lead) => {
     const campaign = byId(state.campaigns, lead.campaignId);
     if (!campaign || leadChannelOf(campaign) === "form") sides.form.contacts += 1;
   });
-  filteredOutcomes().forEach((outcome) => {
+  filteredOutcomes(range).forEach((outcome) => {
     const side = sides[leadChannelOf(relationForOutcome(outcome).campaign)];
     if (side && side[outcome.type] !== undefined) side[outcome.type] += 1;
   });
@@ -1018,9 +1036,12 @@ function leadSplitTestHtml() {
     ? `من المبكر الحكم: يلزم 5 مسجلين على الأقل في كل جهة (حالياً ${sides.whatsapp.registered} واتساب، ${sides.form.registered} استمارة). راقبي تكلفة الموعد أولاً.`
     : wins.whatsapp === wins.form ? "تعادل في المؤشرات المهمة." : `${wins.whatsapp > wins.form ? "واتساب" : "الاستمارة"} متفوّق في ${Math.max(wins.whatsapp, wins.form)} من 4 مؤشرات مهمة.`;
   const campaigns = state.campaigns.filter((campaign) => campaign.metaCampaignId).sort((a, b) => a.name.localeCompare(b.name));
-  return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3><p class="${enough ? "is-ready" : ""}">${escapeHtml(verdict)}</p></div>
+  const autoLabel = { form: "استمارة", whatsapp: "واتساب", exclude: "خارج المقارنة" };
+  const range = leadSplitRange();
+  return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3><p class="${enough ? "is-ready" : ""}">${escapeHtml(verdict)}</p>
+    <label class="la-split-from"><span>بداية المقارنة</span><input type="date" value="${escapeHtml(leadSplitFrom())}" data-split-from /><small>المحسوب: ${escapeHtml(range.from || "—")} ← ${escapeHtml(range.to || "اليوم")} · حملات الاستمارة القديمة خارج المقارنة تلقائياً</small></label></div>
     <div class="table-wrap la-table-wrap"><table class="la-table la-split-table"><thead><tr><th></th><th><span class="la-src la-src-whatsapp">واتساب</span></th><th><span class="la-src la-src-form">استمارة</span></th></tr></thead><tbody>${body}</tbody></table></div>
-    <details class="la-channels"><summary>أي حملة في أي جهة؟</summary><div class="la-channel-list">${campaigns.map((campaign) => `<label><span>${escapeHtml(campaign.name)}</span><select data-lead-channel="${escapeHtml(campaign.id)}"><option value="">تلقائي (${leadAutoChannel(campaign) === "form" ? "استمارة" : "واتساب"})</option><option value="whatsapp" ${state.settings?.channelOverrides?.[campaign.id] === "whatsapp" ? "selected" : ""}>واتساب</option><option value="form" ${state.settings?.channelOverrides?.[campaign.id] === "form" ? "selected" : ""}>استمارة</option><option value="exclude" ${state.settings?.channelOverrides?.[campaign.id] === "exclude" ? "selected" : ""}>خارج المقارنة</option></select></label>`).join("")}</div></details>
+    <details class="la-channels"><summary>أي حملة في أي جهة؟</summary><div class="la-channel-list">${campaigns.map((campaign) => `<label><span>${escapeHtml(campaign.name)}</span><select data-lead-channel="${escapeHtml(campaign.id)}"><option value="">تلقائي (${autoLabel[leadAutoChannel(campaign)]})</option><option value="whatsapp" ${state.settings?.channelOverrides?.[campaign.id] === "whatsapp" ? "selected" : ""}>واتساب</option><option value="form" ${state.settings?.channelOverrides?.[campaign.id] === "form" ? "selected" : ""}>استمارة</option><option value="exclude" ${state.settings?.channelOverrides?.[campaign.id] === "exclude" ? "selected" : ""}>خارج المقارنة</option></select></label>`).join("")}</div></details>
   </section>`;
 }
 
@@ -1230,6 +1251,10 @@ async function handleLeadChange(event) {
   if (filter && filter.dataset.leadFilter !== "search") { LEAD_UI[filter.dataset.leadFilter] = filter.value; renderLeads(); return; }
   if (target.matches("[data-lead-reassign]")) {
     try { await leadSave(target.dataset.leadReassign, { agentId: target.value }, "حُوّلت الرسالة"); } catch (error) { toast(error.message, "error"); }
+    return;
+  }
+  if (target.matches("[data-split-from]")) {
+    try { await api("/api/settings/channels", { method: "POST", body: JSON.stringify({ splitFrom: target.value }) }); await load(); } catch (error) { toast(error.message, "error"); }
     return;
   }
   if (target.matches("[data-lead-channel]")) {

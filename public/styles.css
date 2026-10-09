@@ -1729,3 +1729,6 @@ button.la-stat:active { transform: scale(.96); }
 .la-alarm-later { width: 100%; min-height: 44px; border: 0; border-radius: 14px; background: #f1f5f9; color: #475569; font-weight: 700; cursor: pointer; }
 .la-ios-steps li { margin-bottom: 6px; }
 @media (prefers-reduced-motion: reduce) { .la-push, .la-alarm, .la-alarm-bell { animation: none; } }
+.la-split-from { display: grid; gap: 4px; margin-top: 8px; font-size: .85rem; }
+.la-split-from input { max-width: 180px; min-height: 38px; }
+.la-split-from small { color: var(--la-muted); }
