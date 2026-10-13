@@ -1863,3 +1863,14 @@ tr.la-ad-wait .la-ad-decision, tr.la-ad-import .la-ad-decision { color: #64748b;
 .la-duel-card .la-live { display: block; margin: 3px 0 0; width: fit-content; }
 .la-cutoff { display: block; color: #94a3b8; font-size: .72rem; font-weight: 700; }
 .la-cutoff-note { margin: 0; padding: 10px 14px; border-radius: 12px; background: #f8fafc; color: #334155; font-size: .9rem; line-height: 1.7; border: 1px dashed #cbd5e1; }
+.la-sheet-wa { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 14px 16px; border-radius: 18px; background: #25d366; color: #fff; text-decoration: none; box-shadow: 0 8px 20px rgba(37, 211, 102, .35); }
+.la-sheet-wa svg { width: 30px; height: 30px; flex: none; fill: currentColor; }
+.la-sheet-wa span { display: grid; gap: 2px; }
+.la-sheet-wa strong { font-size: 1.05rem; }
+.la-sheet-wa small { opacity: .92; font-size: .8rem; }
+.la-sheet-wa.is-done { background: #ecfdf5; color: #065f46; box-shadow: none; border: 2px solid #25d366; }
+.la-sheet-wa.is-done svg { fill: #25d366; }
+.la-wa-done { font-style: normal; padding: 1px 7px; border-radius: 999px; background: #dcfce7; color: #15803d; font-weight: 800; white-space: nowrap; }
+.la-q-wa_yes { --qb: #f0fdf4; --qf: #15803d; }
+.la-q-wa_no { --qb: #fff7ed; --qf: #c2410c; }
+#la-sec-recent .la-item { border-color: #c7d2fe; background: #f8faff; }

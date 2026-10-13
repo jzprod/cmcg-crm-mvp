@@ -145,6 +145,20 @@ function leadHeat(lead) {
   if (minutes < 1440) return { key: "cool", icon: "🌤️", label: "بدأ يبرد" };
   return { key: "cold", icon: "🧊", label: "بارد" };
 }
+// Last WhatsApp contact / last touch (call or WhatsApp), with history as fallback for older leads.
+function leadTouchTimes(lead) {
+  let whatsapp = lead.lastWhatsappAt || "";
+  let call = lead.lastCallAt || "";
+  (lead.history || []).forEach((item) => {
+    const isWa = (item.type === "tap" && item.channel && item.channel !== "call") || ["whatsapp", "reminder"].includes(item.contact);
+    const isCall = (item.type === "tap" && item.channel === "call") || item.contact === "call";
+    if (isWa && item.at > whatsapp) whatsapp = item.at;
+    if (isCall && item.at > call) call = item.at;
+  });
+  const last = [whatsapp, call, lead.lastTapAt || "", lead.lastContactAt || ""].sort().pop() || "";
+  return { whatsapp, call, last };
+}
+const leadWhatsapped = (lead) => Boolean(leadTouchTimes(lead).whatsapp);
 function leadCallbackDue(lead) {
   return lead.status === "no_answer" || (lead.status === "callback" && (!lead.callbackAt || lead.callbackAt <= `${leadTodayKey()}T23:59`));
 }
@@ -154,7 +168,7 @@ function leadsVisible() {
     if (LEAD_UI.viewAs && lead.agentId !== LEAD_UI.viewAs) return false;
     if (LEAD_UI.agent === "__none" ? lead.agentId : LEAD_UI.agent && lead.agentId !== LEAD_UI.agent) return false;
     if (LEAD_UI.source && lead.source !== LEAD_UI.source) return false;
-    if (LEAD_UI.status && lead.status !== LEAD_UI.status) return false;
+    if (LEAD_UI.status && !leadMatchesQuick(lead, LEAD_UI.status)) return false;
     if (query) {
       const text = [lead.name, lead.phone, leadPhoneLabel(lead.phone), lead.email, lead.notes, lead.meta?.adName].join(" ").toLocaleLowerCase();
       if (!text.includes(query)) return false;
@@ -217,14 +231,16 @@ function leadRowHtml(lead) {
   const status = LEAD_STATUS[lead.status] || LEAD_STATUS.new;
   const when = lead.status === "booked" && lead.appointmentAt ? `📅 ${leadWhen(lead.appointmentAt)}`
     : lead.status === "callback" && lead.callbackAt ? `⏳ ${leadWhen(lead.callbackAt)}`
-    : heat ? `${heat.icon} منذ ${leadAge(lead.createdAt)}` : `منذ ${leadAge(lead.statusAt || lead.createdAt)}`;
+    : heat ? `${heat.icon} منذ ${leadAge(lead.createdAt)}`
+    : leadTouchTimes(lead).last ? `${leadTouchTimes(lead).whatsapp === leadTouchTimes(lead).last ? "💬" : "📞"} ${leadAge(leadTouchTimes(lead).last)}`
+    : `منذ ${leadAge(lead.statusAt || lead.createdAt)}`;
   const phone = lead.phone ? `+${lead.phone}` : "";
   return `<article class="la-item${heat ? ` heat-${heat.key}` : ""}${needsReminder ? " needs-reminder" : ""}">
     <button type="button" class="la-item-main" data-lead-open="${escapeHtml(lead.id)}">
       <span class="la-item-avatar" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadInitials(lead.name))}</span>
       <span class="la-item-text">
         <strong>${lead.demo ? "🧪 " : ""}${escapeHtml(lead.name || leadPhoneLabel(lead.phone))}</strong>
-        <span class="la-item-meta">${(lead.status === "booked" && lead.appointmentAt) || (lead.status === "callback" && lead.callbackAt) ? "" : `<i class="la-dot-pill la-${status.tone}">${status.icon} ${escapeHtml(status.label)}</i>`}<em>${escapeHtml(when)}</em>${leadAdminView() && lead.agentId ? `<i class="la-item-owner" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadAgentCode(leadAgent(lead.agentId)))}</i>` : ""}</span>
+        <span class="la-item-meta">${(lead.status === "booked" && lead.appointmentAt) || (lead.status === "callback" && lead.callbackAt) ? "" : `<i class="la-dot-pill la-${status.tone}">${status.icon} ${escapeHtml(status.label)}</i>`}<em>${escapeHtml(when)}</em>${leadWhatsapped(lead) ? '<i class="la-wa-done" title="أُرسلت رسالة واتساب">✓ واتساب</i>' : ""}${leadAdminView() && lead.agentId ? `<i class="la-item-owner" style="--agent:${leadAgentColor(lead.agentId)}">${escapeHtml(leadAgentCode(leadAgent(lead.agentId)))}</i>` : ""}</span>
       </span>
     </button>
     <a class="la-ibtn la-ibtn-wa${reminder ? " is-reminder" : ""}" href="${escapeHtml(leadWhatsAppUrl(lead, reminder ? "reminder" : "first"))}" target="_blank" rel="noopener" data-lead-contact="${escapeHtml(lead.id)}" data-kind="${reminder ? "reminder" : "whatsapp"}" aria-label="${reminder ? "التذكير" : "واتساب"}">${reminder ? svgIcon.bell : svgIcon.wa}</a>
@@ -246,7 +262,12 @@ function leadsTodayHtml(leads) {
   const tomorrow = leads.filter((lead) => lead.status === "booked" && leadDayOf(lead.appointmentAt) === leadTodayKey(1)).sort(byRdv);
   const missed = leads.filter((lead) => lead.status === "booked" && lead.appointmentAt && leadDayOf(lead.appointmentAt) < today).sort(byRdv);
   const thinking = leads.filter((lead) => lead.status === "contacted");
+  const recent = leadsByLastTouch(leads.filter((lead) => {
+    const last = leadTouchTimes(lead).last;
+    return last && Date.now() - new Date(last).getTime() < 24 * 3600 * 1000;
+  })).slice(0, 3);
   return [
+    leadSection("recent", "🕘", "آخر من تواصلتِ معهم", "حتى لا يضيع أحد: آخر 3 أرقام اتصلتِ بها أو راسلتِها.", recent, ""),
     leadSection("rdv", "⏰", "مواعيد اليوم", "أرسلي التذكير، ثم غيّري الحالة إلى «حضر» أو «سجّل».", rdvToday, "لا توجد مواعيد اليوم."),
     leadSection("new", "🔥", "رسائل جديدة تنتظر الاتصال", "اتصلي بهم وهم متحمسون: من نتصل به خلال أول 15 دقيقة يجيب أكثر بكثير.", fresh, "أحسنتِ! تم الاتصال بكل الرسائل الجديدة 🎉"),
     leadSection("callback", "📞", "إعادة الاتصال", "لم يُجيبوا، أو طلبوا الاتصال بهم اليوم.", callback, "لا أحد ينتظر إعادة الاتصال."),
@@ -258,7 +279,8 @@ function leadsTodayHtml(leads) {
 
 function leadsBoardHtml(leads) {
   const closed = ["registered", "not_interested", "other_city", "not_qualified", "wrong_number"];
-  const sorted = [...leads].sort((a, b) => (closed.includes(a.status) - closed.includes(b.status)) || String(b.statusAt || b.createdAt).localeCompare(String(a.statusAt || a.createdAt)));
+  const touched = (lead) => String(leadTouchTimes(lead).last || lead.statusAt || lead.createdAt);
+  const sorted = [...leads].sort((a, b) => (closed.includes(a.status) - closed.includes(b.status)) || touched(b).localeCompare(touched(a)));
   return sorted.length ? `<div class="la-list">${sorted.slice(0, 300).map(leadRowHtml).join("")}</div>` : '<p class="la-empty">لا توجد رسائل.</p>';
 }
 
@@ -364,19 +386,36 @@ const QUICK_FILTERS = [
   ["contacted", "💭", "يفكّر"],
   ["visited", "🚶", "حضر"],
   ["registered", "🎓", "سجّل"],
+  ["wa_yes", "✅", "راسلناه واتساب"],
+  ["wa_no", "💬", "لم نراسله واتساب"],
 ];
+// Status filters, plus two WhatsApp ones: already messaged / not yet (open leads only).
+const LEAD_CLOSED = new Set(["registered", "not_interested", "other_city", "not_qualified", "wrong_number"]);
+function leadMatchesQuick(lead, key) {
+  if (!key) return true;
+  if (key === "wa_yes") return leadWhatsapped(lead);
+  if (key === "wa_no") return !leadWhatsapped(lead) && !LEAD_CLOSED.has(lead.status);
+  return lead.status === key;
+}
 function leadQuickFiltersHtml() {
   const pool = leadsList().filter((lead) => (LEAD_UI.viewAs ? lead.agentId === LEAD_UI.viewAs : leadAdminView() ? (!LEAD_UI.agent || lead.agentId === LEAD_UI.agent) : true));
   return `<div class="la-quick" role="tablist" aria-label="تصفية سريعة">${QUICK_FILTERS.map(([key, icon, label]) => {
-    const count = key ? pool.filter((lead) => lead.status === key).length : pool.length;
+    const count = pool.filter((lead) => leadMatchesQuick(lead, key)).length;
     if (["contacted", "visited", "registered"].includes(key) && !count && LEAD_UI.status !== key) return "";
     return `<button type="button" role="tab" class="la-q la-q-${key || "all"}${LEAD_UI.status === key ? " is-on" : ""}" aria-selected="${LEAD_UI.status === key}" data-quick-status="${key}"><span>${icon}</span><strong>${number(count)}</strong><small>${label}</small></button>`;
   }).join("")}</div>`;
 }
 function leadsFilteredHtml(leads) {
-  const status = LEAD_STATUS[LEAD_UI.status];
-  const sorted = [...leads].sort((a, b) => LEAD_UI.status === "booked" ? String(a.appointmentAt).localeCompare(String(b.appointmentAt)) : String(b.statusAt || b.createdAt).localeCompare(String(a.statusAt || a.createdAt)));
-  return leadSection("filter", status.icon, status.label, "", sorted, "لا توجد رسائل بهذه الحالة.");
+  const quick = QUICK_FILTERS.find(([key]) => key === LEAD_UI.status);
+  const status = LEAD_STATUS[LEAD_UI.status] || { icon: quick?.[1] || "🗂️", label: quick?.[2] || "" };
+  const sorted = LEAD_UI.status === "booked"
+    ? [...leads].sort((a, b) => String(a.appointmentAt).localeCompare(String(b.appointmentAt)))
+    : leadsByLastTouch(leads);
+  return leadSection("filter", status.icon, status.label, "", sorted, "لا توجد رسائل هنا.");
+}
+// Most recently called / messaged first, then the newest.
+function leadsByLastTouch(leads) {
+  return [...leads].sort((a, b) => String(leadTouchTimes(b).last || b.statusAt || b.createdAt).localeCompare(String(leadTouchTimes(a).last || a.statusAt || a.createdAt)));
 }
 
 // ---------- Push alerts ----------
@@ -750,7 +789,9 @@ function renderCallSheet() {
   } else if (sheet.step === "callback") {
     body = `<button type="button" class="la-back" data-sheet-back>→ رجوع</button><h4 class="la-sheet-sub">⏳ متى نعيد الاتصال؟</h4><div class="la-callback">${callbackOptions().map(([label, value]) => `<button type="button" data-callback-at="${value}">${escapeHtml(label)}</button>`).join("")}</div>`;
   } else {
-    body = `<div class="la-results">${CALL_RESULTS.map(([key, label, hint]) => `<button type="button" class="la-result la-${LEAD_STATUS[key].tone}" data-call-result="${key}"><span class="la-result-icon">${LEAD_STATUS[key].icon}</span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></button>`).join("")}</div>
+    const waDone = leadWhatsapped(lead);
+    const waTop = sheet.kind === "call" && lead.phone ? `<a class="la-sheet-wa${waDone ? " is-done" : ""}" href="${escapeHtml(leadWhatsAppUrl(lead, "first"))}" target="_blank" rel="noopener" data-lead-contact="${escapeHtml(lead.id)}" data-kind="whatsapp" data-sheet-wa>${svgIcon.wa}<span><strong>${waDone ? "أعيدي إرسال رسالة واتساب" : "الهاتف مغلق أو لم يُجب؟ أرسلي واتساب"}</strong><small>${waDone ? "✓ أُرسلت رسالة واتساب سابقاً" : "رسالة الترحيب جاهزة، اضغطي إرسال فقط"}</small></span></a>` : "";
+    body = `${waTop}<div class="la-results">${CALL_RESULTS.map(([key, label, hint]) => `<button type="button" class="la-result la-${LEAD_STATUS[key].tone}" data-call-result="${key}"><span class="la-result-icon">${LEAD_STATUS[key].icon}</span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></button>`).join("")}</div>
       <label class="la-sheet-note"><span>ملاحظة (اختياري)</span><input type="text" data-sheet-note placeholder="مثلاً: يريد تكوين المحاسبة، متاح مساءً…" /></label>
       <button type="button" class="la-skip" data-call-skip>لم يتم الاتصال</button>`;
   }
@@ -1429,6 +1470,7 @@ async function handleLeadClick(event) {
   if (contact) {
     const kind = contact.dataset.kind;
     const id = contact.dataset.leadContact;
+    if (contact.matches("[data-sheet-wa]") && LEAD_UI.sheet) LEAD_UI.sheet.kind = "whatsapp";
     if (kind === "reminder") {
       leadSave(id, { contacted: "reminder", reminded: true }, "🔔 سُجّل إرسال التذكير").catch(() => {});
     } else {
