@@ -164,7 +164,8 @@ function resyncLeadOutcomes(state) {
 function reattributeLeads(state) {
   let changed = 0;
   (state.crmLeads || []).forEach((lead) => {
-    if (lead.source !== "form" || lead.demo || !lead.meta) return;
+    // Form leads and WhatsApp leads whose ad came from the Cloud API (never manual picks).
+    if (lead.demo || !lead.meta || !(lead.source === "form" || lead.attributionSource === "api")) return;
     const next = attributeLead(state, lead);
     if (next.creativeId === (lead.creativeId || "") && next.adSetId === (lead.adSetId || "") && next.campaignId === (lead.campaignId || "")) return;
     Object.assign(lead, next);
@@ -433,9 +434,91 @@ function createManualLead(state, body = {}, { by = "", agentId = "" } = {}) {
   const adSet = state.adSets.find((item) => item.id === (target.adSetId || ad?.adSetId));
   const campaign = state.campaigns.find((item) => item.id === (target.campaignId || adSet?.campaignId));
   Object.assign(lead, { creativeId: ad?.id || "", adSetId: adSet?.id || "", campaignId: campaign?.id || "" });
+  lead.attributionSource = lead.creativeId || lead.adSetId || lead.campaignId ? "manual" : "";
   pushHistory(lead, "created", { agentId: lead.agentId }, by);
   state.crmLeads.push(lead);
   if (body.status && body.status !== "new") updateLead(state, lead, { status: body.status }, by);
+  return lead;
+}
+
+// A message arrived through the WhatsApp Cloud API webhook. Creates the lead or
+// updates the existing one (matched by phone). The first acquisition source is
+// kept forever; later ad clicks are only appended to lead.referrals.
+// Returns { lead, created }.
+function upsertWhatsappLead(state, message, { distribution, agentId = "" } = {}) {
+  state.crmLeads = Array.isArray(state.crmLeads) ? state.crmLeads : [];
+  const phone = normalizePhone(message.from);
+  if (!phone) return { lead: null, created: false };
+  const referral = message.referral || null;
+  const fromAd = Boolean(referral && (referral.ctwaClid || (referral.sourceType === "ad" && referral.sourceId)));
+  const existing = state.crmLeads
+    .filter((lead) => !lead.demo && lead.phone === phone)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+  const touch = (lead) => {
+    lead.lastInboundAt = message.at || now();
+    lead.inboundCount = Number(lead.inboundCount || 0) + 1;
+    if (!lead.name && message.name) lead.name = clean(message.name);
+    if (!lead.waPhoneNumberId && message.phoneNumberId) lead.waPhoneNumberId = message.phoneNumberId;
+    lead.updatedAt = now();
+  };
+  if (existing) {
+    touch(existing);
+    if (referral) {
+      existing.referrals = [...(existing.referrals || []), { ...referral, at: message.at || now() }].slice(-10);
+      // An older lead with no ad yet keeps its source; only a lead with no
+      // acquisition record at all takes this first confirmed ad.
+      if (fromAd && !existing.acquisition && !existing.creativeId && !existing.adSetId && !existing.campaignId) {
+        existing.acquisition = { via: "ctwa", confirmed: true, ...referral, at: message.at || now() };
+        existing.attributionSource = "api";
+        if (referral.ctwaClid) existing.ctwaClid = referral.ctwaClid;
+        existing.meta = { ...(existing.meta || {}), adId: referral.sourceId || existing.meta?.adId || "" };
+        Object.assign(existing, attributeLead(state, existing));
+        syncLeadOutcomes(state, existing);
+      }
+    }
+    pushHistory(existing, "inbound", { channel: "whatsapp", fromAd }, "whatsapp");
+    return { lead: existing, created: false };
+  }
+  const lead = {
+    id: newId("lea"),
+    source: "whatsapp",
+    externalId: "",
+    createdAt: message.at || now(),
+    name: clean(message.name),
+    phone,
+    phoneRaw: message.from,
+    email: "", city: "",
+    meta: { adId: fromAd ? referral.sourceId : "", adName: referral?.headline || "", platform: "whatsapp" },
+    answers: message.text ? { "أول رسالة": message.text } : {},
+    acquisition: fromAd ? { via: "ctwa", confirmed: true, ...referral, at: message.at || now() } : { via: "organic", confirmed: true, at: message.at || now() },
+    attributionSource: fromAd ? "api" : "",
+    ctwaClid: referral?.ctwaClid || "",
+    referrals: referral ? [{ ...referral, at: message.at || now() }] : [],
+    waPhoneNumberId: message.phoneNumberId || "",
+    lastInboundAt: message.at || now(),
+    inboundCount: 1,
+    creativeId: "", adSetId: "", campaignId: "",
+    status: "new", statusAt: now(),
+    agentId: "", assignedAt: "",
+    appointmentAt: "", bookedAt: "", remindedAt: "", callAttempts: 0,
+    notes: "", history: [], importedAt: now(), updatedAt: now(),
+  };
+  if (fromAd) Object.assign(lead, attributeLead(state, lead));
+  lead.agentId = agentId && state.agents.some((agent) => agent.id === agentId) ? agentId : pickAgent(state, lead, distribution || normalizeDistribution({}), new Date());
+  if (lead.agentId) lead.assignedAt = now();
+  pushHistory(lead, "created", { agentId: lead.agentId, auto: true, channel: "whatsapp", fromAd }, "whatsapp");
+  state.crmLeads.push(lead);
+  return { lead, created: true };
+}
+
+// The agent answered from the WhatsApp Business app (coexistence echo).
+function recordWhatsappEcho(state, echo) {
+  const phone = normalizePhone(echo.to);
+  const lead = (state.crmLeads || []).filter((item) => !item.demo && item.phone === phone).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+  if (!lead) return null;
+  lead.lastWhatsappAt = echo.at || now();
+  lead.lastTapAt = lead.lastWhatsappAt;
+  pushHistory(lead, "tap", { channel: "whatsapp", echo: true }, "whatsapp");
   return lead;
 }
 
@@ -590,7 +673,7 @@ function leadStats(state, at = new Date()) {
 }
 
 module.exports = {
-  createDemoLeads, removeDemoLeads, reattributeLeads, resyncLeadOutcomes, transferLeads, leadStats, appointmentError, OPENING,
+  createDemoLeads, removeDemoLeads, reattributeLeads, resyncLeadOutcomes, leadHadRdv, upsertWhatsappLead, recordWhatsappEcho, transferLeads, leadStats, appointmentError, OPENING,
   LEAD_STATUSES, CLOSED_STATUSES, DISTRIBUTION_MODES, DEFAULT_TEMPLATES,
   normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, updateLead, createManualLead,
   syncLeadOutcomes, normalizeDistribution, defaultDistribution, fillTemplate, leadVcard, channelOfCampaign,

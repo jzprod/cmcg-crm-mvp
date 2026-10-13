@@ -6,6 +6,7 @@ const { createStorage } = require("./storage");
 const { buildReport, toCsv, toMarkdown, todayIn } = require("./report");
 const Leads = require("./leads");
 const Push = require("./push");
+const { createIntegrations, normalizeIntegrationSettings } = require("./integrations");
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_FILE = process.env.CRM_DATA_FILE || path.join(__dirname, "data", "crm.json");
@@ -140,6 +141,7 @@ function normalizeState(input) {
   const sheetUrl = state.settings.leadIntake?.sheetUrl;
   state.settings.leadIntake = { token: cleanText(state.settings.leadIntake?.token), sheetUrl: typeof sheetUrl === "string" ? cleanText(sheetUrl) : DEFAULT_LEAD_SHEET };
   state.settings.channelOverrides = state.settings.channelOverrides && typeof state.settings.channelOverrides === "object" ? state.settings.channelOverrides : {};
+  state.settings.integrations = normalizeIntegrationSettings(state.settings.integrations || {});
   ["adAccounts", "programs", "groups", "students", "payments", "agents", "campaigns", "adSets", "creatives", "imports", "outcomes", "leads", "crmLeads", "dailyLogs", "events", "goals"].forEach((key) => {
     state[key] = Array.isArray(state[key]) ? state[key] : [];
   });
@@ -176,6 +178,19 @@ function normalizeState(input) {
 }
 
 const storage = createStorage({ dataFile: DATA_FILE, createEmptyState: emptyState, normalizeState });
+// Created lazily (helpers below are function declarations, hoisted).
+let integrationsInstance = null;
+function integrations() {
+  if (!integrationsInstance) {
+    integrationsInstance = createIntegrations({
+      storage,
+      lock: () => acquireMutationLock(),
+      Leads,
+      helpers: { getOrCreateByExternalId, makeCode, newId: id, matchAgent },
+    });
+  }
+  return integrationsInstance;
+}
 let storageReady = false;
 // The "CMCG Leads" Google Sheet (Meta lead forms write into it). Readable by link,
 // so the server pulls it every minute: no Apps Script needed.
@@ -371,7 +386,7 @@ function publicStateWithoutStudentData(state) {
   safe.payments = [];
   safe.events = safe.events.filter((event) => !event.studentId);
   safe.crmLeads = [];
-  safe.settings = { ...safe.settings, leadIntake: { token: "", sheetUrl: "" } };
+  safe.settings = { ...safe.settings, leadIntake: { token: "", sheetUrl: "" }, integrations: undefined };
   safe.meta = { ...safe.meta, sensitiveDataLocked: true };
   return safe;
 }
@@ -448,7 +463,7 @@ function stateForUser(state, context) {
     safe.payments = [];
     safe.events = [];
   }
-  safe.settings = { ...safe.settings, leadIntake: { token: "", sheetUrl: "" }, leadDistribution: { ...safe.settings.leadDistribution, agents: {} } };
+  safe.settings = { ...safe.settings, leadIntake: { token: "", sheetUrl: "" }, integrations: undefined, leadDistribution: { ...safe.settings.leadDistribution, agents: {} } };
   return safe;
 }
 
@@ -1108,6 +1123,11 @@ function importMetaCsv(state, csv, filename) {
       lastSeenAt: importedAt,
     });
 
+    // Days already synced from the Marketing API win over a later CSV import.
+    if (state.dailyLogs.some((log) => log.source === "meta_api" && log.creativeId === creativeResult.item.id && log.date >= startDate && log.date <= endDate)) {
+      summary.skipped += 1;
+      return;
+    }
     const metricKey = `${creativeResult.item.id}|${startDate}|${endDate}`;
     if (seenMetricKeys.has(metricKey)) {
       summary.skipped += 1;
@@ -1210,6 +1230,87 @@ async function handleLeadIntake(req, res, url) {
   }
 }
 
+async function handleIntegrationsApi(req, res, url, context) {
+  if (context.role === "sales") return json(res, 403, { error: "Admin only" });
+  const method = req.method;
+  const service = integrations();
+  try {
+    if (method === "GET" && url.pathname === "/api/integrations/status") {
+      return json(res, 200, await service.status(await storage.read()));
+    }
+    if (method === "GET" && url.pathname === "/api/integrations/events") {
+      const status = cleanText(url.searchParams.get("status"));
+      return json(res, 200, { events: await service.store.listEvents({ limit: 300, status }) });
+    }
+    if (method === "POST" && url.pathname === "/api/integrations/settings") {
+      const body = await parseBody(req);
+      const release = await acquireMutationLock();
+      try {
+        const state = await storage.read();
+        const current = normalizeIntegrationSettings(state.settings.integrations || {});
+        const next = normalizeIntegrationSettings({
+          capi: { ...current.capi, ...(body.capi || {}), formStages: { ...current.capi.formStages, ...(body.capi?.formStages || {}) }, events: { ...current.capi.events, ...(body.capi?.events || {}) } },
+          ads: { ...current.ads, ...(body.ads || {}), lastSyncAt: current.ads.lastSyncAt },
+          whatsapp: { ...current.whatsapp, ...(body.whatsapp || {}) },
+        });
+        // Turning the Conversions API on starts from today unless a backfill date is set.
+        if (next.capi.enabled && !current.capi.enabled && !next.capi.since) next.capi.since = new Date().toISOString().slice(0, 10);
+        if (next.whatsapp.numbers.some((item) => item.agentId && !state.agents.some((agent) => agent.id === item.agentId))) return json(res, 400, { error: "Unknown agent in the WhatsApp number mapping" });
+        state.settings.integrations = next;
+        await storage.write(state);
+        await service.store.log("settings", "info", `Integration settings changed: CAPI ${next.capi.enabled ? `on (${next.capi.mode})` : "off"}, Ads sync ${next.ads.enabled ? "on" : "off"}, WhatsApp ${next.whatsapp.enabled ? "on" : "off"}`);
+        return json(res, 200, { settings: next });
+      } finally {
+        release();
+      }
+    }
+    if (method === "POST" && url.pathname === "/api/integrations/capi/retry") return json(res, 200, { retried: await service.retryFailed() });
+    if (method === "POST" && url.pathname === "/api/integrations/capi/run") {
+      const queued = await service.reconcileCapi();
+      const sent = await service.deliverDue();
+      return json(res, 200, { queued, sent });
+    }
+    if (method === "POST" && url.pathname === "/api/integrations/ads/sync") {
+      const body = await parseBody(req);
+      const from = /^\d{4}-\d{2}-\d{2}$/.test(String(body.from || "")) ? body.from : "";
+      const to = /^\d{4}-\d{2}-\d{2}$/.test(String(body.to || "")) ? body.to : "";
+      return json(res, 200, await service.syncAds({ from, to, force: true }));
+    }
+    return json(res, 404, { error: "Not found" });
+  } catch (error) {
+    return json(res, 400, { error: error.message || "Integration error" });
+  }
+}
+
+// WhatsApp Cloud API webhook (public: Meta calls it). GET = verification, POST = events.
+function handleWhatsappWebhook(req, res, url) {
+  const service = integrations();
+  if (req.method === "GET") {
+    const challenge = service.verifyWebhook(url.searchParams);
+    res.writeHead(challenge === null ? 403 : 200, securityHeaders({ "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }));
+    return res.end(challenge === null ? "Forbidden" : challenge);
+  }
+  if (req.method !== "POST") { res.writeHead(405); return res.end(); }
+  const chunks = [];
+  let size = 0;
+  req.on("data", (chunk) => { size += chunk.length; if (size > 2_000_000) req.destroy(); else chunks.push(chunk); });
+  req.on("end", () => {
+    const raw = Buffer.concat(chunks);
+    if (!service.checkSignature(raw, String(req.headers["x-hub-signature-256"] || ""))) {
+      service.store.log("whatsapp", "warn", "Webhook rejected: invalid or missing signature").catch(() => {});
+      res.writeHead(401, securityHeaders({ "Content-Type": "text/plain" }));
+      return res.end("Invalid signature");
+    }
+    // Answer Meta right away, then process.
+    res.writeHead(200, securityHeaders({ "Content-Type": "text/plain" }));
+    res.end("EVENT_RECEIVED");
+    let body = null;
+    try { body = JSON.parse(raw.toString("utf8")); } catch { return; }
+    if (!storageReady) return;
+    service.processWebhook(body).catch((error) => service.store.log("whatsapp", "error", `Webhook processing failed: ${error.message}`).catch(() => {}));
+  });
+}
+
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
@@ -1225,6 +1326,9 @@ async function handleApi(req, res) {
         : "CRM storage is starting. Try again in a moment.",
     });
   }
+
+  // Integrations (admin only). Handled before the mutation lock: these take it themselves.
+  if (url.pathname.startsWith("/api/integrations/")) return handleIntegrationsApi(req, res, url, initialAuth);
 
   const releaseMutation = method === "GET" ? null : await acquireMutationLock();
 
@@ -2286,6 +2390,7 @@ const server = http.createServer((req, res) => {
     }));
     return res.end();
   }
+  if (url.pathname === "/api/webhooks/whatsapp") return handleWhatsappWebhook(req, res, url);
   if (req.url.startsWith("/api/")) return handleApi(req, res);
   if (OPERATIONS_ROUTES.has(url.pathname) && !hasAuth()) return sendOperationsLockedPage(res);
   const agentToken = cookieValue(req, AGENT_COOKIE);
@@ -2495,6 +2600,14 @@ storage.init().then(async () => {
       console.log(`Removed ${removed} demo lead(s)`);
     }
   } catch (error) { console.error("Demo leads clean-up failed:", error.message); }
+  if (process.env.CRM_INTEGRATIONS !== "0") {
+    try {
+      await integrations().init();
+      setInterval(() => integrations().tickCapi(), 30 * 1000).unref();
+      setInterval(() => integrations().tickAds(), 10 * 60 * 1000).unref();
+      setTimeout(() => integrations().tickAds(), 20 * 1000).unref();
+    } catch (error) { console.error("Integrations start failed:", error.message); }
+  }
   if (process.env.CRM_PUSH !== "0") {
     runLeadAlerts().catch(() => {});
     setInterval(() => runLeadAlerts().catch(() => {}), 30 * 1000).unref();

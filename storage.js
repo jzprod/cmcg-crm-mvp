@@ -128,7 +128,8 @@ function createStorage({ dataFile, createEmptyState, normalizeState }) {
     };
   }
 
-  return { init, read, write, info };
+  // Shared with the integrations store (its own tables, same database).
+  return { init, read, write, info, pool: () => pool, useMysql, dataDir: path.dirname(dataFile) };
 }
 
 module.exports = { createStorage };

@@ -26,6 +26,7 @@ const pageMeta = {
   leads: ["Leads", "Leads du formulaire et de WhatsApp : appeler, fixer les RDV, rappeler et suivre jusqu'à l'inscription."],
   export: ["Export & AI", "Extract detailed daily, weekly, or custom reports for Excel or an AI analyst."],
   data: ["Import & data", "Synchronize Meta Ads and protect your CRM data."],
+  integrations: ["Integrations", "Meta Conversions API, automatic ad spend sync and the WhatsApp Cloud API webhook."],
 };
 const outcomeMeta = {
   booked: { label: "Booked appointment", short: "Booked", className: "booked" },
