@@ -2161,12 +2161,21 @@ async function handleApi(req, res) {
           lead.assignedAt = now();
         }
       }
-      if (isAdmin && (body.creativeId !== undefined || body.adSetId !== undefined || body.campaignId !== undefined)) {
+      // Source of a lead typed by hand (never for leads imported from Meta or confirmed by the API).
+      const editableSource = !lead.externalId && lead.attributionSource !== "api";
+      if (body.source !== undefined && editableSource && ["form", "whatsapp"].includes(cleanText(body.source)) && cleanText(body.source) !== lead.source) {
+        lead.history = lead.history || [];
+        lead.history.push({ at: now(), type: "source", from: lead.source, to: cleanText(body.source), by: context.label || context.username });
+        lead.source = cleanText(body.source);
+      }
+      if ((isAdmin || editableSource) && (body.creativeId !== undefined || body.adSetId !== undefined || body.campaignId !== undefined)) {
+        if (editableSource) lead.attributionSource = cleanText(body.creativeId) || cleanText(body.adSetId) || cleanText(body.campaignId) ? "manual" : "";
         const ad = state.creatives.find((item) => item.id === cleanText(body.creativeId));
         const adSet = state.adSets.find((item) => item.id === (cleanText(body.adSetId) || ad?.adSetId));
         const campaign = state.campaigns.find((item) => item.id === (cleanText(body.campaignId) || adSet?.campaignId));
         Object.assign(lead, { creativeId: ad?.id || "", adSetId: adSet?.id || "", campaignId: campaign?.id || "" });
       }
+      if (editableSource) Leads.applyManualSource(state, lead);
       try {
         Leads.updateLead(state, lead, body, context.label || context.username);
       } catch (error) {
@@ -2590,6 +2599,32 @@ storage.init().then(async () => {
       release();
     }
   } catch (error) { console.error("Lead re-attribution failed:", error.message); }
+  // One-time: leads typed by hand on the leads dashboard (no Meta id, no ad picked)
+  // since October belong to the lead-form campaign.
+  try {
+    const release = await acquireMutationLock();
+    try {
+      const state = await storage.read();
+      if (!state.settings.manualLeadsToFormAt) {
+        let moved = 0;
+        (state.crmLeads || []).forEach((lead) => {
+          if (lead.demo || lead.externalId || lead.attributionSource === "api" || lead.source !== "whatsapp") return;
+          if (lead.creativeId || lead.adSetId || lead.campaignId) return;
+          if (String(lead.createdAt).slice(0, 10) < "2026-10-01") return;
+          lead.source = "form";
+          lead.manual = true;
+          Leads.applyManualSource(state, lead);
+          Leads.syncLeadOutcomes(state, lead);
+          moved += 1;
+        });
+        state.settings.manualLeadsToFormAt = new Date().toISOString();
+        await storage.write(state);
+        if (moved) console.log(`${moved} hand-added lead(s) moved to the lead-form campaign`);
+      }
+    } finally {
+      release();
+    }
+  } catch (error) { console.error("Manual leads migration failed:", error.message); }
   // One-time clean-up: the demo leads have done their job.
   try {
     const state = await storage.read();

@@ -365,7 +365,7 @@ function leadsToolbarHtml() {
   return `<div class="la-toolbar">
     <div class="la-views" role="tablist">${views.map(([key, label]) => `<button type="button" role="tab" class="${LEAD_UI.view === key ? "active" : ""}" aria-selected="${LEAD_UI.view === key}" data-lead-view="${key}">${label}</button>`).join("")}</div>
     <label class="la-search"><input type="search" placeholder="🔎 ابحثي بالاسم أو الرقم…" value="${escapeHtml(LEAD_UI.search)}" data-lead-filter="search" aria-label="بحث" /></label>
-    <button type="button" class="la-add" data-lead-new>＋ رسالة واتساب</button>
+    <button type="button" class="la-add" data-lead-new>＋ رسالة جديدة</button>
     ${leadAdminView() ? `<button type="button" class="la-transfer-btn" data-transfer-from="">🔀 تحويل الرسائل</button>` : ""}
     ${leadAdminView() ? (leadsList().some((lead) => lead.demo) ? `<button type="button" class="la-demo-btn" data-demo="remove">🗑️ حذف الرسالةات التجريبية (${leadsList().filter((lead) => lead.demo).length})</button>` : `<button type="button" class="la-demo-btn" data-demo="create">🧪 رسائل تجريبية</button>`) : ""}
     ${leadAdminView() ? `<div class="la-filters">
@@ -883,6 +883,7 @@ function renderLeadDetail() {
     <form class="la-block" data-lead-notes-form><h3>📝 ملاحظات</h3><textarea name="notes" rows="3" placeholder="التكوين المطلوب، الوقت المناسب، أسئلته…">${escapeHtml(lead.notes || "")}</textarea><button class="la-save-note" type="submit">حفظ الملاحظة</button></form>
     ${answers.length ? `<section class="la-block"><h3>📋 أجوبة الاستمارة</h3><dl class="la-answers">${answers.map(([question, answer]) => `<div><dt>${escapeHtml(question)}</dt><dd>${escapeHtml(answer)}</dd></div>`).join("")}</dl></section>` : ""}
     <section class="la-block"><h3>📣 المصدر</h3><dl class="la-answers"><div><dt>الإعلان</dt><dd>${escapeHtml(ad?.name || lead.meta?.adName || "—")}</dd></div><div><dt>المجموعة الإعلانية</dt><dd>${escapeHtml(adSet?.name || lead.meta?.adSetName || "—")}</dd></div><div><dt>الحملة</dt><dd>${escapeHtml(campaign?.name || lead.meta?.campaignName || "—")}</dd></div></dl>
+      ${!lead.externalId && lead.attributionSource !== "api" && !leadReadOnly() ? `<form class="la-source-edit" data-lead-source-form>${leadSourcePickerHtml(lead)}<button class="la-save-note" type="submit">حفظ المصدر</button></form>` : ""}
       ${leadAdminView() ? `<label class="la-reassign"><span>المستشارة</span><select data-lead-reassign="${escapeHtml(lead.id)}"><option value="">بدون مستشارة</option>${state.agents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${lead.agentId === agent.id ? "selected" : ""}>${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}</section>
     ${history ? `<section class="la-block"><h3>🕘 التاريخ</h3><ol class="la-history">${history}</ol></section>` : ""}
     ${leadAdminView() ? `<button class="la-delete" type="button" data-lead-delete>حذف الرسالة</button>` : ""}
@@ -899,16 +900,31 @@ function openLeadDetail(id) {
   if (!dialog.open) dialog.showModal();
 }
 
+// The lead-form campaign(s): campaigns that sent leads through the sheet (by Meta id).
+function leadFormCampaigns() {
+  return state.campaigns.filter((campaign) => campaign.metaCampaignId && leadsList().some((lead) => !lead.demo && lead.source === "form" && lead.meta?.campaignId === campaign.metaCampaignId));
+}
+function leadSourcePickerHtml(lead = null) {
+  const source = lead?.source || "form";
+  const adSets = state.adSets.filter((adSet) => adSet.metaAdSetId).sort((a, b) => a.name.localeCompare(b.name));
+  const formCampaign = leadFormCampaigns()[0];
+  return `<fieldset class="la-source-pick"><legend>من أين جاء؟</legend>
+      <label class="la-chip-radio"><input type="radio" name="source" value="whatsapp" ${source !== "form" ? "checked" : ""} /><span>💬 واتساب (ليس من الاستمارة)</span></label>
+      <label class="la-chip-radio"><input type="radio" name="source" value="form" ${source === "form" ? "checked" : ""} /><span>📝 إعلان الاستمارة${formCampaign ? ` <small>(${escapeHtml(formCampaign.name)})</small>` : ""}</span></label>
+    </fieldset>
+    ${adSets.length ? `<label><span>المجموعة الإعلانية (اختياري)</span><select name="adSetId"><option value="">غير معروف</option>${adSets.map((adSet) => `<option value="${escapeHtml(adSet.id)}" ${lead?.adSetId === adSet.id ? "selected" : ""}>${escapeHtml(adSet.name)} · ${escapeHtml(byId(state.campaigns, adSet.campaignId)?.name || "")}</option>`).join("")}</select></label>` : ""}`;
+}
+
 function openNewLeadForm() {
   LEAD_UI.transfer = null;
   const dialog = ensureLeadDialog();
   LEAD_UI.detailId = "";
   const agents = leadAgents();
   const adSets = state.adSets.filter((adSet) => adSet.metaAdSetId).sort((a, b) => a.name.localeCompare(b.name));
-  dialog.innerHTML = `<form class="modal-content la-detail" data-lead-new-form><div class="la-detail-head"><div><small>💬 واتساب</small><h2>إضافة رسالة جديدة</h2><p>لمن يتواصل عبر واتساب. رسائل الاستمارة تصل تلقائياً.</p></div><button class="la-close" type="button" data-lead-close aria-label="إغلاق">×</button></div>
+  dialog.innerHTML = `<form class="modal-content la-detail" data-lead-new-form><div class="la-detail-head"><div><small>📝 من لوحة الرسائل</small><h2>إضافة رسالة جديدة</h2><p>اختاري المصدر الصحيح حتى تُحسب في نتائج الإعلان الصحيح.</p></div><button class="la-close" type="button" data-lead-close aria-label="إغلاق">×</button></div>
     <div class="la-form"><label><span>الاسم</span><input name="name" autocomplete="off" placeholder="الاسم الكامل" /></label><label><span>رقم الهاتف</span><input name="phone" inputmode="tel" dir="ltr" required placeholder="06 12 34 56 78" /></label>
     ${leadAdminView() ? `<label><span>المستشارة</span><select name="agentId"><option value="">بدون مستشارة</option>${agents.map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(leadAgentName(agent.id))}</option>`).join("")}</select></label>` : ""}
-    <label><span>المجموعة الإعلانية (اختياري)</span><select name="adSetId"><option value="">غير معروف</option>${adSets.map((adSet) => `<option value="${escapeHtml(adSet.id)}">${escapeHtml(adSet.name)}</option>`).join("")}</select></label>
+    ${leadSourcePickerHtml()}
     <label><span>ملاحظة (اختياري)</span><input name="notes" autocomplete="off" /></label></div>
     <button class="la-confirm" type="submit">＋ إضافة الرسالة</button></form>`;
   if (!dialog.open) dialog.showModal();
@@ -1615,14 +1631,18 @@ function handleLeadInput(event) {
 
 async function handleLeadSubmit(event) {
   const form = event.target;
-  if (!form.matches("[data-lead-notes-form], [data-lead-new-form], [data-lead-distribution-form], [data-lead-templates-form], [data-lead-sheet-form]")) return;
+  if (!form.matches("[data-lead-notes-form], [data-lead-new-form], [data-lead-distribution-form], [data-lead-templates-form], [data-lead-sheet-form], [data-lead-source-form]")) return;
   event.preventDefault();
   event.stopPropagation(); // keep the app's generic form handler out of it
   if (leadReadOnly()) { toast("👁️ وضع المشاهدة: لا يمكنك تعديل أي شيء", "error"); return; }
   const button = form.querySelector('button[type="submit"]');
   if (button) button.disabled = true;
   try {
-    if (form.matches("[data-lead-sheet-form]")) {
+    if (form.matches("[data-lead-source-form]")) {
+      const body = Object.fromEntries(new FormData(form).entries());
+      const patch = { source: body.source === "form" ? "form" : "whatsapp", adSetId: body.adSetId || "", campaignId: "" };
+      await leadSave(LEAD_UI.detailId, patch, "📣 حُفظ المصدر ✓");
+    } else if (form.matches("[data-lead-sheet-form]")) {
       const res = await api("/api/crm-leads/sync", { method: "POST", body: JSON.stringify({ sheetUrl: form.elements.sheetUrl.value.trim() }) });
       LEAD_UI.settingsOpen = true;
       await load();
@@ -1631,7 +1651,7 @@ async function handleLeadSubmit(event) {
       await leadSave(LEAD_UI.detailId, { notes: form.elements.notes.value }, "📝 حُفظت الملاحظة");
     } else if (form.matches("[data-lead-new-form]")) {
       const body = Object.fromEntries(new FormData(form).entries());
-      const lead = await api("/api/crm-leads", { method: "POST", body: JSON.stringify({ ...body, source: "whatsapp" }) });
+      const lead = await api("/api/crm-leads", { method: "POST", body: JSON.stringify({ ...body, source: body.source === "form" ? "form" : "whatsapp" }) });
       toast(`أُضيفت الرسالة · ${cheer()}`);
       await load();
       openLeadDetail(lead.id);

@@ -1930,3 +1930,12 @@ tr.la-ad-wait .la-ad-decision, tr.la-ad-import .la-ad-decision { color: #64748b;
 .int-more summary { cursor: pointer; font-weight: 700; color: #0f766e; }
 @media (max-width: 640px) { .int-number { grid-template-columns: 1fr 1fr; } .int-env li { grid-template-columns: auto 1fr auto; } .int-env li span { grid-column: 2 / -1; } }
 .la-ad-src { font-style: normal; padding: 1px 7px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-weight: 800; white-space: nowrap; }
+.la-source-pick { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; }
+.la-source-pick legend { width: 100%; margin-bottom: 4px; font-weight: 800; font-size: .9rem; }
+.la-chip-radio { flex: 1 1 160px; }
+.la-chip-radio input { position: absolute; opacity: 0; pointer-events: none; }
+.la-chip-radio span { display: block; padding: 12px 14px; border: 2px solid var(--la-line, #e2e8f0); border-radius: 14px; background: #fff; font-weight: 800; text-align: center; cursor: pointer; }
+.la-chip-radio span small { display: block; font-weight: 600; color: #64748b; }
+.la-chip-radio input:checked + span { border-color: #6d28d9; background: #f5f3ff; color: #5b21b6; }
+.la-chip-radio input[value="whatsapp"]:checked + span { border-color: #15803d; background: #f0fdf4; color: #166534; }
+.la-source-edit { display: grid; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--la-line, #e2e8f0); }

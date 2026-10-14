@@ -413,12 +413,33 @@ function updateLead(state, lead, body = {}, by = "") {
   return lead;
 }
 
+// The current lead-form campaign: the campaign of the latest sheet lead (by Meta id).
+function formCampaignFor(state) {
+  const latest = (state.crmLeads || [])
+    .filter((lead) => !lead.demo && lead.source === "form" && lead.externalId && lead.meta?.campaignId)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  for (const lead of latest) {
+    const campaign = (state.campaigns || []).find((item) => item.metaCampaignId === lead.meta.campaignId);
+    if (campaign) return campaign;
+  }
+  return null;
+}
+// A hand-added lead on the leads dashboard belongs to the lead-form campaign
+// unless the agent picked WhatsApp or a specific ad set.
+function applyManualSource(state, lead) {
+  if (lead.source === "form" && !lead.creativeId && !lead.adSetId && !lead.campaignId) {
+    const campaign = formCampaignFor(state);
+    if (campaign) { lead.campaignId = campaign.id; lead.attributionSource = "manual"; }
+  }
+  return lead;
+}
+
 function createManualLead(state, body = {}, { by = "", agentId = "" } = {}) {
   const data = normalizeLeadRow({ full_name: body.name, phone_number: body.phone, email: body.email, city: body.city });
   if (!data.phone) throw new Error("أدخلي رقم هاتف الشخص");
   const lead = {
     id: newId("lea"),
-    source: body.source === "form" ? "form" : "whatsapp",
+    source: body.source === "whatsapp" ? "whatsapp" : "form",
     ...data,
     createdAt: toIsoDate(body.createdAt) || now(),
     creativeId: "", adSetId: "", campaignId: "",
@@ -435,6 +456,8 @@ function createManualLead(state, body = {}, { by = "", agentId = "" } = {}) {
   const campaign = state.campaigns.find((item) => item.id === (target.campaignId || adSet?.campaignId));
   Object.assign(lead, { creativeId: ad?.id || "", adSetId: adSet?.id || "", campaignId: campaign?.id || "" });
   lead.attributionSource = lead.creativeId || lead.adSetId || lead.campaignId ? "manual" : "";
+  lead.manual = true;
+  applyManualSource(state, lead);
   pushHistory(lead, "created", { agentId: lead.agentId }, by);
   state.crmLeads.push(lead);
   if (body.status && body.status !== "new") updateLead(state, lead, { status: body.status }, by);
@@ -673,7 +696,7 @@ function leadStats(state, at = new Date()) {
 }
 
 module.exports = {
-  createDemoLeads, removeDemoLeads, reattributeLeads, resyncLeadOutcomes, leadHadRdv, upsertWhatsappLead, recordWhatsappEcho, transferLeads, leadStats, appointmentError, OPENING,
+  formCampaignFor, applyManualSource, createDemoLeads, removeDemoLeads, reattributeLeads, resyncLeadOutcomes, leadHadRdv, upsertWhatsappLead, recordWhatsappEcho, transferLeads, leadStats, appointmentError, OPENING,
   LEAD_STATUSES, CLOSED_STATUSES, DISTRIBUTION_MODES, DEFAULT_TEMPLATES,
   normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, updateLead, createManualLead,
   syncLeadOutcomes, normalizeDistribution, defaultDistribution, fillTemplate, leadVcard, channelOfCampaign,

@@ -235,7 +235,10 @@ test("Google Sheets pushes leads with a token; agents only see and change their 
   const card = await call(`/api/crm-leads/${mine[0].id}/vcard`, { headers: sales });
   assert.match(card.headers.get("content-type"), /text\/vcard/);
   assert.match(card.data, /TEL;TYPE=CELL:\+2126/);
-  const whatsapp = await call("/api/crm-leads", { method: "POST", headers: sales, body: { name: "Karim", phone: "0633333333" } });
+  // Hand-added on the leads dashboard: lead-form campaign by default, WhatsApp only if chosen.
+  const typed = await call("/api/crm-leads", { method: "POST", headers: sales, body: { name: "Nadia", phone: "0644444444" } });
+  assert.equal(typed.data.source, "form");
+  const whatsapp = await call("/api/crm-leads", { method: "POST", headers: sales, body: { name: "Karim", phone: "0633333333", source: "whatsapp" } });
   assert.equal(whatsapp.status, 201);
   assert.equal(whatsapp.data.source, "whatsapp");
   assert.equal(whatsapp.data.agentId, "souad");
