@@ -1125,6 +1125,15 @@ function logShareInRange(log, range) {
   const inEnd = range.to && end > range.to ? range.to : end;
   return Math.max(0, Math.min(1, days(inStart, inEnd) / days(start, end)));
 }
+// Row for a form lead that is not linked to an ad: hand-added leads go in one
+// "added by hand" row per campaign; sheet leads whose ad is not imported yet are "unlinked".
+function leadAdsUnlinkedRow(lead, row) {
+  if (!lead.meta?.adId && (lead.manual || !lead.externalId)) {
+    const campaign = byId(state.campaigns, lead.campaignId);
+    return row(`manual:${lead.campaignId || "none"}`, { name: "✍️ أُضيفت يدوياً", campaignName: campaign?.name || "", channel: "form", manual: true });
+  }
+  return row(`meta:${lead.meta?.adId || lead.meta?.adName || "?"}`, { name: lead.meta?.adName || "إعلان غير معروف", adSetName: lead.meta?.adSetName || "", campaignName: lead.meta?.campaignName || "", channel: "form", unlinked: true });
+}
 function leadAdsRows() {
   const range = leadSplitRange();
   const rows = new Map();
@@ -1148,7 +1157,7 @@ function leadAdsRows() {
   // Form leads: contacts by the ad they came from (Meta ad id), linked or not yet imported.
   leadsList().filter((lead) => !lead.demo && lead.source === "form" && overlapsRange(dateOnly(lead.createdAt), dateOnly(lead.createdAt), range)).forEach((lead) => {
     const ad = byId(state.creatives, lead.creativeId);
-    const item = ad ? forAd(ad) : row(`meta:${lead.meta?.adId || lead.meta?.adName || "?"}`, { name: lead.meta?.adName || "إعلان غير معروف", adSetName: lead.meta?.adSetName || "", campaignName: lead.meta?.campaignName || "", channel: "form", unlinked: true });
+    const item = ad ? forAd(ad) : leadAdsUnlinkedRow(lead, row);
     // After the last imported spend day it is "live": shown, but kept out of costs.
     if (item.cutoff && dateOnly(lead.createdAt) > item.cutoff) item.liveContacts = (item.liveContacts || 0) + 1;
     else item.contacts += 1;
@@ -1157,9 +1166,9 @@ function leadAdsRows() {
   filteredOutcomes(range).forEach((outcome) => {
     const ad = relationForOutcome(outcome).ad;
     const lead = outcome.leadId ? formLeads.get(outcome.leadId) : null;
-    const item = ad ? forAd(ad) : lead ? row(`meta:${lead.meta?.adId || lead.meta?.adName || "?"}`, { name: lead.meta?.adName || "إعلان غير معروف", adSetName: lead.meta?.adSetName || "", campaignName: lead.meta?.campaignName || "", channel: "form", unlinked: true }) : null;
+    const item = ad ? forAd(ad) : lead ? leadAdsUnlinkedRow(lead, row) : null;
     if (!item || item[outcome.type] === undefined) return;
-    if (item.cutoff && outcome.date > item.cutoff) item[`live_${outcome.type}`] = (item[`live_${outcome.type}`] || 0) + 1;
+    if (outcome.type === "booked" && item.cutoff && outcome.date > item.cutoff) item.live_booked = (item.live_booked || 0) + 1;
     else item[outcome.type] += 1;
   });
   const list = [...rows.values()].filter((item) => item.channel === "form" && (item.spend > 0.009 || item.contacts || item.booked || item.registered || item.liveContacts || item.live_booked));
@@ -1175,6 +1184,7 @@ function leadAdDecision(item, benchmark) {
   const perRdv = item.booked ? item.spend / item.booked : null;
   const profit = revenueEstimate(item.registered, item.spend).profit;
   const stopAt = benchmark ? benchmark * 2 : 15;
+  if (item.manual) return { key: "wait", icon: "✍️", text: "رسائل أُضيفت يدوياً: تُحسب في مجموع الحملة وفي المقارنة" };
   if (item.unlinked) return { key: "import", icon: "📥", text: "استوردي تقرير ميتا لمعرفة التكلفة" };
   if (item.registered && profit > 0) return { key: "scale", icon: "🚀", text: "مربح: زيدي الميزانية 20% كل 3 أيام" };
   if (!item.booked && item.spend >= stopAt) return { key: "stop", icon: "⛔", text: `أوقفيه: صرف ${money(item.spend)} بلا موعد` };
@@ -1267,6 +1277,13 @@ function leadSplitTestHtml() {
     whatsapp: cutoff.whatsapp ? leadSplitData({ ...range, to: cutoff.whatsapp }).whatsapp : live.whatsapp,
     form: cutoff.form ? leadSplitData({ ...range, to: cutoff.form }).form : live.form,
   };
+  // Visits and registrations come from leads acquired days earlier: they always count
+  // (only same-day contacts and RDVs wait for that day's spend to be imported).
+  ["whatsapp", "form"].forEach((side) => {
+    sides[side].registered = live[side].registered;
+    sides[side].showed = live[side].showed;
+    sides[side].regHours = live[side].regHours;
+  });
   const liveExtra = (side, field) => Math.max(0, live[side][field] - sides[side][field]);
   const cutoffText = (side) => (cutoff[side] ? `${cutoff[side].slice(8, 10)}/${cutoff[side].slice(5, 7)}` : "—");
   const periodNote = `<small class="la-split-note">📅 نفس فترة لوحة الإعلانات أعلاه: ${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")}</small>`;

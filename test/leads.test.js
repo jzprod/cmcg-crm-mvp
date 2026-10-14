@@ -309,7 +309,7 @@ test("form leads link to ads by Meta ids only, never by name", () => {
     adSets: [{ id: "as_old", name: "LEADS ADSET", campaignId: "old" }],
     creatives: [{ id: "ad_old", name: "FREE Sesion Image", adSetId: "as_old" }],
   };
-  const lead = { id: "l1", source: "form", status: "booked", bookedAt: "2026-10-08T10:00:00.000Z", createdAt: "2026-10-08T09:00:00.000Z", agentId: "souad",
+  const lead = { id: "l1", source: "form", externalId: "2368565583912478", status: "booked", bookedAt: "2026-10-08T10:00:00.000Z", createdAt: "2026-10-08T09:00:00.000Z", agentId: "souad",
     meta: { campaignId: "6922104145679", campaignName: "Leads Test Campaign", adSetId: "6922104145279", adSetName: "LEADS ADSET", adId: "6922106416679", adName: "FREE Sesion Image" },
     creativeId: "ad_old", adSetId: "as_old", campaignId: "old" }; // what the old matching did
   state.crmLeads.push(lead);
@@ -345,4 +345,22 @@ test("an RDV cancelled before its time stops counting; a no-show still counts", 
   lead.status = "registered";
   Leads.syncLeadOutcomes(state, lead);
   assert.deepEqual(state.outcomes.map((o) => o.type).sort(), ["booked", "registered"]);
+});
+
+test("hand-added form leads keep the lead-form campaign after re-attribution", () => {
+  const state = {
+    agents: [{ id: "souad", name: "souad" }], crmLeads: [], outcomes: [], settings: {},
+    campaigns: [{ id: "cmp", name: "Leads Test Campaign", metaCampaignId: "C1" }], adSets: [], creatives: [],
+  };
+  state.crmLeads.push({ id: "sheet", source: "form", externalId: "111", createdAt: "2026-10-08T10:00:00Z", meta: { campaignId: "C1" }, agentId: "souad", status: "new", history: [] });
+  const typed = Leads.createManualLead(state, { name: "Typed", phone: "0655555555", status: "registered" }, { agentId: "souad" });
+  assert.equal(typed.source, "form");
+  assert.equal(typed.campaignId, "cmp");
+  Leads.reattributeLeads(state);
+  assert.equal(typed.campaignId, "cmp", "restart re-attribution must not wipe it");
+  assert.ok(state.outcomes.some((o) => o.leadId === typed.id && o.type === "registered" && o.campaignId === "cmp"));
+  // A hand-added lead that lost its campaign gets it back.
+  typed.campaignId = "";
+  Leads.reattributeLeads(state);
+  assert.equal(typed.campaignId, "cmp");
 });

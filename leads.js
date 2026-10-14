@@ -166,6 +166,14 @@ function reattributeLeads(state) {
   (state.crmLeads || []).forEach((lead) => {
     // Form leads and WhatsApp leads whose ad came from the Cloud API (never manual picks).
     if (lead.demo || !lead.meta || !(lead.source === "form" || lead.attributionSource === "api")) return;
+    // Leads typed by hand keep what the agent chose (they have no Meta ids to re-check).
+    if (lead.attributionSource !== "api" && (lead.manual || !lead.externalId)) {
+      if (lead.source === "form" && !lead.campaignId && !lead.adSetId && !lead.creativeId) {
+        applyManualSource(state, lead);
+        if (lead.campaignId) { syncLeadOutcomes(state, lead); changed += 1; }
+      }
+      return;
+    }
     const next = attributeLead(state, lead);
     if (next.creativeId === (lead.creativeId || "") && next.adSetId === (lead.adSetId || "") && next.campaignId === (lead.campaignId || "")) return;
     Object.assign(lead, next);
