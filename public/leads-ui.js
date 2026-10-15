@@ -359,48 +359,6 @@ function leadNextBarHtml() {
   </div>`;
 }
 
-// Admin header: team card + one achievement card per agent, for the chosen period.
-function leadAdminPeriodHtml() {
-  const range = leadSplitRange();
-  const inRange = (iso) => { const day = iso ? dateInputValue(new Date(iso)) : ""; return day && (!range.from || day >= range.from) && (!range.to || day <= range.to); };
-  const outcomes = filteredOutcomes(range);
-  const stat = (agentId) => {
-    const mine = leadsList().filter((lead) => !lead.demo && (!agentId || lead.agentId === agentId));
-    const taps = mine.flatMap((lead) => (lead.history || []).filter((item) => item.type === "tap" && inRange(item.at)));
-    const out = outcomes.filter((o) => !agentId || o.agentId === agentId);
-    return {
-      leads: mine.filter((lead) => inRange(lead.assignedAt || lead.createdAt)).length,
-      calls: taps.filter((item) => item.channel === "call").length,
-      whatsapp: taps.filter((item) => item.channel !== "call").length,
-      booked: out.filter((o) => o.type === "booked").length,
-      showed: out.filter((o) => o.type === "showed" || o.type === "registered").length,
-      registered: out.filter((o) => o.type === "registered").length,
-      todayRdv: mine.filter((lead) => lead.status === "booked" && leadDayOf(lead.appointmentAt) === leadTodayKey()).length,
-    };
-  };
-  const team = stat("");
-  const label = (SPLIT_PRESETS.find(([key]) => key === range.preset) || [])[1] || "";
-  const tiles = (x) => `<div class="la-stats la-stats-6">
-      <div class="la-stat la-stat-todo"><i>📥</i><strong>${number(x.leads)}</strong><span>رسائل</span></div>
-      <div class="la-stat la-stat-call"><i>📞</i><strong>${number(x.calls)}</strong><span>اتصالات</span></div>
-      <div class="la-stat la-stat-wa"><i>💬</i><strong>${number(x.whatsapp)}</strong><span>واتساب</span></div>
-      <div class="la-stat la-stat-rdv"><i>📅</i><strong>${number(x.booked)}</strong><span>مواعيد</span></div>
-      <div class="la-stat la-stat-show"><i>🚶</i><strong>${number(x.showed)}</strong><span>حضور</span></div>
-      <div class="la-stat la-stat-reg"><i>🎓</i><strong>${number(x.registered)}</strong><span>تسجيلات</span></div>
-    </div>`;
-  const agents = leadAgents().map((agent) => ({ agent, x: stat(agent.id) })).sort((a, b) => b.x.registered - a.x.registered || b.x.booked - a.x.booked);
-  const medals = ["🥇", "🥈", "🥉"];
-  return `<section class="la-hero la-admin-hero">
-      <div class="la-hero-top"><span class="la-me is-admin">CMCG</span><div class="la-hello"><h2>📊 أداء الفريق · ${escapeHtml(label)}</h2><p>${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")} · مواعيد اليوم: <b>${number(team.todayRdv)}</b></p></div></div>
-      ${leadSplitPeriodHtml()}
-      ${tiles(team)}
-    </section>
-    <div class="la-agent-cards">${agents.map(({ agent, x }, index) => `<article class="la-agent-card" style="--agent:${leadAgentColor(agent.id)}">
-      <header><span class="la-me small" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))}</span><strong>${escapeHtml(leadAgentName(agent.id))}</strong><b>${x.registered || x.booked ? medals[index] || "" : ""}</b><em>${x.booked ? `${number(Math.round((x.registered / x.booked) * 100))}% تسجيل` : ""}</em></header>
-      ${tiles(x)}
-      <button type="button" class="la-agent-view" data-view-as="${escapeHtml(agent.id)}">👁️ شاشتها</button>
-    </article>`).join("")}</div>`;
-}
 function leadsToolbarHtml() {
   const views = [["today", "اليوم"], ["board", "كل الرسائل"], ...(leadAdminView() ? [["list", "جدول"]] : [])];
   const agents = leadAgents();
@@ -624,10 +582,10 @@ function renderLeads() {
   if (leadAdminView()) {
     // Admin: decisions first (ROI & cost per registration by channel, agents),
     // the lead list stays folded away.
-    root.innerHTML = `${leadAdminPeriodHtml()}
-      <div id="leadSplitTest">${leadSplitTestHtml()}</div>
-      <details class="la-admin-list"><summary><strong>👀 تفاصيل نشاط المستشارات</strong><small>التنبيهات، آخر النشاط، الروابط</small></summary>${leadMonitorHtml()}</details>
+    root.innerHTML = `${leadHeroHtml()}
+      ${leadMonitorHtml()}
       ${unassigned ? `<div class="la-alert">⚠️ <strong>${number(unassigned)} رسالة بدون مستشارة.</strong> <button type="button" data-lead-redistribute>وزّعيها الآن</button></div>` : ""}
+      <div id="leadSplitTest">${leadSplitTestHtml({ compact: true })}</div>
       <div id="leadAds">${leadAdsHtml()}</div>
       <details class="la-admin-list" ${LEAD_UI.listOpen ? "open" : ""} data-lead-list-toggle><summary><strong>📋 كل الرسائل (${number(leadsList().filter((lead) => !lead.demo).length)})</strong><small>البحث، الفلاتر، التحويل</small></summary>${listHtml}</details>
       <details class="la-settings" ${LEAD_UI.settingsOpen ? "open" : ""} data-lead-settings><summary><strong>⚙️ الربط والتوزيع</strong><small>Google Sheets، توزيع الرسائل، رسائل واتساب</small></summary>${leadSettingsHtml()}</details>`;
@@ -1319,7 +1277,7 @@ function splitDailyChart(sides, field, title, format) {
   }).join("");
   return `<figure class="la-split-chart"><figcaption>${escapeHtml(title)} <small>الأعلى: ${escapeHtml(format(max))}</small></figcaption><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}"><line x1="${pad}" x2="${width - pad}" y1="${height - 18}" y2="${height - 18}" class="la-axis"/>${bars}</svg></figure>`;
 }
-function leadSplitTestHtml() {
+function leadSplitTestHtml({ compact = false } = {}) {
   const range = leadSplitRange();
   // Costs, ROI and rates only use results up to the last day with imported spend,
   // so today's RDVs don't make the cost look cheaper before today's spend is in.
@@ -1377,6 +1335,35 @@ function leadSplitTestHtml() {
     s.per100 = s.spend > 0 ? (s.expectedReg / s.spend) * 100 : null;
     s.rateUsed = rateUsed;
   });
+  if (compact) {
+    // Admin summary: only the money that decides where to put the budget.
+    const rows = [
+      ["📅", "ثمن الموعد", (x) => per(x.spend, x.booked), "low", (v) => (v === null ? "—" : money(v))],
+      ["🎓", "ثمن المسجّل", (x) => per(x.spend, x.registered), "low", (v) => (v === null ? "—" : money(v))],
+      ["🚀", "ROI المتوقع", (x) => x.expectedRoi, "high", (v) => (v === null ? "—" : `${v >= 0 ? "+" : ""}${number(Math.round(v * 100))}%`)],
+    ];
+    const both = sides.whatsapp.spend > 0 && sides.form.spend > 0;
+    const winnerOf = (get, better) => {
+      const a = get(sides.whatsapp), b = get(sides.form);
+      if (!both || a === null || b === null || a === b) return "";
+      return (better === "low" ? a < b : a > b) ? "whatsapp" : "form";
+    };
+    const wins = rows.map(([, , get, better]) => winnerOf(get, better));
+    const formWins = wins.filter((w) => w === "form").length;
+    const waWins = wins.filter((w) => w === "whatsapp").length;
+    const verdict = !both ? "تحتاج المقارنة مصروفاً في الجهتين خلال هذه الفترة."
+      : formWins === waWins ? "🤝 متقاربان حالياً."
+      : `🏆 <b>${formWins > waWins ? "الاستمارة" : "واتساب"}</b> أفضل في ${Math.max(formWins, waWins)} من 3.${Math.min(sides.whatsapp.registered, sides.form.registered) < 5 ? " <small>(تقدير مبكر: أقل من 5 مسجلين في جهة)</small>" : ""}`;
+    const cell = (side, value, win) => `<td class="la-cmp-${side}${win === side ? " is-win" : ""}">${win === side ? "🥇 " : ""}${value}</td>`;
+    return `<section class="la-split la-cmp"><div class="la-split-head"><h3>⚖️ واتساب أم الاستمارة؟</h3>${leadSplitPeriodHtml()}</div>
+      <p class="la-cmp-verdict">${verdict}</p>
+      <div class="table-wrap"><table class="la-cmp-table"><thead><tr><th></th><th class="la-cmp-whatsapp">💬 واتساب</th><th class="la-cmp-form">📝 الاستمارة</th></tr></thead><tbody>
+        ${rows.map(([icon, label, get, , format], index) => `<tr><th>${icon} ${label}</th>${cell("whatsapp", format(get(sides.whatsapp)), wins[index])}${cell("form", format(get(sides.form)), wins[index])}</tr>`).join("")}
+        <tr class="la-cmp-small"><th>💸 المصروف · 📅 مواعيد · 🎓 مسجلون</th><td>${money(sides.whatsapp.spend)} · ${number(live.whatsapp.booked)} · ${number(live.whatsapp.registered)}</td><td>${money(sides.form.spend)} · ${number(live.form.booked)} · ${number(live.form.registered)}</td></tr>
+      </tbody></table></div>
+      <details class="la-channels"><summary>📊 التفاصيل الكاملة (ROI، التحويلات، الرسوم البيانية)</summary>${leadSplitTestHtml()}</details>
+    </section>`;
+  }
   const duel = [
     metric("cpc", "💬", "ثمن الرسالة / التواصل", (s) => per(s.spend, s.contacts), "money", "low", 1),
     metric("cprdv", "📅", "ثمن الموعد", (s) => per(s.spend, s.booked), "money", "low", 3),

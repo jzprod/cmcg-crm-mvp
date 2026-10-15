@@ -1958,3 +1958,13 @@ tr.la-ad-wait .la-ad-decision, tr.la-ad-import .la-ad-decision { color: #64748b;
 .la-agent-card .la-stat { color: #fff; }
 .la-agent-view { justify-self: start; padding: 6px 12px; border: 1px solid var(--la-line); border-radius: 10px; background: #fff; font-weight: 700; cursor: pointer; }
 @media (max-width: 760px) { .la-stats-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.la-cmp .la-cmp-verdict { margin: 0; padding: 10px 14px; border-radius: 12px; background: #eef2ff; color: #312e81; font-size: 1rem; }
+.la-cmp-table { width: 100%; border-collapse: separate; border-spacing: 0 6px; font-size: 1rem; }
+.la-cmp-table th, .la-cmp-table td { padding: 12px 14px; text-align: start; }
+.la-cmp-table thead th { font-size: 1.05rem; font-weight: 800; }
+.la-cmp-table tbody th { font-weight: 800; color: #0f172a; white-space: nowrap; }
+.la-cmp-table tbody td { font: 800 1.3rem "Fira Sans", system-ui, sans-serif; background: #f8fafc; }
+.la-cmp-table td.la-cmp-whatsapp.is-win { background: #f0fdf4; color: #15803d; }
+.la-cmp-table td.la-cmp-form.is-win { background: #f5f3ff; color: #6d28d9; }
+.la-cmp-table th.la-cmp-whatsapp { color: #15803d; } .la-cmp-table th.la-cmp-form { color: #6d28d9; }
+.la-cmp-table tr.la-cmp-small td { font-size: .9rem; font-weight: 700; color: #475569; }
