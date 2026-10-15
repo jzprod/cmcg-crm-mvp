@@ -2100,6 +2100,8 @@ async function handleApi(req, res) {
         if (!agentId) return;
         lead.agentId = agentId;
         lead.assignedAt = now();
+        // Distinct times so the rotation alternates within one batch.
+        lead.autoAssignedAt = Leads.nextAutoAssignTime();
         Leads.syncLeadOutcomes(state, lead);
         assigned += 1;
       });

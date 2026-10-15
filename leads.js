@@ -225,6 +225,13 @@ function agentSetting(distribution, agentId) {
 // Who gets the next lead. balanced: fewest leads today, then this week.
 // weighted: leads in the last 30 days in proportion to each agent's weight.
 // adset: the agent named in the ad set, else balanced. manual: nobody.
+// Strictly increasing time for automatic assignments (a sheet batch arrives in the same ms).
+let lastAutoAssign = 0;
+function nextAutoAssignTime() {
+  lastAutoAssign = Math.max(Date.now(), lastAutoAssign + 1);
+  return new Date(lastAutoAssign).toISOString();
+}
+
 function pickAgent(state, lead, distribution, at = new Date()) {
   const mode = distribution.mode;
   if (mode === "manual") return "";
@@ -234,19 +241,22 @@ function pickAgent(state, lead, distribution, at = new Date()) {
     if (adSet?.agentId && pool.some((agent) => agent.id === adSet.agentId)) return adSet.agentId;
   }
   if (!pool.length) return "";
-  const day = at.toISOString().slice(0, 10);
-  const weekAgo = new Date(at.getTime() - 7 * 86400000).toISOString();
-  const monthAgo = new Date(at.getTime() - 30 * 86400000).toISOString();
-  const count = (agentId, since) => (state.crmLeads || []).filter((item) => item.agentId === agentId && item.source === "form" && (item.assignedAt || item.createdAt) >= since).length;
-  const scored = pool.map((agent) => {
-    const today = count(agent.id, `${day}T00:00:00.000Z`);
-    const week = count(agent.id, weekAgo);
-    const month = count(agent.id, monthAgo);
-    const weight = agentSetting(distribution, agent.id).weight || 1;
-    return { id: agent.id, name: agent.name, key: mode === "weighted" ? [month / weight, today / weight] : [today, week] };
-  });
-  scored.sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || String(a.name).localeCompare(String(b.name)));
-  return scored[0].id;
+  // Rotation, not catch-up: only automatic assignments count (not transfers or
+  // leads typed by hand), and an agent back from a pause never gets a backlog.
+  const autoAssigned = (state.crmLeads || [])
+    .filter((item) => item.agentId && !item.demo && (item.autoAssignedAt || (item.history?.[0]?.type === "created" && item.history[0].auto && item.assignedAt)))
+    .map((item) => ({ agentId: item.agentId, at: item.autoAssignedAt || item.assignedAt }))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const lastAt = (agentId) => autoAssigned.find((item) => item.agentId === agentId)?.at || "";
+  const byWait = (a, b) => String(lastAt(a.id)).localeCompare(String(lastAt(b.id))) || String(a.name).localeCompare(String(b.name));
+  if (mode !== "weighted") return [...pool].sort(byWait)[0].id;
+  // Weighted: smooth rotation over the last "sum of weights" automatic leads of the current team.
+  const weightOf = (agentId) => agentSetting(distribution, agentId).weight || 1;
+  const ids = new Set(pool.map((agent) => agent.id));
+  const windowSize = Math.max(1, Math.round(pool.reduce((sum, agent) => sum + weightOf(agent.id), 0)));
+  const recent = autoAssigned.filter((item) => ids.has(item.agentId)).slice(0, windowSize - 1);
+  const share = (agentId) => recent.filter((item) => item.agentId === agentId).length / weightOf(agentId);
+  return [...pool].sort((a, b) => share(a.id) - share(b.id) || weightOf(b.id) - weightOf(a.id) || byWait(a, b))[0].id;
 }
 
 function pushHistory(lead, type, details = {}, by = "") {
@@ -347,6 +357,7 @@ function ingestLeadRows(state, rows, { distribution, source = "form", at = new D
     lead.agentId = pickAgent(state, lead, distribution, at);
     if (lead.agentId) {
       lead.assignedAt = now();
+      lead.autoAssignedAt = nextAutoAssignTime();
       summary.assigned[lead.agentId] = (summary.assigned[lead.agentId] || 0) + 1;
     }
     pushHistory(lead, "created", { agentId: lead.agentId, auto: true });
@@ -536,7 +547,7 @@ function upsertWhatsappLead(state, message, { distribution, agentId = "" } = {})
   };
   if (fromAd) Object.assign(lead, attributeLead(state, lead));
   lead.agentId = agentId && state.agents.some((agent) => agent.id === agentId) ? agentId : pickAgent(state, lead, distribution || normalizeDistribution({}), new Date());
-  if (lead.agentId) lead.assignedAt = now();
+  if (lead.agentId) { lead.assignedAt = now(); if (!agentId) lead.autoAssignedAt = nextAutoAssignTime(); }
   pushHistory(lead, "created", { agentId: lead.agentId, auto: true, channel: "whatsapp", fromAd }, "whatsapp");
   state.crmLeads.push(lead);
   return { lead, created: true };
@@ -704,7 +715,7 @@ function leadStats(state, at = new Date()) {
 }
 
 module.exports = {
-  formCampaignFor, applyManualSource, createDemoLeads, removeDemoLeads, reattributeLeads, resyncLeadOutcomes, leadHadRdv, upsertWhatsappLead, recordWhatsappEcho, transferLeads, leadStats, appointmentError, OPENING,
+  formCampaignFor, applyManualSource, nextAutoAssignTime, createDemoLeads, removeDemoLeads, reattributeLeads, resyncLeadOutcomes, leadHadRdv, upsertWhatsappLead, recordWhatsappEcho, transferLeads, leadStats, appointmentError, OPENING,
   LEAD_STATUSES, CLOSED_STATUSES, DISTRIBUTION_MODES, DEFAULT_TEMPLATES,
   normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, updateLead, createManualLead,
   syncLeadOutcomes, normalizeDistribution, defaultDistribution, fillTemplate, leadVcard, channelOfCampaign,

@@ -364,3 +364,18 @@ test("hand-added form leads keep the lead-form campaign after re-attribution", (
   Leads.reattributeLeads(state);
   assert.equal(typed.campaignId, "cmp");
 });
+
+test("balanced distribution rotates and never compensates after a pause", () => {
+  const state = { agents: [{ id: "souad", name: "souad" }, { id: "wiam", name: "wiam" }], crmLeads: [], outcomes: [], campaigns: [], adSets: [], creatives: [], settings: {} };
+  const row = (n) => ({ id: `l:${n}`, created_time: "2026-10-15T10:00:00Z", full_name: `Lead ${n}`, phone_number: `p:+2126000000${String(n).padStart(2, "0")}` });
+  const ingest = (n, distribution) => Leads.ingestLeadRows(state, [row(n)], { distribution });
+  const both = Leads.normalizeDistribution({ mode: "balanced" });
+  const souadPaused = Leads.normalizeDistribution({ mode: "balanced", agents: { souad: { active: false } } });
+  let n = 0;
+  // Souad paused: Wiam gets 6 in a row.
+  for (let i = 0; i < 6; i += 1) ingest(++n, souadPaused);
+  // Souad back: they alternate, Souad does NOT receive 6 in a row.
+  const after = [];
+  for (let i = 0; i < 6; i += 1) { ingest(++n, both); after.push(state.crmLeads.at(-1).agentId); }
+  assert.deepEqual(after, ["souad", "wiam", "souad", "wiam", "souad", "wiam"]);
+});
