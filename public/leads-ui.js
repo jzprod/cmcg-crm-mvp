@@ -575,15 +575,24 @@ function renderLeads() {
   const viewAsBanner = leadReadOnly() ? `<div class="la-viewas"><span>👁️</span><div><strong>تشاهدين شاشة ${escapeHtml(leadAgentName(LEAD_UI.viewAs))} كما تراها هي</strong><small>وضع المشاهدة فقط: لا يمكنك تعديل أي شيء.</small></div><button type="button" data-view-as-exit>العودة إلى لوحتي</button></div>` : "";
   const nextBar = leadNextBarHtml();
   root.classList.toggle("has-next", Boolean(nextBar));
-  root.innerHTML = `${viewAsBanner}${leadHeroHtml()}
-    ${leadAdminView() ? leadMonitorHtml() : ""}
-    ${leadAdminView() && unassigned ? `<div class="la-alert">⚠️ <strong>${number(unassigned)} رسالة بدون مستشارة.</strong> <button type="button" data-lead-redistribute>وزّعيها الآن</button></div>` : ""}
-    ${leadsToolbarHtml()}
+  const listHtml = `${leadsToolbarHtml()}
     ${leadsList().length ? leadQuickFiltersHtml() : ""}
     ${empty}
-    <div class="la-body">${body}</div>
-    ${nextBar}
-    ${leadAdminView() ? `<div id="leadAds">${leadAdsHtml()}</div><div id="leadSplitTest">${leadSplitTestHtml()}</div><details class="la-settings" ${LEAD_UI.settingsOpen ? "open" : ""} data-lead-settings><summary><strong>⚙️ الربط والتوزيع</strong><small>Google Sheets، توزيع الرسائل، رسائل واتساب</small></summary>${leadSettingsHtml()}</details>` : ""}`;
+    <div class="la-body">${body}</div>`;
+  if (leadAdminView()) {
+    // Admin: decisions first (ROI & cost per registration by channel, agents),
+    // the lead list stays folded away.
+    root.innerHTML = `<div id="leadSplitTest">${leadSplitTestHtml()}</div>
+      ${leadMonitorHtml()}
+      ${unassigned ? `<div class="la-alert">⚠️ <strong>${number(unassigned)} رسالة بدون مستشارة.</strong> <button type="button" data-lead-redistribute>وزّعيها الآن</button></div>` : ""}
+      <div id="leadAds">${leadAdsHtml()}</div>
+      <details class="la-admin-list" ${LEAD_UI.listOpen ? "open" : ""} data-lead-list-toggle><summary><strong>📋 كل الرسائل (${number(leadsList().filter((lead) => !lead.demo).length)})</strong><small>البحث، الفلاتر، التحويل</small></summary>${listHtml}</details>
+      <details class="la-settings" ${LEAD_UI.settingsOpen ? "open" : ""} data-lead-settings><summary><strong>⚙️ الربط والتوزيع</strong><small>Google Sheets، توزيع الرسائل، رسائل واتساب</small></summary>${leadSettingsHtml()}</details>`;
+  } else {
+    root.innerHTML = `${viewAsBanner}${leadHeroHtml()}
+    ${listHtml}
+    ${nextBar}`;
+  }
   if (LEAD_UI.detailId && document.getElementById("leadDialog")?.open && !LEAD_UI.sheet) renderLeadDetail();
 }
 
@@ -1286,9 +1295,9 @@ function leadSplitTestHtml() {
   });
   const liveExtra = (side, field) => Math.max(0, live[side][field] - sides[side][field]);
   const cutoffText = (side) => (cutoff[side] ? `${cutoff[side].slice(8, 10)}/${cutoff[side].slice(5, 7)}` : "—");
-  const periodNote = `<small class="la-split-note">📅 نفس فترة لوحة الإعلانات أعلاه: ${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")}</small>`;
+  const periodNote = leadSplitPeriodHtml();
   if (!sides.form.spend && !sides.form.contacts) {
-    return `<section class="la-split"><div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3>${periodNote}</div><p class="la-empty">لا توجد بيانات للاستمارة في هذه الفترة.</p></section>`;
+    return `<section class="la-split"><div class="la-split-head"><h3>🎯 القرار: واتساب أم الاستمارة؟</h3>${periodNote}</div><p class="la-empty">لا توجد بيانات للاستمارة في هذه الفترة.</p></section>`;
   }
   const per = (spend, count) => (count && spend ? spend / count : null);
   const rate = (a, b) => (b ? a / b : null);
@@ -1391,7 +1400,7 @@ function leadSplitTestHtml() {
   const campaigns = state.campaigns.filter((campaign) => campaign.metaCampaignId).sort((a, b) => a.name.localeCompare(b.name));
   const table = duel.map((row) => `<tr><th>${row.icon} ${escapeHtml(row.label)}</th><td dir="ltr">${escapeHtml(fmt[row.kind](row.a))}</td><td dir="ltr">${escapeHtml(fmt[row.kind](row.b))}</td></tr>`).join("");
   return `<section class="la-split la-split-v2">
-    <div class="la-split-head"><h3>🧪 واتساب ضد الاستمارة</h3>${periodNote}</div>
+    <div class="la-split-head"><h3>🎯 القرار: واتساب أم الاستمارة؟</h3>${periodNote}</div>
     <p class="la-split-verdict${enough ? " is-ready" : ""}">${verdict}</p>
     ${scaleTip ? `<p class="la-scale-tip">${scaleTip}</p>` : ""}
     <p class="la-cutoff-note">💸 التكاليف وROI محسوبة حتى آخر يوم في تقرير ميتا المستورد (واتساب: <b>${cutoffText("whatsapp")}</b> · الاستمارة: <b>${cutoffText("form")}</b>). 📡 المواعيد والرسائل بعده تظهر مباشرة ولا تدخل في التكلفة حتى تستوردي تقرير ذلك اليوم.</p>
@@ -1599,6 +1608,8 @@ async function handleLeadClick(event) {
   }
   const settings = target.closest("[data-lead-settings] > summary");
   if (settings) { LEAD_UI.settingsOpen = !settings.parentElement.open; return; }
+  const listToggle = target.closest("[data-lead-list-toggle] > summary");
+  if (listToggle) { LEAD_UI.listOpen = !listToggle.parentElement.open; return; }
   const card = target.closest("[data-lead-open]");
   if (card) openLeadDetail(card.dataset.leadOpen);
 }
