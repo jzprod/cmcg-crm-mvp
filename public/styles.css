@@ -1943,3 +1943,18 @@ tr.la-ad-wait .la-ad-decision, tr.la-ad-import .la-ad-decision { color: #64748b;
 .la-admin-list > summary { display: flex; justify-content: space-between; gap: 8px; cursor: pointer; font-size: 1.05rem; }
 .la-admin-list > summary small { color: var(--la-muted); }
 .la-admin-list[open] > summary { margin-bottom: 12px; }
+.la-admin-hero .la-split-period small { color: #d1fae5; }
+.la-admin-hero .la-split-presets button { background: rgba(255,255,255,.15); color: #fff; border-color: transparent; }
+.la-admin-hero .la-split-presets button.is-on { background: #fff; color: #0f766e; }
+.la-stats-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.la-stat-call { background: linear-gradient(135deg, #38bdf8, #0284c7); }
+.la-stat-wa { background: linear-gradient(135deg, #4ade80, #16a34a); }
+.la-stat-show { background: linear-gradient(135deg, #2dd4bf, #0d9488); }
+.la-agent-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 12px; }
+.la-agent-card { display: grid; gap: 10px; padding: 14px; border-radius: 20px; background: #fff; border: 1px solid var(--la-line); border-top: 5px solid var(--agent); }
+.la-agent-card header { display: flex; align-items: center; gap: 10px; }
+.la-agent-card header strong { font-size: 1.15rem; }
+.la-agent-card header em { margin-inline-start: auto; font-style: normal; font-weight: 800; color: #15803d; }
+.la-agent-card .la-stat { color: #fff; }
+.la-agent-view { justify-self: start; padding: 6px 12px; border: 1px solid var(--la-line); border-radius: 10px; background: #fff; font-weight: 700; cursor: pointer; }
+@media (max-width: 760px) { .la-stats-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

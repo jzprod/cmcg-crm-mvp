@@ -359,6 +359,48 @@ function leadNextBarHtml() {
   </div>`;
 }
 
+// Admin header: team card + one achievement card per agent, for the chosen period.
+function leadAdminPeriodHtml() {
+  const range = leadSplitRange();
+  const inRange = (iso) => { const day = iso ? dateInputValue(new Date(iso)) : ""; return day && (!range.from || day >= range.from) && (!range.to || day <= range.to); };
+  const outcomes = filteredOutcomes(range);
+  const stat = (agentId) => {
+    const mine = leadsList().filter((lead) => !lead.demo && (!agentId || lead.agentId === agentId));
+    const taps = mine.flatMap((lead) => (lead.history || []).filter((item) => item.type === "tap" && inRange(item.at)));
+    const out = outcomes.filter((o) => !agentId || o.agentId === agentId);
+    return {
+      leads: mine.filter((lead) => inRange(lead.assignedAt || lead.createdAt)).length,
+      calls: taps.filter((item) => item.channel === "call").length,
+      whatsapp: taps.filter((item) => item.channel !== "call").length,
+      booked: out.filter((o) => o.type === "booked").length,
+      showed: out.filter((o) => o.type === "showed" || o.type === "registered").length,
+      registered: out.filter((o) => o.type === "registered").length,
+      todayRdv: mine.filter((lead) => lead.status === "booked" && leadDayOf(lead.appointmentAt) === leadTodayKey()).length,
+    };
+  };
+  const team = stat("");
+  const label = (SPLIT_PRESETS.find(([key]) => key === range.preset) || [])[1] || "";
+  const tiles = (x) => `<div class="la-stats la-stats-6">
+      <div class="la-stat la-stat-todo"><i>📥</i><strong>${number(x.leads)}</strong><span>رسائل</span></div>
+      <div class="la-stat la-stat-call"><i>📞</i><strong>${number(x.calls)}</strong><span>اتصالات</span></div>
+      <div class="la-stat la-stat-wa"><i>💬</i><strong>${number(x.whatsapp)}</strong><span>واتساب</span></div>
+      <div class="la-stat la-stat-rdv"><i>📅</i><strong>${number(x.booked)}</strong><span>مواعيد</span></div>
+      <div class="la-stat la-stat-show"><i>🚶</i><strong>${number(x.showed)}</strong><span>حضور</span></div>
+      <div class="la-stat la-stat-reg"><i>🎓</i><strong>${number(x.registered)}</strong><span>تسجيلات</span></div>
+    </div>`;
+  const agents = leadAgents().map((agent) => ({ agent, x: stat(agent.id) })).sort((a, b) => b.x.registered - a.x.registered || b.x.booked - a.x.booked);
+  const medals = ["🥇", "🥈", "🥉"];
+  return `<section class="la-hero la-admin-hero">
+      <div class="la-hero-top"><span class="la-me is-admin">CMCG</span><div class="la-hello"><h2>📊 أداء الفريق · ${escapeHtml(label)}</h2><p>${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")} · مواعيد اليوم: <b>${number(team.todayRdv)}</b></p></div></div>
+      ${leadSplitPeriodHtml()}
+      ${tiles(team)}
+    </section>
+    <div class="la-agent-cards">${agents.map(({ agent, x }, index) => `<article class="la-agent-card" style="--agent:${leadAgentColor(agent.id)}">
+      <header><span class="la-me small" style="--agent:${leadAgentColor(agent.id)}">${escapeHtml(leadAgentCode(agent))}</span><strong>${escapeHtml(leadAgentName(agent.id))}</strong><b>${x.registered || x.booked ? medals[index] || "" : ""}</b><em>${x.booked ? `${number(Math.round((x.registered / x.booked) * 100))}% تسجيل` : ""}</em></header>
+      ${tiles(x)}
+      <button type="button" class="la-agent-view" data-view-as="${escapeHtml(agent.id)}">👁️ شاشتها</button>
+    </article>`).join("")}</div>`;
+}
 function leadsToolbarHtml() {
   const views = [["today", "اليوم"], ["board", "كل الرسائل"], ...(leadAdminView() ? [["list", "جدول"]] : [])];
   const agents = leadAgents();
@@ -582,8 +624,9 @@ function renderLeads() {
   if (leadAdminView()) {
     // Admin: decisions first (ROI & cost per registration by channel, agents),
     // the lead list stays folded away.
-    root.innerHTML = `<div id="leadSplitTest">${leadSplitTestHtml()}</div>
-      ${leadMonitorHtml()}
+    root.innerHTML = `${leadAdminPeriodHtml()}
+      <div id="leadSplitTest">${leadSplitTestHtml()}</div>
+      <details class="la-admin-list"><summary><strong>👀 تفاصيل نشاط المستشارات</strong><small>التنبيهات، آخر النشاط، الروابط</small></summary>${leadMonitorHtml()}</details>
       ${unassigned ? `<div class="la-alert">⚠️ <strong>${number(unassigned)} رسالة بدون مستشارة.</strong> <button type="button" data-lead-redistribute>وزّعيها الآن</button></div>` : ""}
       <div id="leadAds">${leadAdsHtml()}</div>
       <details class="la-admin-list" ${LEAD_UI.listOpen ? "open" : ""} data-lead-list-toggle><summary><strong>📋 كل الرسائل (${number(leadsList().filter((lead) => !lead.demo).length)})</strong><small>البحث، الفلاتر، التحويل</small></summary>${listHtml}</details>
@@ -1244,6 +1287,7 @@ function leadSplitPeriodHtml() {
 function setSplitPeriod(patch) {
   const next = { ...leadSplitPeriod(), ...patch };
   try { localStorage.setItem("cmcg-split-period", JSON.stringify(next)); } catch {}
+  if (leadAdminView()) { renderLeads(); return; }
   const box = document.getElementById("leadSplitTest");
   if (box) box.innerHTML = leadSplitTestHtml();
   const ads = document.getElementById("leadAds");
@@ -1295,7 +1339,7 @@ function leadSplitTestHtml() {
   });
   const liveExtra = (side, field) => Math.max(0, live[side][field] - sides[side][field]);
   const cutoffText = (side) => (cutoff[side] ? `${cutoff[side].slice(8, 10)}/${cutoff[side].slice(5, 7)}` : "—");
-  const periodNote = leadSplitPeriodHtml();
+  const periodNote = `<small class="la-split-note">📅 نفس الفترة المختارة أعلاه: ${escapeHtml(range.from || "…")} ← ${escapeHtml(range.to || "اليوم")}</small>`;
   if (!sides.form.spend && !sides.form.contacts) {
     return `<section class="la-split"><div class="la-split-head"><h3>🎯 القرار: واتساب أم الاستمارة؟</h3>${periodNote}</div><p class="la-empty">لا توجد بيانات للاستمارة في هذه الفترة.</p></section>`;
   }
