@@ -18,7 +18,10 @@
   const isAdmin = () => currentUser?.role !== "sales";
 
   async function load() {
-    if (!isAdmin() || INT.loading) return;
+    if (!isAdmin()) return;
+    // A refresh already in flight may have read the data before a save: run
+    // once more after it instead of dropping this request (stale values).
+    if (INT.loading) { INT.reloadAgain = true; return; }
     INT.loading = true;
     try {
       const [status, events, jobs] = await Promise.all([
@@ -34,6 +37,7 @@
     } finally {
       INT.loading = false;
     }
+    if (INT.reloadAgain) { INT.reloadAgain = false; return load(); }
     render();
   }
 
@@ -255,7 +259,9 @@
 
   async function saveSheet(patch, message) {
     try {
-      await sfPost("settings", patch);
+      const res = await sfPost("settings", patch);
+      // Show what the server saved right away, even before the refresh lands.
+      if (res?.settings && INT.status?.sheetFeedback) { INT.status.sheetFeedback.settings = res.settings; render(); }
       if (message) toast(message);
     } catch (error) { toast(error.message, "error"); }
     await load();
