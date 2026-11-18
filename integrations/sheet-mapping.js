@@ -14,8 +14,10 @@
 const STAGES = ["intake", "qualified", "converted", "lost", "not_qualified"];
 
 const STAGE_INFO = {
-  intake: { label: "Intake", meaning: "RDV booked (active lead, not yet qualified by attendance)" },
-  qualified: { label: "Qualified", meaning: "Visited the centre (paid or not)" },
+  // Meta puts every new lead in Intake already (Leads Center default), so the CRM
+  // reports the first real signal, an RDV, as Qualified.
+  intake: { label: "Intake", meaning: "Not sent by the CRM: Meta marks every new lead Intake already" },
+  qualified: { label: "Qualified", meaning: "RDV booked or visited the centre (engaged, real lead)" },
   converted: { label: "Converted", meaning: "Registered and paid" },
   lost: { label: "Lost", meaning: "Definitively declined / closed after showing interest" },
   not_qualified: { label: "Not qualified", meaning: "Unsuitable or invalid lead (other city, wrong number, conditions not met)" },
@@ -59,13 +61,13 @@ const STATUS_MAP = [
   ["no_answer", "No answer", null, "Still an active prospect"],
   ["callback", "Callback requested", null, "Still an active prospect"],
   ["contacted", "Contacted, thinking", null, "Still considering (keeps any earlier Qualified)"],
-  ["booked", "RDV booked", "intake", "Appointment confirmed, not yet qualified by attendance"],
-  ["visited", "Visited the centre", "qualified", "Strong demonstrated interest, paid or not"],
+  ["booked", "RDV booked", "qualified", "Appointment booked: an engaged, real lead"],
+  ["visited", "Visited the centre", "qualified", "Stays Qualified (already reported at the RDV, or now if no RDV was recorded)"],
   ["registered", "Registered and paid", "converted", "Paying student (even without a recorded visit)"],
   ["not_interested", "Not interested", "lost", "Opportunity closed"],
-  ["other_city", "Other city", "not_qualified", "Cannot attend physical training (Lost if already visited)"],
-  ["not_qualified", "Not qualified", "not_qualified", "Conditions not met (Lost if already visited)"],
-  ["wrong_number", "Wrong number", "not_qualified", "Invalid lead (Lost if already visited)"],
+  ["other_city", "Other city", "not_qualified", "Cannot attend physical training (Lost if already Qualified)"],
+  ["not_qualified", "Not qualified", "not_qualified", "Conditions not met (Lost if already Qualified)"],
+  ["wrong_number", "Wrong number", "not_qualified", "Invalid lead (Lost if already Qualified)"],
 ];
 const NEGATIVE_STATUS = { not_interested: "lost", other_city: "not_qualified", not_qualified: "not_qualified", wrong_number: "not_qualified" };
 
@@ -143,10 +145,12 @@ function eligibility(lead, config) {
 function milestonesForLead(lead, { leadHadRdv }) {
   const out = [];
   const status = lead.status;
-  const hadRdv = status === "booked" || (typeof leadHadRdv === "function" ? leadHadRdv(lead) : Boolean(lead.bookedAt));
-  if (hadRdv && lead.bookedAt) out.push({ stage: "intake", at: lead.bookedAt });
-  if (lead.visitedAt) out.push({ stage: "qualified", at: lead.visitedAt });
-  else if (status === "visited") out.push({ stage: "qualified", at: lead.statusAt });
+  // A recorded visit proves the RDV happened, even if it came before the slot time.
+  const hadRdv = status === "booked" || Boolean(lead.visitedAt) || (typeof leadHadRdv === "function" ? leadHadRdv(lead) : Boolean(lead.bookedAt));
+  // Qualified = the first of: RDV booked, visit recorded (Meta already shows Intake).
+  const qualifiedAt = [hadRdv ? lead.bookedAt : "", lead.visitedAt || (status === "visited" ? lead.statusAt : "")]
+    .filter(Boolean).sort()[0];
+  if (qualifiedAt) out.push({ stage: "qualified", at: qualifiedAt });
   const converted = lead.registeredAt || (status === "registered" ? lead.statusAt : "");
   if (converted) out.push({ stage: "converted", at: converted });
   else if (NEGATIVE_STATUS[status]) {

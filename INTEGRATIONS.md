@@ -197,11 +197,15 @@ The existing public-CSV import of the old sheet keeps working exactly as before.
 |---|---|---|
 | new · no_answer · callback · contacted ("يفكّر") | — | No new conversion. Never downgrades an earlier stage. |
 | WhatsApp sent | — | A contact action, not a status. |
-| booked | Intake | RDV confirmed. Cancelled **before** the RDV time → withdrawn; no-show (changed after the time) stays Intake, never Qualified. |
-| visited | Qualified | Stays Qualified when the agent later sets "thinking" etc. |
+| booked | Qualified | RDV booked = the first real signal. Cancelled **before** the RDV time → withdrawn; a no-show (changed after the time) stays Qualified. |
+| visited | Qualified | Already Qualified from the RDV (or now, if no RDV was recorded). Stays Qualified when the agent later sets "thinking" etc. |
 | registered | Converted | Even without a recorded visit. Never left automatically. |
 | not_interested | Lost | |
-| other_city · not_qualified · wrong_number | Not qualified | **Lost** if the lead had already visited. |
+| other_city · not_qualified · wrong_number | Not qualified | **Lost** if the lead was already Qualified (RDV or visit). |
+
+The CRM never sends **Intake**: Meta already shows every new Instant Form lead as Intake
+(Leads Center default) and the sheet starts at `CREATED`. Rows written as `INTAKE` before
+this rule move up to `QUALIFIED`.
 
 Transitions: Converted is never downgraded; the funnel never steps backwards; a value
 somebody typed by hand that the CRM does not recognise is never overwritten. A
@@ -280,7 +284,7 @@ unknown values are undocumented. Therefore:
    other casing (`QUALIFIED`) and check the connector's settings, permissions and
    Diagnostics. Only when the event is visible, press **I saw it in Events Manager** for
    that stage, with the note.
-5. Repeat for Converted (and Intake / Lost / Not qualified if wanted).
+5. Repeat for Converted (and Lost / Not qualified if wanted). Intake is never sent.
 6. Switch the sync on; mark a real lead Visited in the agent screen → history shows
    **Sheet updated** for the correct row → check Events Manager again.
 7. Mark it Registered; confirm a second event arrives and nothing is duplicated (the

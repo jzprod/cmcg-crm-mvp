@@ -90,7 +90,10 @@ test("mapping: CRM journeys produce the right Meta stage", () => {
   const visited = { status: "visited", bookedAt: "2026-11-01T10:00:00Z", visitedAt: "2026-11-02T10:00:00Z", statusAt: "2026-11-02T10:00:00Z" };
   assert.equal(Map_.desiredStage({ status: "new" }, opts), null, "new lead: no write");
   for (const status of ["no_answer", "callback", "contacted"]) assert.equal(Map_.desiredStage({ status, statusAt: "x" }, opts), null, status);
-  assert.equal(Map_.desiredStage({ status: "booked", bookedAt: "2026-11-01T10:00:00Z" }, opts).stage, "intake", "RDV booked without visit");
+  assert.equal(Map_.desiredStage({ status: "booked", bookedAt: "2026-11-01T10:00:00Z" }, opts).stage, "qualified", "RDV booked -> Qualified (Meta already shows Intake)");
+  assert.deepEqual(Map_.milestonesForLead(visited, opts), [{ stage: "qualified", at: "2026-11-01T10:00:00Z" }], "RDV then visit: one Qualified milestone, at the RDV");
+  assert.equal(Map_.desiredStage({ status: "visited", visitedAt: "2026-11-02T10:00:00Z", statusAt: "2026-11-02T10:00:00Z" }, opts).stage, "qualified", "visit without a recorded RDV -> Qualified");
+  assert.ok(!["new", "no_answer", "callback", "contacted", "booked", "visited", "registered"].some((status) => Map_.milestonesForLead({ status, bookedAt: "2026-11-01T10:00:00Z", statusAt: "2026-11-01T10:00:00Z", registeredAt: status === "registered" ? "2026-11-01T11:00:00Z" : "" }, opts).some((m) => m.stage === "intake")), "the CRM never sends Intake");
   assert.equal(Map_.desiredStage(visited, opts).stage, "qualified", "visit produces Qualified");
   assert.equal(Map_.desiredStage({ ...visited, status: "contacted", statusAt: "2026-11-03T10:00:00Z" }, opts).stage, "qualified", "visit then thinking stays Qualified");
   assert.equal(Map_.desiredStage({ ...visited, status: "registered", registeredAt: "2026-11-02T10:20:00Z" }, opts).stage, "converted", "visit then paid");
@@ -100,9 +103,10 @@ test("mapping: CRM journeys produce the right Meta stage", () => {
   assert.equal(Map_.desiredStage({ status: "other_city", statusAt: "2026-11-04T10:00:00Z" }, opts).stage, "not_qualified");
   assert.equal(Map_.desiredStage({ ...visited, status: "other_city", statusAt: "2026-11-04T10:00:00Z" }, opts).stage, "lost", "a visitor closed as unsuitable is Lost");
   assert.equal(Map_.desiredStage({ ...visited, status: "registered", registeredAt: "2026-11-02T10:20:00Z" }, opts).stage, "converted");
-  // RDV cancelled before its time: not an intake any more. No-show (after the time): keeps intake, never Qualified.
+  // RDV cancelled before its time: no milestone. No-show (after the time): the RDV still counts, stays Qualified.
   assert.equal(Map_.desiredStage({ status: "callback", bookedAt: "2026-11-01T10:00:00Z", appointmentAt: "2026-11-05T15:00", statusAt: "2026-11-02T10:00:00Z" }, opts), null, "cancelled before the RDV");
-  assert.equal(Map_.desiredStage({ status: "callback", bookedAt: "2026-11-01T10:00:00Z", appointmentAt: "2026-11-05T15:00", statusAt: "2026-11-06T10:00:00Z" }, opts).stage, "intake", "no-show stays an active intake, not Qualified");
+  assert.equal(Map_.desiredStage({ status: "callback", bookedAt: "2026-11-01T10:00:00Z", appointmentAt: "2026-11-05T15:00", statusAt: "2026-11-06T10:00:00Z" }, opts).stage, "qualified", "no-show keeps the RDV's Qualified");
+  assert.equal(Map_.desiredStage({ status: "other_city", bookedAt: "2026-11-01T10:00:00Z", appointmentAt: "2026-11-03T15:00", statusAt: "2026-11-04T10:00:00Z" }, opts).stage, "lost", "an RDV lead closed as unsuitable is Lost (it was Qualified)");
   // Paid then reclassified: never leaves Converted automatically.
   assert.equal(Map_.desiredStage({ status: "not_interested", registeredAt: "2026-11-02T10:00:00Z", statusAt: "2026-11-09T10:00:00Z" }, opts).stage, "converted");
 });
@@ -210,38 +214,45 @@ test("Scenario A + B + G: RDV, visit, thinking, then paid; nothing downgraded, b
   const ctx = await setup(t, { leads: [formLead(3001)], rows: [row("3001")], settings: { minStageIntervalMinutes: 15 } });
   await ctx.agent("lea_3001", { appointmentAt: "2026-11-20T15:00" });
   await ctx.feedback.tick();
-  assert.equal(ctx.cell(1), "Intake", "RDV booked -> Intake, never Qualified");
+  assert.equal(ctx.cell(1), "Qualified", "RDV booked -> Qualified (never Intake: Meta shows it already)");
   await ctx.agent("lea_3001", { status: "visited" });
   await ctx.feedback.tick();
-  assert.equal(ctx.cell(1), "Intake", "waits so Meta can see the previous stage");
-  const waiting = (await ctx.jobs("lea_3001")).find((job) => job.stage === "qualified");
+  assert.equal(ctx.cell(1), "Qualified", "the visit keeps Qualified, no second write");
+  await ctx.agent("lea_3001", { status: "contacted" }); // thinking
+  await ctx.feedback.tick();
+  assert.equal(ctx.cell(1), "Qualified", "visit then thinking stays Qualified");
+  await ctx.agent("lea_3001", { status: "registered" });
+  await ctx.feedback.tick();
+  assert.equal(ctx.cell(1), "Qualified", "waits so Meta can see the previous stage");
+  const waiting = (await ctx.jobs("lea_3001")).find((job) => job.stage === "converted");
   assert.equal(waiting.status, "pending");
   assert.ok(Date.parse(waiting.next_attempt_at) > Date.now() + 14 * 60000, "deferred by the stage interval");
   // Simulate the interval passing.
   await ctx.feedback.saveSettings({ minStageIntervalMinutes: 0 });
   await ctx.makeDue();
   await ctx.feedback.tick();
-  assert.equal(ctx.cell(1), "Qualified", "visit -> Qualified");
-  await ctx.agent("lea_3001", { status: "contacted" }); // thinking
-  await ctx.feedback.tick();
-  assert.equal(ctx.cell(1), "Qualified", "visit then thinking stays Qualified");
-  await ctx.agent("lea_3001", { status: "registered" });
-  await ctx.feedback.tick();
   assert.equal(ctx.cell(1), "Converted", "paid -> Converted");
+  assert.equal((await ctx.jobs("lea_3001")).filter((job) => job.stage === "qualified").length, 1, "one Qualified job: an early visit does not create a second one");
   const written = ctx.sheet.calls.writes.map((w) => w.value);
-  assert.deepEqual(written, ["Intake", "Qualified", "Converted"], "each milestone written once, in funnel order");
+  assert.deepEqual(written, ["Qualified", "Converted"], "each milestone written once, in funnel order");
   assert.ok(ctx.sheet.calls.writes.every((w) => w.range === "'Sheet1'!O2"), "only the lead_status cell of that row");
   assert.deepEqual(ctx.sheet.values[1].slice(0, STATUS_COL), row("3001").slice(0, STATUS_COL), "Meta's data untouched");
 });
 
-test("Scenario C: an RDV without a visit never becomes Qualified", async (t) => {
+test("Scenario C: an RDV followed by no answer stays Qualified (never downgraded, never Intake)", async (t) => {
   const ctx = await setup(t, { leads: [formLead(3101)], rows: [row("3101")] });
   await ctx.agent("lea_3101", { appointmentAt: "2026-11-20T15:00" });
   await ctx.feedback.tick();
   await ctx.mutate((s) => { const lead = s.crmLeads[0]; lead.status = "no_answer"; lead.statusAt = "2026-11-21T10:00:00.000Z"; });
   await ctx.feedback.tick();
-  assert.equal(ctx.cell(1), "Intake");
-  assert.ok(!ctx.sheet.calls.writes.some((w) => w.value === "Qualified"));
+  assert.equal(ctx.cell(1), "Qualified");
+  assert.ok(!ctx.sheet.calls.writes.some((w) => w.value === "Intake"));
+});
+
+test("leads already written as Intake move up to Qualified (CREATED/INTAKE -> QUALIFIED), hand-typed QUALIFIED is kept", () => {
+  assert.equal(Map_.decideTransition("intake", "qualified").action, "write");
+  assert.equal(Map_.decideTransition("created", "qualified").action, "write");
+  assert.equal(Map_.decideTransition("qualified", "qualified").action, "noop");
 });
 
 test("Scenario D + E: paid without a visit is Converted; a definitive refusal is Lost", async (t) => {
