@@ -2,7 +2,7 @@
 // Cloud API webhook, attribution coverage and CRM-attributed reports.
 // Uses app.js globals (state, api, toast, money, number, escapeHtml, filters…).
 (() => {
-  const INT = { status: null, events: [], loading: false, eventFilter: "" };
+  const INT = { status: null, events: [], loading: false, eventFilter: "", sheet: { jobs: [], filter: "", preview: null, test: null, match: null, backfill: null, write: null, open: "" } };
   const root = () => document.getElementById("integrationsRoot");
   const esc = (value) => escapeHtml(String(value ?? ""));
   const when = (iso) => (iso ? new Date(iso).toLocaleString("fr-MA", { dateStyle: "short", timeStyle: "short" }) : "—");
@@ -21,12 +21,14 @@
     if (!isAdmin() || INT.loading) return;
     INT.loading = true;
     try {
-      const [status, events] = await Promise.all([
+      const [status, events, jobs] = await Promise.all([
         api("/api/integrations/status"),
         api(`/api/integrations/events${INT.eventFilter ? `?status=${encodeURIComponent(INT.eventFilter)}` : ""}`),
+        api(`/api/integrations/sheet-feedback/history?limit=60${INT.sheet.filter ? `&status=${encodeURIComponent(INT.sheet.filter)}` : ""}`).catch(() => ({ jobs: [] })),
       ]);
       INT.status = status;
       INT.events = events.events || [];
+      INT.sheet.jobs = jobs.jobs || [];
     } catch (error) {
       INT.error = error.message;
     } finally {
@@ -52,6 +54,7 @@
       ["META_APP_SECRET", "App secret: verifies webhook signatures"],
       ["WHATSAPP_VERIFY_TOKEN", "Webhook verify token (any long random text)"],
       ["WHATSAPP_BUSINESS_ACCOUNT_ID", "WhatsApp Business Account ID (for click-to-WhatsApp events)"],
+      ["GOOGLE_SERVICE_ACCOUNT", "Google service account (GOOGLE_SERVICE_ACCOUNT_JSON): Meta lead feedback sheet"],
     ];
     return `<ul class="int-env">${rows.map(([key, label]) => `<li>${dot(env[key])}<code>${key}</code><span>${esc(label)}</span><b>${env[key] ? "set" : "missing"}</b></li>`).join("")}</ul>`;
   }
@@ -103,6 +106,159 @@
       ${table("By creative (ad)", group((rel) => rel.ad?.id || "", (key) => byId(state.creatives, key)?.name || key))}
       <div class="int-two"><div><h4>Agents</h4><div class="table-wrap"><table class="int-table"><thead><tr><th>Agent</th><th>Leads</th><th>Qualified</th><th>RDV</th><th>Paid</th><th>Lead → RDV</th><th>RDV → paid</th></tr></thead><tbody>${agents.map((row) => `<tr><td>${esc(row.name)}</td><td>${number(row.leads)}</td><td>${number(row.qualified)}</td><td><b>${number(row.booked)}</b></td><td><b>${number(row.registered)}</b></td><td>${pct(row.booked, row.leads)}</td><td>${pct(row.registered, row.booked)}</td></tr>`).join("") || '<tr><td colspan="7" class="empty">No leads in this period.</td></tr>'}</tbody></table></div></div>
       <div><h4>WhatsApp vs Instant Forms <small>(CRM leads)</small></h4><div class="table-wrap"><table class="int-table"><thead><tr><th>Channel</th><th>Leads</th><th>RDV</th><th>Paid</th><th>Lead → RDV</th><th>RDV → paid</th></tr></thead><tbody>${channel.map((row) => `<tr><td>${row.source === "form" ? "Instant Forms" : "WhatsApp"}</td><td>${number(row.leads)}</td><td>${number(row.booked)}</td><td>${number(row.registered)}</td><td>${pct(row.booked, row.leads)}</td><td>${pct(row.registered, row.booked)}</td></tr>`).join("")}</tbody></table></div><p class="int-note">Full cost comparison with ROI: Leads page → split test.</p></div></div>`;
+  }
+
+  // ---------- Meta Lead Feedback (Google Sheets) ----------
+  const STAGE_ORDER = ["intake", "qualified", "converted", "lost", "not_qualified"];
+  const HEALTH = { ok: ["Healthy", false], disabled: ["Sync off", true], paused: ["Paused", false], errors: ["Errors to review", true], not_configured: ["Google credentials missing", false] };
+  const sfPost = (path, body = {}) => api(`/api/integrations/sheet-feedback/${path}`, { method: "POST", body: JSON.stringify(body) });
+
+  function sfStagesHtml(fb) {
+    const cfg = fb.settings;
+    const rows = STAGE_ORDER.map((stage) => {
+      const item = cfg.stages[stage];
+      const info = fb.stageInfo[stage];
+      const options = [...new Set([item.value, ...(fb.candidates[stage] || [])])].map((value) => `<option value="${esc(value)}"></option>`).join("");
+      const verification = item.confirmed
+        ? `<span class="sf-ok">✓ Confirmed in Events Manager</span><small>${esc(item.confirmedBy)} · ${esc(when(item.confirmedAt))}${item.note ? ` · ${esc(item.note)}` : ""}</small>`
+        : '<span class="sf-warn">Not verified: blocked</span>';
+      const button = item.confirmed
+        ? `<button type="button" data-sf-confirm="${stage}" data-sf-on="0">Unconfirm</button>`
+        : `<button type="button" data-sf-confirm="${stage}" data-sf-on="1">I saw it in Events Manager</button>`;
+      return `<tr><td><b>${esc(info.label)}</b><small>${esc(info.meaning)}</small></td><td><input list="sf-cand-${stage}" value="${esc(item.value)}" data-sf-stage-value="${stage}" aria-label="Value written for ${esc(info.label)}" /><datalist id="sf-cand-${stage}">${options}</datalist></td><td>${verification}</td><td>${button}</td></tr>`;
+    }).join("");
+    const w = INT.sheet.write;
+    const stageOptions = STAGE_ORDER.map((stage) => `<option value="${stage}">${esc(fb.stageInfo[stage].label)} (${esc(cfg.stages[stage].value)})</option>`).join("");
+    return `<p class="int-note">The exact values Meta accepts in <code>lead_status</code> are not verified. A stage is written only after you confirm Meta received it in Events Manager. Changing a value cancels its confirmation.</p>
+      <div class="table-wrap"><table class="int-table sf-stages"><thead><tr><th>Meta stage</th><th>Value written</th><th>Verification</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <h4>Verification write <small>one row, to check Events Manager</small></h4>
+      <div class="int-controls"><label><span>Meta lead id (test lead)</span><input data-sf-w-id placeholder="l:1696…" /></label><label><span>Stage</span><select data-sf-w-stage>${stageOptions}</select></label><label class="int-switch"><input type="checkbox" data-sf-w-real /><span>Real lead (on purpose)</span></label><button type="button" class="button secondary" data-sf-action="test-write">Write to sheet</button></div>
+      ${w ? `<p class="int-note">${esc(w.error || `${w.range}: ${w.from || "(empty)"} → ${w.to}. ${w.note}`)}</p>` : ""}`;
+  }
+
+  function sfPreviewHtml(fb) {
+    const p = INT.sheet.preview;
+    if (!p) return '<button type="button" class="button secondary" data-sf-action="preview">Show mapping</button>';
+    const rows = p.rows.map((r) => `<tr><td>${esc(r.label)} <small>${esc(r.status)}</small></td><td>${r.stage ? esc(fb.stageInfo[r.stage].label) : "No new conversion"}</td><td>${r.stage ? `<code>${esc(r.value)}</code> ${r.confirmed ? "✓" : "<small>not verified</small>"}` : "—"}</td><td>${esc(r.rule)}</td></tr>`).join("");
+    const eligible = Object.entries(p.eligibleByStage).map(([k, v]) => `${esc(fb.stageInfo[k]?.label || k)} ${number(v)}`).join(" · ") || "none";
+    const ineligible = Object.entries(p.ineligible).map(([k, v]) => `${esc(k)} (${number(v)})`).join(" · ") || "none";
+    return `<div class="table-wrap"><table class="int-table"><thead><tr><th>CRM status</th><th>Meta stage</th><th>Value</th><th>Rule</th></tr></thead><tbody>${rows}<tr><td>WhatsApp message sent</td><td>No new conversion</td><td>—</td><td>Contact action, not a stage</td></tr></tbody></table></div>
+      <p class="int-note">Eligible leads by current stage: ${eligible}. Not eligible: ${ineligible}.</p>`;
+  }
+
+  function sfMatchHtml(fb) {
+    const m = INT.sheet.match;
+    const result = !m ? "" : `<ul class="sf-checks">
+      <li>${dot(m.found)}<b>CRM lead</b> <span>${m.found ? `${esc(m.leadId)} · status ${esc(m.crmStatus)}` : esc(m.reason)}</span></li>
+      ${m.found ? `<li>${dot(m.eligible)}<b>Eligible</b> <span>${m.eligible ? "yes" : esc(m.reason)}</span></li>
+      <li>${dot(Boolean(m.desired))}<b>Target stage</b> <span>${m.desired ? `${esc(fb.stageInfo[m.desired.stage].label)} (${esc(when(m.desired.at))})` : "none (no new conversion)"}${m.duplicate ? ` · duplicate: ${esc(m.duplicate)}` : ""}</span></li>` : ""}
+      <li>${dot((m.sheetRows || []).length === 1)}<b>Sheet row</b> <span>${m.sheetError ? esc(m.sheetError) : (m.sheetRows || []).length ? `row ${esc(m.sheetRows.join(", "))} · now “${esc(m.sheetValue || "")}”${m.decision ? ` · would ${esc(m.decision.action)}${m.decision.reason ? `: ${esc(m.decision.reason)}` : ""}` : ""}` : "not found"}</span></li></ul>`;
+    return `<div class="int-controls"><label><span>Meta lead id or CRM lead id</span><input data-sf-match placeholder="l:1696475935329496" /></label><button type="button" class="button secondary" data-sf-action="test-match">Test</button></div>${result}`;
+  }
+
+  function sfBackfillHtml() {
+    const b = INT.sheet.backfill;
+    const counts = !b ? "" : `<div class="int-counts">
+      <div class="int-count"><strong>${number(b.matching)}</strong><span>Matching leads</span></div>
+      <div class="int-count is-warn"><strong>${number(b.missingMetaId)}</strong><span>Missing Meta lead id</span></div>
+      <div class="int-count is-warn"><strong>${number(b.ambiguous)}</strong><span>Ambiguous</span></div>
+      <div class="int-count is-ok"><strong>${number(b.eligibleUpdates)}</strong><span>Eligible updates</span>${b.notInSheet !== undefined ? `<small>${number(b.notInSheet)} not found in sheet</small>` : ""}</div>
+      <div class="int-count"><strong>${number(b.skipped)}</strong><span>Skipped</span><small>${esc(Object.entries(b.skippedReasons).map(([k, v]) => `${k}: ${v}`).join(" · "))}</small></div></div>
+      ${b.eligibleUpdates ? `<button type="button" class="button" data-sf-action="backfill-apply" data-plan="${esc(b.planId)}">Approve ${number(b.eligibleUpdates)} historical update(s)</button>` : ""}`;
+    return `<p class="int-note">Nothing historical is synchronized automatically. The dry run changes nothing.</p><button type="button" class="button secondary" data-sf-action="backfill-preview">Run dry run</button>${counts}`;
+  }
+
+  function sfHistoryHtml(fb) {
+    const leadName = (id) => (state.crmLeads || []).find((lead) => lead.id === id)?.name || id;
+    const rows = INT.sheet.jobs.map((job) => `<tr class="sf-job-${esc(job.status)}"><td>${esc(when(job.updated_at))}</td><td>${esc(leadName(job.lead_id))}<small>Meta ${esc(job.meta_lead_id)}</small></td><td>${esc(fb.stageInfo[job.stage]?.label || job.stage)}${job.kind !== "auto" ? `<small>${esc(job.kind)}</small>` : ""}</td><td><b>${esc(job.label)}</b>${job.result?.range ? `<small>${esc(job.result.from || "(empty)")} → ${esc(job.result.to)} · row ${esc(job.result.row)}</small>` : ""}</td><td class="int-err">${esc(job.last_error || "")}${job.status === "held" ? `<div class="sf-dup"><button type="button" data-sf-dup="${esc(job.lead_id)}" data-choice="report">Report this lead</button><button type="button" data-sf-dup="${esc(job.lead_id)}" data-choice="skip">Do not report</button></div>` : ""}</td></tr>`).join("");
+    const filters = ["", "updated", "pending", "retry", "blocked", "held", "skipped", "failed", "paused", "in_sync", "superseded"].map((status) => `<button type="button" class="${INT.sheet.filter === status ? "is-on" : ""}" data-sf-filter="${status}">${esc(status ? fb.statusLabels[status] : "all")}</button>`).join("");
+    return `<div class="int-filter">${filters}</div><div class="table-wrap"><table class="int-table"><thead><tr><th>When</th><th>Lead</th><th>Stage</th><th>Result</th><th>Detail</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="empty">No synchronization yet.</td></tr>'}</tbody></table></div>`;
+  }
+
+  function sheetFeedbackHtml(fb) {
+    if (!fb) return "";
+    const cfg = fb.settings;
+    const [healthLabel, healthWarn] = HEALTH[fb.health] || [fb.health, false];
+    const t = INT.sheet.test;
+    const section = (key, title, body) => `<details class="int-more" data-sf-open="${key}" ${INT.sheet.open === key ? "open" : ""}><summary>${title}</summary>${body}</details>`;
+    const tests = !t ? "" : `<ul class="sf-checks">${t.checks.map((c) => `<li>${dot(c.ok)}<b>${esc(c.label)}</b> <span>${esc(c.detail)}</span></li>`).join("")}${t.ok ? `<li>${dot(true)}<b>${number(t.rows)} rows · id in ${esc(t.idColumn)} · lead_status in ${esc(t.statusColumn)}</b> <span>values seen: ${esc((t.statusValues || []).join(", ") || "—")} · ${esc(t.writeAccess)}</span></li>` : ""}</ul>`;
+    return `<section class="card int-card sf-card"><h3>${dot(fb.health === "ok", healthWarn)} Meta Lead Feedback — Google Sheets <small>CRM stages → lead_status → Meta (native connector)</small></h3>
+      ${fb.paused ? `<p class="int-alert">⛔ Paused: ${esc(fb.paused)}</p>` : ""}
+      ${!fb.credentials.present ? `<p class="int-alert is-info">${esc(fb.credentials.error || "Add GOOGLE_SERVICE_ACCOUNT_JSON in Hostinger, restart, then share the sheet with the service account email as Editor (INTEGRATIONS.md §11).")}</p>` : ""}
+      <dl class="sf-facts">
+        <div><dt>Instant Form</dt><dd>${esc(cfg.formName)} <code>${esc(cfg.formId)}</code></dd></div>
+        <div><dt>Spreadsheet</dt><dd>${esc(cfg.spreadsheetName)} · ${esc(cfg.sheetName)} <code>${esc(cfg.spreadsheetId)}</code></dd></div>
+        <div><dt>Meta dataset</dt><dd>${esc(cfg.datasetName)} <code>${esc(cfg.datasetId)}</code></dd></div>
+        <div><dt>Service account</dt><dd>${fb.credentials.email ? `<code>${esc(fb.credentials.email)}</code>` : "—"}</dd></div>
+        <div><dt>Connection health</dt><dd><b>${esc(healthLabel)}</b></dd></div>
+        <div><dt>Last sheet update</dt><dd>${esc(ago(fb.lastSuccessAt))}</dd></div>
+        <div><dt>Lead import</dt><dd>${fb.lastImport.at ? `${esc(ago(fb.lastImport.at))} · ${number(fb.lastImport.rows)} rows${fb.lastImport.error ? ` · ⚠️ ${esc(fb.lastImport.error)}` : ""}` : "not yet"}</dd></div>
+        <div><dt>Last error</dt><dd class="int-err">${fb.lastError ? `${esc(fb.lastError.message)} <small>${esc(when(fb.lastError.at))}</small>` : "—"}</dd></div>
+      </dl>
+      <div class="int-counts">
+        <div class="int-count"><strong>${number(fb.counts.pending)}</strong><span>Pending</span></div>
+        <div class="int-count is-bad"><strong>${number(fb.counts.failed)}</strong><span>Failed</span></div>
+        <div class="int-count is-warn"><strong>${number(fb.counts.blocked + fb.counts.held)}</strong><span>Blocked / held</span><small>value not verified · duplicate</small></div>
+        <div class="int-count is-ok"><strong>${number(fb.counts.qualifiedUpdated)}</strong><span>Qualified · sheet updated</span></div>
+        <div class="int-count is-ok"><strong>${number(fb.counts.convertedUpdated)}</strong><span>Paying · sheet updated</span></div>
+      </div>
+      <p class="int-note"><b>Sheet updated</b> means the CRM wrote the cell. It does <b>not</b> prove Meta received an event: confirm each stage in Events Manager (dataset ${esc(cfg.datasetId)}) before it is used.</p>
+      <div class="int-controls">
+        <label class="int-switch"><input type="checkbox" data-sf-set="enabled" ${cfg.enabled ? "checked" : ""} ${fb.credentials.present ? "" : "disabled"} /><span>Synchronize lead status</span></label>
+        <label class="int-switch"><input type="checkbox" data-sf-set="importLeads" ${cfg.importLeads ? "checked" : ""} /><span>Import leads from this sheet</span></label>
+        <label><span>Report milestones from</span><input type="date" value="${esc(cfg.since)}" data-sf-set="since" /></label>
+        <label><span>Minutes between stages</span><input type="number" min="0" max="1440" value="${esc(cfg.minStageIntervalMinutes)}" data-sf-set="minStageIntervalMinutes" /></label>
+      </div>
+      <div class="int-actions">
+        <button type="button" class="button secondary" data-sf-action="test-connection">Test Google Sheets connection</button>
+        <button type="button" class="button secondary" data-sf-action="run">Run now</button>
+        <button type="button" class="button secondary" data-sf-action="retry">Retry failed</button>
+      </div>
+      ${tests}
+      ${section("stages", "Stage values &amp; Events Manager verification", sfStagesHtml(fb))}
+      ${section("preview", "Preview status mapping", sfPreviewHtml(fb))}
+      ${section("match", "Test lead matching (dry run)", sfMatchHtml(fb))}
+      ${section("backfill", "Historical reconciliation (dry run, approval required)", sfBackfillHtml())}
+      <h4>Recent synchronization history</h4>
+      ${sfHistoryHtml(fb)}
+    </section>`;
+  }
+
+  async function sheetAction(el) {
+    const action = el.dataset.sfAction;
+    const r = root();
+    if (action === "test-connection") { INT.sheet.test = await sfPost("test-connection"); toast(INT.sheet.test.ok ? "Connection OK ✓" : "The connection has problems", INT.sheet.test.ok ? undefined : "error"); }
+    if (action === "run") { const res = await sfPost("run"); toast(`Queued ${res.queued}, processed ${res.processed}`); }
+    if (action === "retry") { const res = await sfPost("retry"); toast(`${res.retried} update(s) will be retried`); }
+    if (action === "preview") { INT.sheet.preview = await api("/api/integrations/sheet-feedback/preview"); INT.sheet.open = "preview"; }
+    if (action === "test-match") {
+      const value = r.querySelector("[data-sf-match]")?.value.trim() || "";
+      INT.sheet.match = await sfPost("test-match", /^lea_/.test(value) ? { leadId: value } : { metaLeadId: value });
+      INT.sheet.open = "match";
+    }
+    if (action === "backfill-preview") { INT.sheet.backfill = await sfPost("backfill-preview"); INT.sheet.open = "backfill"; }
+    if (action === "backfill-apply") {
+      if (!window.confirm(`Write ${INT.sheet.backfill?.eligibleUpdates || 0} historical lead status(es) to the Google Sheet? Meta may create conversion events for them.`)) return;
+      const res = await sfPost("backfill-apply", { confirm: true, planId: el.dataset.plan });
+      toast(`${res.queued} historical update(s) queued`);
+      INT.sheet.backfill = null;
+    }
+    if (action === "test-write") {
+      const metaLeadId = r.querySelector("[data-sf-w-id]")?.value.trim() || "";
+      const stage = r.querySelector("[data-sf-w-stage]")?.value || "";
+      const allowRealLead = Boolean(r.querySelector("[data-sf-w-real]")?.checked);
+      if (!window.confirm(`Write the ${stage} value to lead ${metaLeadId}${allowRealLead ? " (a REAL lead)" : ""}?`)) return;
+      try { INT.sheet.write = await sfPost("test-write", { metaLeadId, stage, allowRealLead, confirm: true }); } catch (error) { INT.sheet.write = { error: error.message }; }
+      INT.sheet.open = "stages";
+    }
+  }
+
+  async function saveSheet(patch, message) {
+    try {
+      await sfPost("settings", patch);
+      if (message) toast(message);
+    } catch (error) { toast(error.message, "error"); }
+    await load();
   }
 
   function render() {
@@ -177,6 +333,7 @@
           <h4>Integration log</h4><ul class="int-log">${(s.log || []).slice(0, 15).map((row) => `<li class="is-${esc(row.level)}"><time>${esc(when(row.at))}</time> <b>${esc(row.kind)}</b> ${esc(row.message)}</li>`).join("") || "<li>Nothing yet.</li>"}</ul>
         </article>
       </section>
+      ${sheetFeedbackHtml(s.sheetFeedback)}
       <section class="card int-card"><h3>📤 Conversion event log</h3>${eventsTable()}</section>
       <section class="card int-card"><h3>💰 Cost & revenue by campaign, ad set, ad and agent</h3>${reportsHtml()}</section>`;
   }
@@ -190,6 +347,20 @@
   }
 
   document.addEventListener("change", (event) => {
+    const sf = event.target.closest?.("#integrationsRoot [data-sf-set]");
+    if (sf) {
+      const key = sf.dataset.sfSet;
+      const value = sf.type === "checkbox" ? sf.checked : key === "minStageIntervalMinutes" ? Number(sf.value) : sf.value;
+      if (key === "enabled" && value && !window.confirm("Start writing lead_status for Instant Form leads? Only stages confirmed in Events Manager are written; the others wait as blocked.")) { render(); return; }
+      saveSheet({ [key]: value }, "Saved ✓");
+      return;
+    }
+    const sfValue = event.target.closest?.("#integrationsRoot [data-sf-stage-value]");
+    if (sfValue) {
+      if (!window.confirm(`Write “${sfValue.value}” for this stage? It must be confirmed in Events Manager again.`)) { render(); return; }
+      saveSheet({ stages: { [sfValue.dataset.sfStageValue]: { value: sfValue.value } } }, "Saved: confirm it again in Events Manager");
+      return;
+    }
     const input = event.target.closest?.("#integrationsRoot [data-int-set]");
     if (input) {
       let value = input.type === "checkbox" ? input.checked : input.value;
@@ -208,6 +379,29 @@
 
   document.addEventListener("click", async (event) => {
     if (event.target.closest(".tab[data-tab='integrations'], [data-tab-link='integrations']")) { load(); return; }
+    const summary = event.target.closest?.("#integrationsRoot [data-sf-open] > summary");
+    if (summary) { INT.sheet.open = summary.parentElement.open ? "" : summary.parentElement.dataset.sfOpen; return; }
+    const sf = event.target.closest?.("#integrationsRoot [data-sf-action], #integrationsRoot [data-sf-filter], #integrationsRoot [data-sf-confirm], #integrationsRoot [data-sf-dup]");
+    if (sf) {
+      try {
+        if (sf.matches("[data-sf-filter]")) { INT.sheet.filter = sf.dataset.sfFilter; await load(); return; }
+        if (sf.matches("[data-sf-dup]")) { await saveSheet({ duplicates: { [sf.dataset.sfDup]: sf.dataset.choice } }, "Saved ✓"); return; }
+        if (sf.matches("[data-sf-confirm]")) {
+          const on = sf.dataset.sfOn === "1";
+          const note = on ? (window.prompt("Where did you see the event? e.g. Events Manager → dataset 1118216094383015 → Overview → event and time") || "") : "";
+          if (on && !note.trim()) return;
+          const res = await sfPost("confirm-stage", { stage: sf.dataset.sfConfirm, confirmed: on, note });
+          toast(on ? `Confirmed. ${res.unblocked} waiting update(s) released.` : "Marked as not verified");
+        } else {
+          sf.disabled = true;
+          await sheetAction(sf);
+        }
+      } catch (error) {
+        toast(error.message, "error");
+      }
+      await load();
+      return;
+    }
     const el = event.target.closest("#integrationsRoot [data-int-run], #integrationsRoot [data-int-retry], #integrationsRoot [data-int-sync], #integrationsRoot [data-int-copy], #integrationsRoot [data-int-num-add], #integrationsRoot [data-int-num-remove], #integrationsRoot [data-int-ev-filter]");
     if (!el) return;
     try {

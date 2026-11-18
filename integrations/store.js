@@ -45,6 +45,28 @@ const TABLES = [
     rows_count INT NOT NULL DEFAULT 0,
     message TEXT NULL
   ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  // Meta Lead Feedback: one row per (lead, Meta stage, milestone time). Writing the
+  // same milestone twice is impossible (primary key); a new visit is a new milestone.
+  `CREATE TABLE IF NOT EXISTS int_sheet_jobs (
+    id VARCHAR(191) NOT NULL PRIMARY KEY,
+    lead_id VARCHAR(64) NOT NULL,
+    meta_lead_id VARCHAR(64) NOT NULL,
+    spreadsheet_id VARCHAR(128) NOT NULL,
+    sheet_name VARCHAR(128) NOT NULL,
+    stage VARCHAR(32) NOT NULL,
+    milestone_at VARCHAR(40) NOT NULL DEFAULT '',
+    kind VARCHAR(16) NOT NULL DEFAULT 'auto',
+    status VARCHAR(16) NOT NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME NOT NULL,
+    last_error TEXT NULL,
+    result TEXT NULL,
+    requested_by VARCHAR(80) NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    KEY idx_sheet_due (status, next_attempt_at),
+    KEY idx_sheet_lead (lead_id)
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS int_log (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     at DATETIME NOT NULL,
@@ -65,7 +87,7 @@ function createIntegrationStore(storage) {
   const load = () => {
     if (memory) return memory;
     try { memory = JSON.parse(fs.readFileSync(file, "utf8")); } catch { memory = {}; }
-    ["messages", "events", "runs", "log"].forEach((key) => { memory[key] = Array.isArray(memory[key]) ? memory[key] : []; });
+    ["messages", "events", "runs", "log", "sheetJobs"].forEach((key) => { memory[key] = Array.isArray(memory[key]) ? memory[key] : []; });
     return memory;
   };
   const save = () => {
@@ -192,6 +214,94 @@ function createIntegrationStore(storage) {
     save();
   }
 
+  // ---- Meta Lead Feedback (Google Sheets) queue ----
+  const SHEET_COLUMNS = ["id", "lead_id", "meta_lead_id", "spreadsheet_id", "sheet_name", "stage", "milestone_at", "kind", "status", "attempts", "next_attempt_at", "last_error", "result", "requested_by", "created_at", "updated_at"];
+  const toIso = (value) => (value instanceof Date ? value.toISOString() : isoTime(value));
+  const normalizeJob = (row) => {
+    let result = null;
+    try { result = row.result ? (typeof row.result === "string" ? JSON.parse(row.result) : row.result) : null; } catch { result = null; }
+    return { ...row, attempts: Number(row.attempts || 0), result, next_attempt_at: toIso(row.next_attempt_at), created_at: toIso(row.created_at), updated_at: toIso(row.updated_at) };
+  };
+  // Returns true only the first time this job id is seen (idempotent).
+  async function enqueueSheetJob(job) {
+    const pool = mysql();
+    const at = new Date().toISOString();
+    const row = { id: String(job.id).slice(0, 190), lead_id: job.leadId, meta_lead_id: job.metaLeadId, spreadsheet_id: job.spreadsheetId, sheet_name: job.sheetName, stage: job.stage, milestone_at: job.milestoneAt || "", kind: job.kind || "auto", status: job.status || "pending", attempts: 0, next_attempt_at: at, last_error: job.lastError || null, result: null, requested_by: job.requestedBy || "", created_at: at, updated_at: at };
+    if (pool) {
+      const values = SHEET_COLUMNS.map((key) => (/_at$/.test(key) && key !== "milestone_at" ? sqlTime(row[key]) : row[key]));
+      const result = await pool.query(`INSERT IGNORE INTO int_sheet_jobs (${SHEET_COLUMNS.join(", ")}) VALUES (${SHEET_COLUMNS.map(() => "?").join(", ")})`, values);
+      return Number(result.affectedRows || 0) > 0;
+    }
+    const data = load();
+    if (data.sheetJobs.some((item) => item.id === row.id)) return false;
+    data.sheetJobs.push(row);
+    save();
+    return true;
+  }
+  async function dueSheetJobs(limit = 50) {
+    const pool = mysql();
+    if (pool) return (await pool.query("SELECT * FROM int_sheet_jobs WHERE status IN ('pending', 'retry') AND next_attempt_at <= ? ORDER BY created_at LIMIT ?", [sqlTime(), limit])).map(normalizeJob);
+    const at = new Date().toISOString();
+    return load().sheetJobs.filter((row) => ["pending", "retry"].includes(row.status) && row.next_attempt_at <= at).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).slice(0, limit).map(normalizeJob);
+  }
+  async function updateSheetJob(id, patch) {
+    const pool = mysql();
+    const values = { ...patch, updated_at: new Date().toISOString() };
+    if (values.result && typeof values.result !== "string") values.result = JSON.stringify(values.result);
+    if (pool) {
+      const keys = Object.keys(values);
+      const sqlValues = keys.map((key) => (/_at$/.test(key) && key !== "milestone_at" && values[key] ? sqlTime(values[key]) : values[key]));
+      return pool.query(`UPDATE int_sheet_jobs SET ${keys.map((key) => `${key} = ?`).join(", ")} WHERE id = ?`, [...sqlValues, id]);
+    }
+    const row = load().sheetJobs.find((item) => item.id === id);
+    if (row) { Object.assign(row, values); save(); }
+  }
+  async function listSheetJobs({ limit = 100, status = "", leadId = "" } = {}) {
+    const pool = mysql();
+    if (pool) {
+      const where = []; const args = [];
+      if (status) { where.push("status = ?"); args.push(status); }
+      if (leadId) { where.push("lead_id = ?"); args.push(leadId); }
+      return (await pool.query(`SELECT * FROM int_sheet_jobs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY updated_at DESC LIMIT ?`, [...args, limit])).map(normalizeJob);
+    }
+    return load().sheetJobs.filter((row) => (!status || row.status === status) && (!leadId || row.lead_id === leadId)).sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))).slice(0, limit).map(normalizeJob);
+  }
+  async function sheetJobCounts() {
+    const pool = mysql();
+    if (pool) {
+      const rows = await pool.query("SELECT status, stage, COUNT(*) AS n, MAX(updated_at) AS last FROM int_sheet_jobs GROUP BY status, stage");
+      return rows.map((row) => ({ status: row.status, stage: row.stage, n: Number(row.n), last: toIso(row.last) }));
+    }
+    const groups = new Map();
+    load().sheetJobs.forEach((row) => {
+      const key = `${row.status}|${row.stage}`;
+      const item = groups.get(key) || { status: row.status, stage: row.stage, n: 0, last: "" };
+      item.n += 1;
+      if (row.updated_at > item.last) item.last = row.updated_at;
+      groups.set(key, item);
+    });
+    return [...groups.values()];
+  }
+  // Move jobs back to the queue (failed/paused -> retry, blocked stage confirmed -> pending).
+  async function requeueSheetJobs({ statuses = ["failed", "paused"], stage = "" } = {}) {
+    const pool = mysql();
+    if (pool) {
+      const args = [sqlTime(), sqlTime(), ...statuses];
+      const result = await pool.query(`UPDATE int_sheet_jobs SET status = 'retry', attempts = 0, next_attempt_at = ?, updated_at = ? WHERE status IN (${statuses.map(() => "?").join(", ")})${stage ? " AND stage = ?" : ""}`, stage ? [...args, stage] : args);
+      return Number(result.affectedRows || 0);
+    }
+    let n = 0;
+    const at = new Date().toISOString();
+    load().sheetJobs.forEach((row) => { if (statuses.includes(row.status) && (!stage || row.stage === stage)) { Object.assign(row, { status: "retry", attempts: 0, next_attempt_at: at, updated_at: at }); n += 1; } });
+    save();
+    return n;
+  }
+  async function hasSheetJob(id) {
+    const pool = mysql();
+    if (pool) return (await pool.query("SELECT 1 FROM int_sheet_jobs WHERE id = ? LIMIT 1", [String(id).slice(0, 190)])).length > 0;
+    return load().sheetJobs.some((row) => row.id === id);
+  }
+
   // ---- Sync runs and log ----
   async function startRun(kind) {
     const pool = mysql();
@@ -257,7 +367,7 @@ function createIntegrationStore(storage) {
     save();
   }
 
-  return { init, recordMessage, setMessageLead, messageStats, enqueue, dueEvents, updateEvent, listEvents, eventCounts, retryFailed, cancelLeadStage, startRun, finishRun, lastRuns, log, recentLog, prune };
+  return { init, recordMessage, setMessageLead, messageStats, enqueue, dueEvents, updateEvent, listEvents, eventCounts, retryFailed, cancelLeadStage, enqueueSheetJob, dueSheetJobs, updateSheetJob, listSheetJobs, sheetJobCounts, requeueSheetJobs, hasSheetJob, startRun, finishRun, lastRuns, log, recentLog, prune };
 }
 
 module.exports = { createIntegrationStore };

@@ -1252,6 +1252,8 @@ async function handleIntegrationsApi(req, res, url, context) {
           capi: { ...current.capi, ...(body.capi || {}), formStages: { ...current.capi.formStages, ...(body.capi?.formStages || {}) }, events: { ...current.capi.events, ...(body.capi?.events || {}) } },
           ads: { ...current.ads, ...(body.ads || {}), lastSyncAt: current.ads.lastSyncAt },
           whatsapp: { ...current.whatsapp, ...(body.whatsapp || {}) },
+          // Saved only through /api/integrations/sheet-feedback/settings.
+          sheetFeedback: current.sheetFeedback,
         });
         // Turning the Conversions API on starts from today unless a backfill date is set.
         if (next.capi.enabled && !current.capi.enabled && !next.capi.since) next.capi.since = new Date().toISOString().slice(0, 10);
@@ -1265,6 +1267,8 @@ async function handleIntegrationsApi(req, res, url, context) {
       }
     }
     if (method === "POST" && url.pathname === "/api/integrations/capi/retry") return json(res, 200, { retried: await service.retryFailed() });
+    // await: errors must reach the catch below (a 400), never crash the process.
+    if (url.pathname.startsWith("/api/integrations/sheet-feedback/")) return await handleSheetFeedbackApi(req, res, url, context, service.sheetFeedback);
     if (method === "POST" && url.pathname === "/api/integrations/capi/run") {
       const queued = await service.reconcileCapi();
       const sent = await service.deliverDue();
@@ -1280,6 +1284,45 @@ async function handleIntegrationsApi(req, res, url, context) {
   } catch (error) {
     return json(res, 400, { error: error.message || "Integration error" });
   }
+}
+
+// Meta Lead Feedback (Google Sheets) admin tools. Admin only (checked by the caller).
+async function handleSheetFeedbackApi(req, res, url, context, feedback) {
+  const method = req.method;
+  const action = url.pathname.slice("/api/integrations/sheet-feedback/".length);
+  const by = cleanText(context.label || context.username || "admin");
+  if (method === "GET" && action === "history") {
+    const limit = Math.min(300, Math.max(1, Number(url.searchParams.get("limit")) || 100));
+    return json(res, 200, { jobs: await feedback.history({ limit, status: cleanText(url.searchParams.get("status")) }) });
+  }
+  if (method === "GET" && action === "preview") return json(res, 200, feedback.previewMapping(await storage.read()));
+  if (method !== "POST") return json(res, 404, { error: "Not found" });
+  const body = await parseBody(req);
+  if (action === "settings") {
+    const patch = {};
+    ["enabled", "importLeads"].forEach((key) => { if (typeof body[key] === "boolean") patch[key] = body[key]; });
+    ["spreadsheetId", "spreadsheetName", "sheetName", "formId", "formName", "datasetId", "datasetName", "since"].forEach((key) => { if (typeof body[key] === "string") patch[key] = body[key]; });
+    if (body.minStageIntervalMinutes !== undefined) patch.minStageIntervalMinutes = Number(body.minStageIntervalMinutes);
+    if (body.stages && typeof body.stages === "object") patch.stages = body.stages;
+    if (body.duplicates && typeof body.duplicates === "object") patch.duplicates = body.duplicates;
+    return json(res, 200, { settings: await feedback.saveSettings(patch, by) });
+  }
+  if (action === "confirm-stage") return json(res, 200, await feedback.confirmStage({ stage: cleanText(body.stage), confirmed: body.confirmed === true, note: cleanText(body.note), by }));
+  if (action === "test-connection") return json(res, 200, await feedback.testConnection());
+  if (action === "test-match") return json(res, 200, await feedback.testMatch({ leadId: cleanText(body.leadId), metaLeadId: cleanText(body.metaLeadId) }));
+  if (action === "retry") return json(res, 200, { retried: await feedback.retryFailed() });
+  if (action === "run") { const queued = await feedback.reconcile(); const processed = await feedback.processDue(); return json(res, 200, { queued, processed }); }
+  if (action === "backfill-preview") return json(res, 200, await feedback.backfillPlan());
+  if (action === "backfill-apply") {
+    if (body.confirm !== true) return json(res, 400, { error: "Explicit approval is required" });
+    return json(res, 200, await feedback.backfillApply({ planId: cleanText(body.planId), by }));
+  }
+  if (action === "correct") return json(res, 200, await feedback.correct({ leadId: cleanText(body.leadId), stage: cleanText(body.stage), reason: cleanText(body.reason), by }));
+  if (action === "test-write") {
+    if (body.confirm !== true) return json(res, 400, { error: "Confirm the verification write" });
+    return json(res, 200, await feedback.testWrite({ metaLeadId: cleanText(body.metaLeadId), stage: cleanText(body.stage), allowRealLead: body.allowRealLead === true, by }));
+  }
+  return json(res, 404, { error: "Not found" });
 }
 
 // WhatsApp Cloud API webhook (public: Meta calls it). GET = verification, POST = events.
@@ -2566,7 +2609,9 @@ async function syncLeadSheet(heldState = null) {
     try {
       const state = heldState || await storage.read();
       const summary = Leads.ingestLeadRows(state, rows, { distribution: state.settings.leadDistribution, source: "form" });
-      if (summary.added) await storage.write(state);
+      const link = String(state.settings?.leadIntake?.sheetUrl || "");
+      const tagged = Leads.tagIntake(state, rows, { spreadsheetId: link.match(/\/d\/([\w-]{20,})/)?.[1] || "", sheetGid: link.match(/[#&?]gid=(\d+)/)?.[1] || "0", via: "csv_link" });
+      if (summary.added || tagged) await storage.write(state);
       lastSheetSync = { at: new Date().toISOString(), added: summary.added, rows: rows.length, error: "" };
       if (summary.added) {
         console.log(`Google Sheet: ${summary.added} new lead(s)`);
@@ -2641,6 +2686,7 @@ storage.init().then(async () => {
     try {
       await integrations().init();
       setInterval(() => integrations().tickCapi(), 30 * 1000).unref();
+      setInterval(() => integrations().sheetFeedback.tick(), 30 * 1000).unref();
       setInterval(() => integrations().tickAds(), 10 * 60 * 1000).unref();
       setTimeout(() => integrations().tickAds(), 20 * 1000).unref();
     } catch (error) { console.error("Integrations start failed:", error.message); }
@@ -2652,6 +2698,12 @@ storage.init().then(async () => {
   if (process.env.CRM_SHEET_SYNC !== "0") {
     syncLeadSheet().catch(() => {});
     setInterval(() => syncLeadSheet().catch(() => {}), 60 * 1000).unref();
+    // The connected Instant Form sheet (private): read with the Google service account.
+    if (process.env.CRM_INTEGRATIONS !== "0") {
+      const importConnected = () => integrations().sheetFeedback.importLeads({ onAdded: () => setTimeout(() => runLeadAlerts().catch(() => {}), 500) }).catch(() => {});
+      setTimeout(importConnected, 5000).unref();
+      setInterval(importConnected, 60 * 1000).unref();
+    }
   }
   console.log(`CMCG CRM running with ${storage.info().label}`);
 }).catch((error) => {

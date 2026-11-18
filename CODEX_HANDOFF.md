@@ -75,6 +75,7 @@ The MySQL implementation stores the current normalized CRM state in `crm_state` 
 - Lost leads require `lostReason`.
 - Spend and messages cannot be negative.
 - Only one manual daily log can exist per creative/date combination.
+- Meta Lead Feedback (Google Sheets): `integrations/sheet-mapping.js` is the only place that maps CRM lead statuses to Meta funnel stages (Intake/Qualified/Converted/Lost/Not qualified). Only Instant Form leads from the connected form + spreadsheet (`lead.intake.spreadsheetId`, `meta.formId`, `externalId`) are written: one `lead_status` cell per change, found by header and Meta lead id, through the `int_sheet_jobs` queue. A stage value is written only after an admin confirms it in Events Manager. The old "CMCG Leads" sheet and dataset 2406568106815480 are blocked. Leads handled here are skipped by the direct CAPI sender. See INTEGRATIONS.md section 11.
 - User-controlled strings rendered into HTML must pass through `escapeHtml`.
 - CSV cells beginning with spreadsheet formula characters must be neutralized.
 - `data/crm.json`, `data/backups/`, exports, `.env`, and credentials must remain uncommitted.

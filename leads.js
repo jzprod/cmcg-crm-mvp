@@ -367,6 +367,24 @@ function ingestLeadRows(state, rows, { distribution, source = "form", at = new D
   return summary;
 }
 
+// Remember where each Instant Form lead was imported from (spreadsheet + tab), next to
+// its Meta lead id (externalId) and form id (meta.formId). Set once, never overwritten,
+// so the Meta lead feedback only ever writes back to the sheet the lead came from.
+function tagIntake(state, rows, { spreadsheetId = "", sheetName = "", sheetGid = "", via = "" } = {}) {
+  if (!spreadsheetId) return 0;
+  let tagged = 0;
+  (rows || []).forEach((row) => {
+    if (isTestRow(row)) return;
+    const externalId = normalizeLeadRow(row).externalId;
+    if (!externalId) return;
+    const lead = (state.crmLeads || []).find((item) => item.externalId === externalId && item.source === "form");
+    if (!lead || lead.intake?.spreadsheetId) return;
+    lead.intake = { channel: "meta_instant_form", spreadsheetId, sheetName, sheetGid, formId: lead.meta?.formId || "", importedAt: lead.importedAt || now(), via };
+    tagged += 1;
+  });
+  return tagged;
+}
+
 // Apply a status / RDV / note change from an agent and resync outcomes.
 function updateLead(state, lead, body = {}, by = "") {
   const changes = {};
@@ -717,6 +735,6 @@ function leadStats(state, at = new Date()) {
 module.exports = {
   formCampaignFor, applyManualSource, nextAutoAssignTime, createDemoLeads, removeDemoLeads, reattributeLeads, resyncLeadOutcomes, leadHadRdv, upsertWhatsappLead, recordWhatsappEcho, transferLeads, leadStats, appointmentError, OPENING,
   LEAD_STATUSES, CLOSED_STATUSES, DISTRIBUTION_MODES, DEFAULT_TEMPLATES,
-  normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, updateLead, createManualLead,
+  normalizePhone, normalizeLeadRow, isTestRow, attributeLead, pickAgent, ingestLeadRows, tagIntake, updateLead, createManualLead,
   syncLeadOutcomes, normalizeDistribution, defaultDistribution, fillTemplate, leadVcard, channelOfCampaign,
 };

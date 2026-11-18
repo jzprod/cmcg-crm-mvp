@@ -5,6 +5,9 @@ const { createIntegrationStore } = require("./store");
 const Capi = require("./capi");
 const Ads = require("./ads-sync");
 const Wa = require("./whatsapp");
+const SheetMap = require("./sheet-mapping");
+const { createSheetFeedback } = require("./sheet-feedback");
+const GoogleSheets = require("./google-sheets");
 
 function normalizeIntegrationSettings(input = {}) {
   const numbers = Array.isArray(input.whatsapp?.numbers) ? input.whatsapp.numbers : [];
@@ -20,6 +23,7 @@ function normalizeIntegrationSettings(input = {}) {
       enabled: input.whatsapp?.enabled === true,
       numbers: numbers.map((item) => ({ phoneNumberId: String(item.phoneNumberId || "").replace(/\D/g, "").slice(0, 30), agentId: String(item.agentId || "").slice(0, 60), label: String(item.label || "").slice(0, 60) })).filter((item) => item.phoneNumberId),
     },
+    sheetFeedback: SheetMap.normalizeSheetFeedbackSettings(input.sheetFeedback || {}),
   };
 }
 
@@ -34,6 +38,7 @@ function envStatus(env = process.env) {
     META_APP_SECRET: has("META_APP_SECRET"),
     WHATSAPP_VERIFY_TOKEN: has("WHATSAPP_VERIFY_TOKEN"),
     WHATSAPP_BUSINESS_ACCOUNT_ID: has("WHATSAPP_BUSINESS_ACCOUNT_ID"),
+    GOOGLE_SERVICE_ACCOUNT: Boolean(GoogleSheets.credentialsFromEnv(env)?.email),
   };
 }
 
@@ -41,6 +46,7 @@ function createIntegrations({ storage, lock, Leads, helpers, env = process.env, 
   const store = createIntegrationStore(storage);
   const runtime = { capiPaused: "", webhookLastAt: "", webhookLastError: "", busy: { capi: false, ads: false } };
   const settingsOf = (state) => normalizeIntegrationSettings(state.settings?.integrations || {});
+  const sheetFeedback = createSheetFeedback({ storage, lock, store, Leads, env, fetchImpl, log: consoleLog });
 
   async function init() {
     await store.init();
@@ -57,8 +63,16 @@ function createIntegrations({ storage, lock, Leads, helpers, env = process.env, 
     if (!settings.enabled || !config.datasetId || !config.token) return 0;
     const value = Number(state.settings?.profit?.revenuePerRegistered ?? 3000);
     const currency = String(state.settings?.profit?.revenueCurrency || "MAD").toUpperCase() === "DH" ? "MAD" : String(state.settings?.profit?.revenueCurrency || "MAD").toUpperCase();
+    // Instant Form leads handled by the Google Sheets feedback are reported by Meta's
+    // native connector: never also send them directly (no double reporting).
+    const sheet = settingsOf(state).sheetFeedback;
     let added = 0;
     for (const lead of state.crmLeads || []) {
+      if (sheet.enabled && SheetMap.eligibility(lead, sheet).eligible) {
+        await store.cancelLeadStage(lead.id, "booked");
+        await store.cancelLeadStage(lead.id, "registered");
+        continue;
+      }
       const events = Capi.eventsForLead(lead, { settings, value, currency, wabaId: config.wabaId, leadHadRdv: Leads.leadHadRdv });
       for (const event of events) {
         if (await store.enqueue({ ...event, mode: settings.mode })) added += 1;
@@ -237,10 +251,11 @@ function createIntegrations({ storage, lock, Leads, helpers, env = process.env, 
         formLinked: form.filter((lead) => lead.creativeId || lead.adSetId || lead.campaignId).length,
       },
       log: await store.recentLog(40).catch(() => []),
+      sheetFeedback: await sheetFeedback.status(state),
     };
   }
 
-  return { init, store, tickCapi, reconcileCapi, deliverDue, retryFailed, syncAds, tickAds, verifyWebhook, checkSignature, processWebhook, status, runtime };
+  return { init, store, sheetFeedback, tickCapi, reconcileCapi, deliverDue, retryFailed, syncAds, tickAds, verifyWebhook, checkSignature, processWebhook, status, runtime };
 }
 
 module.exports = { createIntegrations, normalizeIntegrationSettings, envStatus };

@@ -159,3 +159,153 @@ Approval checklist before connecting a real number: written OK from you, a backu
 4. Decide on WhatsApp: coexistence eligibility check (Tech Provider / Embedded Signup) or a new dedicated number.
 5. Configure the webhook in Meta Developers and map phone number IDs to agents.
 6. Run the checklist above, then switch the Conversions API to Live.
+
+---
+
+## 11. Meta Lead Feedback — Google Sheets (Instant Form → `lead_status` → Conversions API)
+
+Teaches Meta the difference between a form submission, a centre visit and a paying
+student, through Meta's **native** Instant Forms → Google Sheets → Conversions API
+connector. The CRM writes the `lead_status` cell of the connected sheet; Meta's
+connector turns that change into a Conversions API event. Agents change nothing in
+their workflow. **Built and switched OFF.**
+
+| Part | Files |
+|---|---|
+| Mapping layer (pure, single source of truth) | `integrations/sheet-mapping.js` |
+| Google Sheets client (service account, RS256 JWT, no new dependency) | `integrations/google-sheets.js` |
+| Service: import, reconcile, queue, admin tools | `integrations/sheet-feedback.js` |
+| Queue table `int_sheet_jobs` | `integrations/store.js` |
+| Lead provenance `lead.intake` | `leads.js` (`tagIntake`) |
+| Admin section | `public/integrations-ui.js` → Integrations → **Meta Lead Feedback — Google Sheets** |
+| Tests | `test/sheet-feedback.test.js` |
+
+### Connection (stable ids, not names)
+
+| | New integration (used) | Old integration (never touched) |
+|---|---|---|
+| Instant Form | `CMCG First Form-copy` · form id `1149002150936595` (read from the sheet's `form_id`) | `CMCG First Form` |
+| Spreadsheet | `cmcg new leads` · `16xul0xofuNSMLXrEghGZdAgjqPfs8grh3vXrSCpEDD0` · tab `Sheet1` | `CMCG Leads` · `1AVwE6OB-IsIWKeRFZ-yAFmp2Q01p3P_z0HnPhFwQzgE` |
+| Dataset | `CMCGC Offecial Pixel` · `1118216094383015` | `2406568106815480` |
+
+The old spreadsheet id and dataset id are hard-blocked in the settings validation.
+The existing public-CSV import of the old sheet keeps working exactly as before.
+
+### Mapping (CRM → Meta stage)
+
+| CRM status (agent screen) | Meta stage | Rule |
+|---|---|---|
+| new · no_answer · callback · contacted ("يفكّر") | — | No new conversion. Never downgrades an earlier stage. |
+| WhatsApp sent | — | A contact action, not a status. |
+| booked | Intake | RDV confirmed. Cancelled **before** the RDV time → withdrawn; no-show (changed after the time) stays Intake, never Qualified. |
+| visited | Qualified | Stays Qualified when the agent later sets "thinking" etc. |
+| registered | Converted | Even without a recorded visit. Never left automatically. |
+| not_interested | Lost | |
+| other_city · not_qualified · wrong_number | Not qualified | **Lost** if the lead had already visited. |
+
+Transitions: Converted is never downgraded; the funnel never steps backwards; a value
+somebody typed by hand that the CRM does not recognise is never overwritten. A
+Lost / Not qualified lead that later visits or pays moves up again. Only an admin
+**correction** (with a reason, logged) can move a lead backwards.
+
+### `lead_status` values are NOT verified
+
+Meta's help article for this connector (business/help/1095577538573756) renders in the
+browser only and could not be read. Third-party guides quoting it list
+`Intake, Qualified, Converted, Lost, Not qualified`; the connected sheet shows uppercase
+(`CREATED` written by Meta, `QUALIFIED` typed during setup). Casing and the handling of
+unknown values are undocumented. Therefore:
+
+* each stage value is configuration (defaults: the title-case list; uppercase offered as alternative),
+* **a stage is written only after an admin confirms it in Events Manager** (button
+  "I saw it in Events Manager", with a note saying where). Until then its updates wait
+  as **Blocked** and are released on confirmation,
+* changing a value cancels its confirmation.
+
+### Lead import and matching
+
+* Leads are imported from the private sheet with the service account (every 60 s, like
+  the old CSV import, same de-duplication by Meta lead id) and tagged with
+  `lead.intake = { channel, spreadsheetId, sheetName, formId, importedAt }`, next to
+  `externalId` (Meta lead id), `meta.formId`, `source`, `importedAt` and the CRM id.
+* **Eligible** = `source: form`, not typed by hand, not demo/test, has a Meta lead id,
+  `meta.formId` = connected form, `intake.spreadsheetId` = connected sheet. Manual,
+  WhatsApp, other-form and old-sheet leads are never written.
+* Writing: read the tab → find the `id` and `lead_status` **columns by header** → find the
+  row by Meta lead id (never by name, never a remembered row number) → re-read that exact
+  row → check the transition → write **only that one cell** (RAW, never a formula).
+  0 rows → retried, then failed; 2+ rows → failed, nothing guessed.
+* **Duplicates**: two eligible leads with the same phone that both reached a stage are
+  **Held** until the admin picks "Report this lead" / "Do not report".
+
+### Queue
+
+* Every 30 s: milestones → jobs with id `lead:stage:milestone-time` (idempotent: a repeated
+  status tap or two agents saving at once cannot duplicate a write).
+* One job per lead per run, lowest stage first. **Minutes between stages** (default 15)
+  keeps e.g. Qualified in the sheet for a while before Converted overwrites it.
+* Re-checked just before writing: a lead whose status changed meanwhile is
+  **Superseded**, not written.
+* 429 / quota → retry honouring `Retry-After`; 5xx / network → retry after 1, 5, 30, 120,
+  720 min (6 attempts) → **Failed**; 401/403/404 → queue **Paused** with the reason.
+  **Retry failed** re-queues. Milestones before **Report milestones from** (set to the
+  day the sync is switched on) are not written.
+* The direct Conversions API sender (§2) **skips** leads handled here and cancels their
+  waiting direct events, so the same outcome is never reported twice.
+
+### Setup (administrator)
+
+1. Google Cloud console → create or reuse a project → enable **Google Sheets API**.
+2. IAM → Service accounts → create one (no project role needed) → Keys → **Add key → JSON**.
+3. Hostinger → environment variable `GOOGLE_SERVICE_ACCOUNT_JSON` = the whole JSON file
+   content (or base64 of it). Alternatives: `GOOGLE_SERVICE_ACCOUNT_EMAIL` +
+   `GOOGLE_PRIVATE_KEY`, or `GOOGLE_SERVICE_ACCOUNT_FILE`. Restart the app.
+4. Open `cmcg new leads` → **Share** → the service account email (shown in the admin
+   section) → **Editor**. Do not share the old `CMCG Leads` sheet.
+5. Admin → Integrations → **Test Google Sheets connection** (read-only).
+6. Verify the stage values (next section), then switch **Synchronize lead status** on.
+
+### End-to-end validation (to do with the real accounts)
+
+1. Submit a test lead through `CMCG First Form-copy` (Meta Lead Ads Testing Tool or a
+   real phone). Check it appears in `cmcg new leads`.
+2. Within a minute the CRM imports it: **Test lead matching** with its Meta lead id must
+   show *Eligible · Sheet row N*.
+3. Verification write: in **Stage values & verification**, write the Qualified value to
+   that row (Meta "test lead" rows are allowed by default; a real lead needs the explicit
+   tick). The cell changes: that is **Sheet updated**, not proof of receipt.
+4. Events Manager → dataset `1118216094383015` → Overview / Test events / Diagnostics: look
+   for the CRM lead-stage event; note time, event name, match quality. Synthetic test
+   leads may not appear in normal reporting. If nothing appears after a few hours, try the
+   other casing (`QUALIFIED`) and check the connector's settings, permissions and
+   Diagnostics. Only when the event is visible, press **I saw it in Events Manager** for
+   that stage, with the note.
+5. Repeat for Converted (and Intake / Lost / Not qualified if wanted).
+6. Switch the sync on; mark a real lead Visited in the agent screen → history shows
+   **Sheet updated** for the correct row → check Events Manager again.
+7. Mark it Registered; confirm a second event arrives and nothing is duplicated (the
+   Conversion event log must show no `crm_lead` event for that lead).
+
+Until steps 4 and 7 are done, delivery to Meta is **unverified**.
+
+### Known unknowns of the native connector
+
+* Polling interval, and whether values that change between polls are seen: unknown
+  (hence **Minutes between stages**).
+* Accepted values, casing and behaviour for unknown values: unknown (see above).
+* Lead age limit for these events: unknown.
+* Renaming or moving the `id` / `lead_status` headers may break Meta's connector even
+  though the CRM finds columns by header.
+
+### Historical leads
+
+Never synchronized automatically. **Historical reconciliation** gives a dry run (matching
+leads, missing Meta lead ids, ambiguous, eligible updates, skipped, not found in the sheet)
+and writes only after **Approve**, with the plan id of that dry run (furthest stage per
+lead only).
+
+### Rollback
+
+Switch **Synchronize lead status** off (queue stops; jobs are kept). `CRM_INTEGRATIONS=0`
+stops all integration jobs. The `int_sheet_jobs` table and `lead.intake` fields are
+additive and can stay.
