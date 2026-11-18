@@ -245,7 +245,8 @@ function json(res, status, data) {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
   }));
-  res.end(JSON.stringify(data));
+  // MySQL BIGINT/COUNT values can arrive as BigInt, which JSON.stringify rejects.
+  res.end(JSON.stringify(data, (key, value) => (typeof value === "bigint" ? Number(value) : value)));
 }
 
 function parseBody(req) {

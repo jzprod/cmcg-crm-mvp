@@ -326,7 +326,7 @@ function createIntegrationStore(storage) {
     const pool = mysql();
     if (pool) {
       const rows = await pool.query("SELECT * FROM int_sync_runs WHERE kind = ? ORDER BY id DESC LIMIT ?", [kind, limit]);
-      return rows.map((row) => ({ ...row, rows_count: Number(row.rows_count), started_at: row.started_at instanceof Date ? row.started_at.toISOString() : isoTime(row.started_at), finished_at: row.finished_at instanceof Date ? row.finished_at.toISOString() : isoTime(row.finished_at) }));
+      return rows.map((row) => ({ ...row, id: Number(row.id), rows_count: Number(row.rows_count), started_at: row.started_at instanceof Date ? row.started_at.toISOString() : isoTime(row.started_at), finished_at: row.finished_at instanceof Date ? row.finished_at.toISOString() : isoTime(row.finished_at) }));
     }
     return load().runs.filter((row) => row.kind === kind).slice(-limit).reverse();
   }
@@ -349,7 +349,8 @@ function createIntegrationStore(storage) {
     const pool = mysql();
     if (pool) {
       const rows = await pool.query("SELECT * FROM int_log ORDER BY id DESC LIMIT ?", [limit]);
-      return rows.map((row) => ({ ...row, at: row.at instanceof Date ? row.at.toISOString() : isoTime(row.at) }));
+      // BIGINT ids come back as BigInt from the MariaDB driver: JSON cannot carry them.
+      return rows.map((row) => ({ ...row, id: Number(row.id), at: row.at instanceof Date ? row.at.toISOString() : isoTime(row.at) }));
     }
     return load().log.slice(-limit).reverse();
   }

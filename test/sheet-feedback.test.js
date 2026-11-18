@@ -554,3 +554,19 @@ test("admin routes: status, settings and dry runs; sales login is refused", asyn
   const stateRes = await call("/api/state");
   assert.ok(!JSON.stringify(stateRes.body).includes("PRIVATE KEY"), "no secret in state");
 });
+
+test("MySQL BIGINT ids (BigInt from the driver) stay JSON-safe in the integration log and sync runs", async () => {
+  // The MariaDB driver returns BIGINT columns as BigInt; JSON.stringify throws on them,
+  // which blanked the Integrations page once the first log line existed.
+  const pool = { query: async (sql) => {
+    if (/FROM int_log/.test(sql)) return [{ id: 7n, at: new Date("2026-11-18T13:00:00Z"), kind: "settings", level: "info", message: "x" }];
+    if (/FROM int_sync_runs/.test(sql)) return [{ id: 3n, kind: "ads", started_at: new Date(), finished_at: null, status: "ok", rows_count: 5n, message: "" }];
+    return [];
+  } };
+  const store = createIntegrationStore({ useMysql: true, pool: () => pool });
+  const log = await store.recentLog(5);
+  const runs = await store.lastRuns("ads", 5);
+  assert.doesNotThrow(() => JSON.stringify({ log, runs }));
+  assert.equal(log[0].id, 7);
+  assert.equal(runs[0].id, 3);
+});
